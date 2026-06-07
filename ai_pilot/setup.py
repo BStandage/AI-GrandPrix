@@ -3,6 +3,7 @@ from timesync import TimeSync
 from vision_rx import VisionRX
 from mavlink_rx import MAVLinkRX
 from controller import Controller
+from data_logger import DataLogger
 
 def setup_components(shared_data, system_boot_ms, server_ip, server_udp_port):
     # -------------------------------
@@ -15,10 +16,15 @@ def setup_components(shared_data, system_boot_ms, server_ip, server_udp_port):
     print(f"Connected to system: {sim_conn.target_system}", flush=True)
 
     # -------------------------------
+    # Dataset logger (frames + telemetry + track layout)
+    # -------------------------------
+    logger = DataLogger()
+
+    # -------------------------------
     # Setup Mavlink msg receiver
     # -------------------------------
     print("Setting up MAVLink rx...", flush=True)
-    mavlink_rx = MAVLinkRX.create_mavlink_rx(sim_conn, shared_data)
+    mavlink_rx = MAVLinkRX.create_mavlink_rx(sim_conn, shared_data, logger)
 
     # -------------------------------
     # Timesync request Loop
@@ -29,7 +35,7 @@ def setup_components(shared_data, system_boot_ms, server_ip, server_udp_port):
     # -------------------------------
     # Connect Vision receiver
     # -------------------------------
-    vision_rx = VisionRX(shared_data)
+    vision_rx = VisionRX(shared_data, logger)
 
     # -------------------------------
     # Main control loop
@@ -41,5 +47,6 @@ def setup_components(shared_data, system_boot_ms, server_ip, server_udp_port):
         'mavlink_rx': mavlink_rx,
         'ts_loop': ts_loop,
         'sim_conn': sim_conn,
-        'controller': controller
+        'controller': controller,
+        'logger': logger
     }

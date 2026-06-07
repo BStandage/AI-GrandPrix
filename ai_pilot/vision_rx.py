@@ -5,17 +5,20 @@ import threading
 import cv2
 import numpy as np
 
+from gate_detector import detect_gates
+
 # Modify these properties if you want to run the server remotely for example
 SIM_SERVER_UDP_IP = "0.0.0.0"
 SIM_SERVER_UDP_PORT = 5600
 
 class VisionRX:
 
-    def __init__(self, data):
+    def __init__(self, data, logger=None):
         self.data = data
+        self.logger = logger
         self.thread = threading.Thread(
             target=self._vision_loop,
-            daemon=False
+            daemon=True
         )
         self.is_running = True
         self.thread.start()
@@ -31,10 +34,16 @@ class VisionRX:
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.bind((SIM_SERVER_UDP_IP, SIM_SERVER_UDP_PORT))
+        # timeout so the loop can notice is_running going False and exit cleanly
+        # (otherwise recvfrom blocks forever and Ctrl-C can't stop the process)
+        sock.settimeout(0.5)
         print("Listening for camera frames...")
 
         while self.is_running:
-            packet, addr = sock.recvfrom(65536)  # max UDP size
+            try:
+                packet, addr = sock.recvfrom(65536)  # max UDP size
+            except socket.timeout:
+                continue
 
             header = packet[:header_sz]
             payload = packet[header_sz:]
@@ -75,18 +84,35 @@ class VisionRX:
 
                 img_array = np.frombuffer(jpeg_bytes, dtype=np.uint8)
                 image = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+                # if an image is successfully decoded, process it, otherwise print an error and skip
                 if image is not None:
-                    self.process_frame(frame_id, image)
+                    sim_time_ns = frames[frame_id]["time"]
+                    self.process_frame(frame_id, image, sim_time_ns) # This is where our processing begins
                 else:
                     print(f"Failed to decode frame: {frame_id}")
 
                 del frames[frame_id]
 
-    def process_frame(self, frame_id, img):
-        #
-        #
-        # Success!
-        # image is your FPV camera frame in JPEG format
-        #
-        #
-        pass
+    def process_frame(self, frame_id, img, sim_time_ns):
+        """
+        The input var img is a numpy array representing the decoded image frame from the simulator's FPV camera.
+        This is where we will call all helper functions to process the image and extract information for our pilot agent.
+
+        sim_time_ns is the frame's server timestamp - keep it with the frame so it
+        can be aligned against telemetry (pose, etc.) for offline labeling.
+        """
+        # make the latest frame available to other components (e.g. the controller)
+        self.data["latest_frame"] = img
+        self.data["latest_frame_id"] = frame_id
+
+        # VISION: detect gates from the camera (no ground truth needed). Store the
+        # nearest gate as the target and the full list for look-ahead. offset_x in
+        # [-1,1] is the gate's horizontal bearing in the image (+ = right) - the
+        # signal a vision-based controller yaws on to centre the gate.
+        gates, _ = detect_gates(img)
+        self.data["vision_gates"] = gates
+        self.data["vision_target"] = gates[0] if gates else None
+
+        # record the frame to the dataset for offline training/labeling
+        if self.logger is not None:
+            self.logger.log_frame(frame_id, sim_time_ns, img)

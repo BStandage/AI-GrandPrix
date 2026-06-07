@@ -9,9 +9,10 @@ ENCAPSULATED_TRACK_INFO_MSG_ID  = 2
 
 class MAVLinkRX:
 
-    def __init__(self, mavlink_connection, data):
+    def __init__(self, mavlink_connection, data, logger=None):
         self.mavlink_conn = mavlink_connection
         self.data = data
+        self.logger = logger
         self.thread = None
         self.is_running = False
 
@@ -19,11 +20,11 @@ class MAVLinkRX:
         self.expected_num_track_chunks = {}
 
     @classmethod
-    def create_mavlink_rx(cls, mavlink_connection, data):
-        rx = cls(mavlink_connection, data)
+    def create_mavlink_rx(cls, mavlink_connection, data, logger=None):
+        rx = cls(mavlink_connection, data, logger)
         rx.thread = threading.Thread(
             target=rx.mavlink_receive_loop,
-            daemon = False
+            daemon = True
         )
         rx.is_running = True
         rx.thread.start()
@@ -117,44 +118,60 @@ class MAVLinkRX:
                 self.expected_num_track_chunks[track_data_transfer_id] = msg.packets
 
     def on_heartbeat(self, msg):
-        armed = msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED
+        armed = bool(msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
+        # print only on change so we can see whether the arm command took effect
+        if armed != self.data.get("armed"):
+            print(f"[heartbeat] armed = {armed}", flush=True)
+        self.data["armed"] = armed
 
     def on_timesync(self, msg):
         request_time = msg.ts1
         response_time = msg.tc1
 
+    def _log(self, kind, fields):
+        # mirror the latest value into shared_data (for live use by the controller)
+        # and append it to the telemetry log (for offline training/labeling)
+        self.data[kind] = fields
+        if self.logger is not None:
+            self.logger.log_telemetry(kind, fields)
+
     def on_attitude(self, msg):
-        roll = msg.roll
-        pitch = msg.pitch
-        yaw = msg.yaw
-        roll_speed = msg.rollspeed
-        pitch_speed = msg.pitchspeed
-        yaw_speed = msg.yawspeed
-        time_boot_ms = msg.time_boot_ms
+        self._log("attitude", {
+            "roll": msg.roll,
+            "pitch": msg.pitch,
+            "yaw": msg.yaw,
+            "rollspeed": msg.rollspeed,
+            "pitchspeed": msg.pitchspeed,
+            "yawspeed": msg.yawspeed,
+            "time_boot_ms": msg.time_boot_ms,
+        })
 
     def on_local_position_ned(self, msg):
-        pos_x = msg.x
-        pos_y = msg.y
-        pos_z = msg.z
-        vel_x = msg.vx
-        vel_y = msg.vy
-        vel_z = msg.vz
-        time_boot_ms = msg.time_boot_ms
+        self._log("local_position_ned", {
+            "x": msg.x, "y": msg.y, "z": msg.z,
+            "vx": msg.vx, "vy": msg.vy, "vz": msg.vz,
+            "time_boot_ms": msg.time_boot_ms,
+        })
 
     def on_odometry(self, msg):
-        pos_x, pos_y, pos_z = msg.x, msg.y, msg.z
-        qx, qy, qz, qw = msg.q[1], msg.q[2], msg.q[3], msg.q[0]
-        vel_x, vel_y, vel_z = msg.vx, msg.vy, msg.vz
-        roll_speed = msg.rollspeed
-        pitch_speed = msg.pitchspeed
-        yaw_speed = msg.yawspeed
-        time_boot_us = msg.time_usec
-        reset_count = msg.reset_counter
+        # quaternion stored (w, x, y, z); MAVLink delivers q[0]=w
+        self._log("odometry", {
+            "x": msg.x, "y": msg.y, "z": msg.z,
+            "qw": msg.q[0], "qx": msg.q[1], "qy": msg.q[2], "qz": msg.q[3],
+            "vx": msg.vx, "vy": msg.vy, "vz": msg.vz,
+            "rollspeed": msg.rollspeed,
+            "pitchspeed": msg.pitchspeed,
+            "yawspeed": msg.yawspeed,
+            "time_usec": msg.time_usec,
+            "reset_counter": msg.reset_counter,
+        })
 
     def on_highres_imu(self, msg):
-        acceleration_x, acceleration_y, acceleration_z = msg.xacc, msg.yacc, msg.zacc
-        gyro_x, gyro_y, gyro_z = msg.xgyro, msg.ygyro, msg.zgyro
-        time_boot_us = msg.time_usec
+        self._log("highres_imu", {
+            "xacc": msg.xacc, "yacc": msg.yacc, "zacc": msg.zacc,
+            "xgyro": msg.xgyro, "ygyro": msg.ygyro, "zgyro": msg.zgyro,
+            "time_usec": msg.time_usec,
+        })
 
     def on_encapsulated_data(self, msg):
         if msg:
@@ -176,6 +193,13 @@ class MAVLinkRX:
         # last_gate_race_time - race time in seconds when last gate was passed
         data_type, sim_boot_time_ms, race_start_boot_time_ms, race_finish_time_ns, active_gate_index, last_gate_race_time = struct.unpack_from(
             "<BQqqIq", raw_payload)
+        self._log("race_status", {
+            "sim_boot_time_ms": sim_boot_time_ms,
+            "race_start_boot_time_ms": race_start_boot_time_ms,
+            "race_finish_time_ns": race_finish_time_ns,
+            "active_gate_index": active_gate_index,
+            "last_gate_race_time": last_gate_race_time,
+        })
 
     def on_track_data_packet(self, msg):
         raw_payload = bytes(msg.data)
@@ -200,6 +224,7 @@ class MAVLinkRX:
         #   num_gates - track gate count
         num_gates, = struct.unpack_from("<H", payload)
         payload = payload[2:]
+        gates = []
         for i in range(num_gates):
             # Gate Info
             #   gate_id - range is 0 - num_gates
@@ -210,19 +235,40 @@ class MAVLinkRX:
             gate_id, position_ned_x, position_ned_y, position_ned_z, orientation_ned_w, orientation_ned_x, orientation_ned_y, orientation_ned_z, width, height = struct.unpack_from(
                 "<Hfffffffff", payload)
             payload = payload[38:]
+            gates.append({
+                "gate_id": gate_id,
+                "position_ned": [position_ned_x, position_ned_y, position_ned_z],
+                "orientation_ned": [orientation_ned_w, orientation_ned_x, orientation_ned_y, orientation_ned_z],
+                "width": width,
+                "height": height,
+            })
+
+        # the ground-truth track layout: keep it live, and persist it once.
+        # NOTE: these are sim-only world coordinates - use them to auto-label
+        # frames and for development, not as input to the final vision pilot
+        # (the real race provides no GPS/absolute coordinates).
+        self.data["gates"] = gates
+        if self.logger is not None and not self.logger.gates_written:
+            self.logger.log_gates(gates)
 
     def on_actuator_output_status(self, msg):
-        time_boot_us = msg.time_usec
-        motor_front_left = msg.actuator[0]
-        motor_front_right = msg.actuator[1]
-        motor_back_left = msg.actuator[2]
-        motor_back_right = msg.actuator[3]
+        # the drone's actual motor outputs - i.e. what the pilot (you, or a
+        # policy) actually commanded. These are the action labels for imitation
+        # learning when paired with the camera frames.
+        self._log("actuator_output_status", {
+            "time_usec": msg.time_usec,
+            "motor_front_left": msg.actuator[0],
+            "motor_front_right": msg.actuator[1],
+            "motor_back_left": msg.actuator[2],
+            "motor_back_right": msg.actuator[3],
+        })
 
     def on_collision(self, msg):
         # Collision IDs
         # 1001 - Gate
         # 1002 - Environment
-        collision_id = msg.id
-
-        threat_level = msg.threat_level # 1-2 with 2 being higher impact collision
-        impact = msg.horizontal_minimum_delta # this is not a delta - it is the impulse magnitude in kg m/s
+        self._log("collision", {
+            "collision_id": msg.id,
+            "threat_level": msg.threat_level,   # 1-2, 2 = higher impact
+            "impact": msg.horizontal_minimum_delta,  # impulse magnitude in kg m/s (not a delta)
+        })
