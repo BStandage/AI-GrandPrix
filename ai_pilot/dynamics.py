@@ -1,0 +1,99 @@
+"""
+Low-level drone model and actuator interface.
+
+The sim flies a throttle/thrust model and accepts RATE (acro) setpoints: each axis is a
+body angular rate (rad/s) plus a collective thrust 0..1. The pilots build outer loops on
+top of this (P on measured attitude -> rate) to fly attitudes and velocities.
+
+All the numbers here are MEASURED (characterize mode + analyze_performance.py), not guessed.
+Change them only against fresh measurement data.
+"""
+
+import math
+import time
+
+from pymavlink import mavutil
+
+CONTROL_HZ = 250
+MAVLINK_CMD_SIM_RESET = 31000
+
+HOVER_THRUST = 0.299   # collective thrust at which climb rate crosses zero
+KP_ATT = 3.0           # body-rate per rad of attitude error (4.0 caused PIO)
+MAX_RATE = 6.0         # rad/s clamp on commanded body rates (airframe max ~20-28)
+MIN_THRUST = 0.0
+MAX_THRUST = 1.0
+G_ACC = 9.81           # m/s^2, for the accel->tilt conversion: tan(tilt) = a_horizontal / g
+
+# Measured attitude-feedback signs. Roll and pitch need opposite signs in this sim
+# (pitch is stable at -1, roll diverged at -1 so it uses +1). +pitch leans forward.
+ROLL_SIGN = 1.0
+PITCH_SIGN = -1.0
+
+# Measured sign of commanded yaw rate. +1 yawed AWAY from the target; -1 turns toward it.
+YAW_SIGN = -1.0
+
+# Shared vertical limits and thrust feedback gain (used by both pilots).
+MAX_CLIMB = 5.0        # m/s
+MAX_DESCENT = 6.0      # m/s (course drops steeply; the airframe free-falls ~10 m/s)
+KP_THRUST_V = 0.030    # thrust per m/s of climb-rate error (feedback on top of the FF)
+
+# Measured steady-state thrust -> climb rate (m/s, up+). Strongly nonlinear and climb-biased:
+# hover ~0.299, 0.50 -> +16.9 m/s, full -> +30.8 m/s, zero thrust sinks -10.2 m/s. A single
+# linear slope is wrong, so the feedforward must use this curve.
+THRUST_CLIMB_TABLE = [
+    (0.00, -10.19),
+    (0.20, -5.46),
+    (0.299, 0.00),
+    (0.35, 2.82),
+    (0.50, 16.93),
+    (0.75, 27.14),
+    (1.00, 30.80),
+]
+
+# Measured forward speed (m/s) vs held forward lean (rad): 10deg->4.0, 20deg->7.3, 30deg->9.0.
+SPEED_LEAN_TABLE = [(0.0, 0.0), (4.0, 0.175), (7.3, 0.349), (9.0, 0.524)]
+
+
+def clamp(v, lo, hi):
+    return max(lo, min(hi, v))
+
+
+def thrust_for_climb(climb):
+    """Collective thrust (while level) that produces a given steady climb rate (m/s, up+).
+    Inverts THRUST_CLIMB_TABLE; clamped to the table ends."""
+    pts = THRUST_CLIMB_TABLE
+    if climb <= pts[0][1]:
+        return pts[0][0]
+    if climb >= pts[-1][1]:
+        return pts[-1][0]
+    for (t0, c0), (t1, c1) in zip(pts, pts[1:]):
+        if c0 <= climb <= c1:
+            return t0 + (t1 - t0) * (climb - c0) / (c1 - c0)
+    return HOVER_THRUST
+
+
+def lean_for_speed(v):
+    """Forward lean (rad) that holds a given steady forward speed (m/s). Inverts SPEED_LEAN_TABLE."""
+    pts = SPEED_LEAN_TABLE
+    if v <= 0.0:
+        return 0.0
+    if v >= pts[-1][0]:
+        return pts[-1][1]
+    for (v0, l0), (v1, l1) in zip(pts, pts[1:]):
+        if v0 <= v <= v1:
+            return l0 + (l1 - l0) * (v - v0) / (v1 - v0)
+    return pts[-1][1]
+
+
+def send_rate_attitude(mavlink_conn, system_boot_ms, roll_rate, pitch_rate, yaw_rate, thrust):
+    """Send a body-rate + collective-thrust setpoint to the sim."""
+    now_ms = int(time.time() * 1000)
+    mavlink_conn.mav.set_attitude_target_send(
+        now_ms - system_boot_ms,
+        mavlink_conn.target_system,
+        mavlink_conn.target_component,
+        mavutil.mavlink.ATTITUDE_TARGET_TYPEMASK_ATTITUDE_IGNORE,
+        [1, 0, 0, 0],   # attitude quaternion (ignored in rate mode)
+        roll_rate, pitch_rate, yaw_rate,
+        thrust,
+    )
