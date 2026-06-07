@@ -18,6 +18,7 @@ class MAVLinkRX:
 
         self.track_chunks = {}
         self.expected_num_track_chunks = {}
+        self._assembled_transfers = set()   # transfer_ids already parsed (don't re-log/re-parse)
 
     @classmethod
     def create_mavlink_rx(cls, mavlink_connection, data, logger=None):
@@ -113,9 +114,14 @@ class MAVLinkRX:
             # DATA_TRANSMISSION_HANDSHAKE - Repurposed and used for upcoming 'Track Data' packets
             # --------------------------------------------------------------------------------------
             elif msg.get_type() == "DATA_TRANSMISSION_HANDSHAKE":
-                track_data_transfer_id = msg.width
-                self.track_chunks[track_data_transfer_id] = {}
-                self.expected_num_track_chunks[track_data_transfer_id] = msg.packets
+                # The handshake announces how many chunks the track spans. It's just a HINT:
+                # don't wipe chunks that arrived before it (UDP can reorder), and don't depend
+                # on it - reassembly below is self-describing. setdefault, never reset.
+                tid = msg.width
+                self.track_chunks.setdefault(tid, {})
+                self.expected_num_track_chunks[tid] = msg.packets
+                print(f"[track] handshake: transfer {tid}, expecting {msg.packets} chunk(s)", flush=True)
+                self._try_assemble_track(tid)
 
     def on_heartbeat(self, msg):
         armed = bool(msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
@@ -203,21 +209,51 @@ class MAVLinkRX:
 
     def on_track_data_packet(self, msg):
         raw_payload = bytes(msg.data)
-        # header:
-        #   data_type - ID of this message
-        #   transfer_id - ID of the group of packets this chunk belongs to
-        data_type, transfer_id = struct.unpack_from("<BH", raw_payload)
-        if transfer_id not in self.expected_num_track_chunks:
+        if len(raw_payload) < 3:
             return
-        raw_payload = raw_payload[3:]
-        self.track_chunks[transfer_id][msg.seqnr] = raw_payload
-        if len(self.track_chunks[transfer_id]) == self.expected_num_track_chunks[transfer_id]:
-            full_payload = bytes()
-            for i in range(len(self.track_chunks[transfer_id])):
-                full_payload = full_payload + self.track_chunks[transfer_id][i]
-            del self.track_chunks[transfer_id]
-            del self.expected_num_track_chunks[transfer_id]
-            self.on_track_data(full_payload)
+        # header: data_type (B), transfer_id (H). The rest is this chunk's slice of the track.
+        # IMPORTANT: store the chunk even if we never saw the handshake for this transfer_id.
+        # The old code dropped it ("if transfer_id not in expected: return"), so a single lost
+        # handshake packet silently discarded the ENTIRE track - and a 6-gate track is one
+        # chunk, so that one loss = no gates = a wasted run (sessions 132007/130923).
+        data_type, transfer_id = struct.unpack_from("<BH", raw_payload)
+        chunk = raw_payload[3:]
+        self.track_chunks.setdefault(transfer_id, {})[msg.seqnr] = chunk
+        self._try_assemble_track(transfer_id)
+
+    def _try_assemble_track(self, transfer_id):
+        """Reassemble + parse the track as soon as we have it, WITHOUT needing the handshake.
+        The payload is self-describing: it starts with num_gates (uint16), so the full length
+        is 2 + 38*num_gates bytes. We concatenate the longest contiguous run of chunks from
+        seqnr 0 and parse the moment we have enough bytes. (A lost MIDDLE chunk still stalls -
+        only a fresh re-broadcast recovers that - but the common single-chunk track is now
+        robust to a lost handshake, which was the actual failure.)"""
+        if transfer_id in self._assembled_transfers:
+            return
+        chunks = self.track_chunks.get(transfer_id)
+        if not chunks or 0 not in chunks:
+            return   # need at least chunk 0 (it holds num_gates)
+        ordered = bytes()
+        i = 0
+        while i in chunks:           # longest contiguous run from the start
+            ordered += chunks[i]
+            i += 1
+        if len(ordered) < 2:
+            return
+        num_gates, = struct.unpack_from("<H", ordered)
+        if num_gates == 0 or num_gates > 100:
+            return   # implausible -> chunk 0 is corrupt/partial, wait for more
+        needed = 2 + 38 * num_gates
+        expected = self.expected_num_track_chunks.get(transfer_id)
+        count_complete = expected is not None and len(chunks) >= expected
+        if len(ordered) < needed and not count_complete:
+            return   # not all the bytes yet
+        if len(ordered) < needed:
+            return   # handshake count reached but bytes short (a chunk was lost) -> wait
+        self._assembled_transfers.add(transfer_id)
+        self.track_chunks.pop(transfer_id, None)
+        self.expected_num_track_chunks.pop(transfer_id, None)
+        self.on_track_data(ordered)
 
     def on_track_data(self, payload):
         # header:
@@ -248,6 +284,11 @@ class MAVLinkRX:
         # frames and for development, not as input to the final vision pilot
         # (the real race provides no GPS/absolute coordinates).
         self.data["gates"] = gates
+        g0 = next((g for g in gates if g.get("gate_id") == 0), gates[0] if gates else None)
+        if g0 is not None:
+            p = g0["position_ned"]
+            print(f"[track] LIVE TRACK received: {len(gates)} gates "
+                  f"(gate0 at [{p[0]:.1f}, {p[1]:.1f}, {p[2]:.1f}])", flush=True)
         if self.logger is not None and not self.logger.gates_written:
             self.logger.log_gates(gates)
 
