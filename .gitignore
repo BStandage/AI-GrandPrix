@@ -9,6 +9,15 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 
+# Recorded flight datasets
+datasets/
+
+# Scratch / debug image outputs
+ai_pilot/debug/
+_scratch/
+*.jpg
+*.png
+
 # OS / editor
 .DS_Store
 Thumbs.db
