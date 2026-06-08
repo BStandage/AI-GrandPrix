@@ -11,9 +11,7 @@ Modes (set CONTROL_MODE):
 import math
 import time
 
-from pymavlink import mavutil
-
-from dynamics import CONTROL_HZ, MAVLINK_CMD_SIM_RESET
+from dynamics import CONTROL_HZ, send_arm, send_sim_reset
 from gate_geometry import active_gate_relative
 from dev_modes import char_phase_at, update_characterize_control, update_keyboard_rate_control
 from pursuit_pilot import update_pursuit_control
@@ -108,20 +106,7 @@ class Controller:
             )
 
     def arm(self):
-        self.sim_conn.mav.command_long_send(
-            self.sim_conn.target_system,
-            self.sim_conn.target_component,
-            mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
-            0,
-            1,  # arm
-            0, 0, 0, 0, 0, 0
-        )
+        send_arm(self.sim_conn, arm=True)
 
     def send_sim_reset_command(self):
-        self.sim_conn.mav.command_long_send(
-            self.sim_conn.target_system,
-            self.sim_conn.target_component,
-            MAVLINK_CMD_SIM_RESET,
-            0,  # confirmation
-            0, 0, 0, 0, 0, 0, 0
-        )
+        send_sim_reset(self.sim_conn)

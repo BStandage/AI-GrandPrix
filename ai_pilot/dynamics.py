@@ -86,7 +86,11 @@ def lean_for_speed(v):
 
 
 def send_rate_attitude(mavlink_conn, system_boot_ms, roll_rate, pitch_rate, yaw_rate, thrust):
-    """Send a body-rate + collective-thrust setpoint to the sim."""
+    """Send a body-rate + collective-thrust setpoint to the sim.
+
+    NOTE: this does NOT clamp the rates - clamping is the caller's job. The pilots clamp to
+    MAX_RATE; the sysid harness deliberately commands beyond it to find the true airframe max.
+    """
     now_ms = int(time.time() * 1000)
     mavlink_conn.mav.set_attitude_target_send(
         now_ms - system_boot_ms,
@@ -96,4 +100,27 @@ def send_rate_attitude(mavlink_conn, system_boot_ms, roll_rate, pitch_rate, yaw_
         [1, 0, 0, 0],   # attitude quaternion (ignored in rate mode)
         roll_rate, pitch_rate, yaw_rate,
         thrust,
+    )
+
+
+def send_arm(mavlink_conn, arm=True):
+    """Arm (or disarm) the vehicle. Single source of truth for the arm command."""
+    mavlink_conn.mav.command_long_send(
+        mavlink_conn.target_system,
+        mavlink_conn.target_component,
+        mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+        0,                  # confirmation
+        1 if arm else 0,    # 1 = arm, 0 = disarm
+        0, 0, 0, 0, 0, 0,
+    )
+
+
+def send_sim_reset(mavlink_conn):
+    """Reset the simulator to its initial state (drone back at spawn). Used between sysid trials."""
+    mavlink_conn.mav.command_long_send(
+        mavlink_conn.target_system,
+        mavlink_conn.target_component,
+        MAVLINK_CMD_SIM_RESET,
+        0,                  # confirmation
+        0, 0, 0, 0, 0, 0, 0,
     )
