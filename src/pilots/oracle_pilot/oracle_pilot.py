@@ -16,12 +16,12 @@ import math
 
 import keyboard
 
-from dynamics import (CONTROL_HZ, G_ACC, KP_ATT, KP_THRUST_V, MAX_CLIMB, MAX_DESCENT, MAX_RATE,
+from common.dynamics import (CONTROL_HZ, G_ACC, KP_ATT, KP_THRUST_V, MAX_CLIMB, MAX_DESCENT, MAX_RATE,
                       MAX_THRUST, MIN_THRUST, PITCH_SIGN, ROLL_SIGN, YAW_SIGN, clamp,
                       lean_for_speed, send_rate_attitude, thrust_for_climb)
-from gate_geometry import quat_to_rotmat, relative_gate
-from race import load_cached_gates, seconds_to_go, should_fly
-from trajectory import Trajectory
+from common.gate_geometry import quat_to_rotmat, relative_gate
+from common.race import load_cached_gates, seconds_to_go, should_fly
+from common.trajectory import Trajectory
 
 TRAJ_LOOKAHEAD = 5.5     # m ahead for the (cosmetic) yaw carrot
 TRAJ_APEX_MAX = 0.0      # apex cut toward the inside of each corner; 0 = thread gate centres.

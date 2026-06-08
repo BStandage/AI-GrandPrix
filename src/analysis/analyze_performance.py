@@ -4,7 +4,7 @@
 # acceleration, forward speed vs lean angle, and max body rates + response lag.
 #
 # Usage:
-#   python analyze_performance.py [path_to_characterize_*.csv]
+#   python -m analysis.analyze_performance [path_to_characterize_*.csv]
 # (defaults to the newest characterize_*.csv in datasets/)
 #
 
@@ -13,6 +13,12 @@ import glob
 import math
 import os
 import sys
+
+# Allow running this file directly (python analysis/analyze_performance.py) by putting
+# the src/ package root on sys.path, not just this subpackage's folder.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from common.paths import DATASETS_DIR
 
 
 def load(path):
@@ -48,8 +54,7 @@ def main():
     if len(sys.argv) > 1:
         path = sys.argv[1]
     else:
-        here = os.path.dirname(os.path.abspath(__file__))
-        cands = sorted(glob.glob(os.path.join(here, "datasets", "characterize_*.csv")))
+        cands = sorted(glob.glob(os.path.join(DATASETS_DIR, "characterize_*.csv")))
         if not cands:
             print("No characterize_*.csv found in datasets/. Run CONTROL_MODE='characterize' first.")
             return

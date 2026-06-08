@@ -17,10 +17,10 @@ import csv
 import math
 import os
 
-from dynamics import CONTROL_HZ
-from sysid_maneuvers import (DragRun, InvertedDive, InvertedProbe, LateralStep, RateStep,
+from common.dynamics import CONTROL_HZ
+from flight_test.sysid_maneuvers import (DragRun, InvertedDive, InvertedProbe, LateralStep, RateStep,
                              Recovery)
-from sysid_runner import Trial
+from flight_test.sysid_runner import Trial
 
 MOTOR_SAT = 0.98        # a motor output at/above this counts as saturated
 

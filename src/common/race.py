@@ -11,7 +11,8 @@ import glob
 import json
 import os
 
-from gate_geometry import relative_gate
+from common.gate_geometry import relative_gate
+from common.paths import DATASETS_DIR
 
 # Wait out the "3..2..1..GO" countdown: arm but hold zero thrust until the race goes live,
 # then launch instantly. Start the client during the countdown so it also catches the live
@@ -39,7 +40,7 @@ def load_cached_gates(data):
     if odo is None:
         return   # need our pose to test alignment; retry next tick
     pose = ((odo["x"], odo["y"], odo["z"]), (odo["qw"], odo["qx"], odo["qy"], odo["qz"]))
-    ds = os.path.join(os.path.dirname(os.path.abspath(__file__)), "datasets")
+    ds = DATASETS_DIR
     files = sorted(glob.glob(os.path.join(ds, "*", "gates.json")), key=os.path.getmtime, reverse=True)
     for f in files:
         try:

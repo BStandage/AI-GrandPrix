@@ -23,16 +23,18 @@ import time
 
 import cv2
 
+from common.paths import DATASETS_DIR
+
 
 class DataLogger:
 
     def __init__(self, base_dir=None):
         # Default to a "datasets" folder next to this file, so sessions always
-        # land in ai_pilot/datasets regardless of the current working directory
-        # (running from the repo root vs. from ai_pilot would otherwise scatter
+        # land in src/datasets regardless of the current working directory
+        # (running from the repo root vs. from src would otherwise scatter
         # them in different places).
         if base_dir is None:
-            base_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "datasets")
+            base_dir = DATASETS_DIR
         session = time.strftime("session_%Y%m%d_%H%M%S")
         self.session_dir = os.path.join(base_dir, session)
         self.frames_dir = os.path.join(self.session_dir, "frames")
@@ -67,7 +69,7 @@ class DataLogger:
             self._frames_f.write(json.dumps(record) + "\n")
             self._frames_f.flush()
             self.frame_count += 1
-            if self.frame_count % 30 == 0:
+            if self.frame_count % 300 == 0:    # ~every 10 s at 30 Hz (was every 30 = spammy)
                 print(f"  logged {self.frame_count} frames", flush=True)
 
     def log_telemetry(self, kind, fields):

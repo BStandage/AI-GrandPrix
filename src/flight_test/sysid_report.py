@@ -22,7 +22,12 @@ import time
 
 import numpy as np
 
-import dynamics
+# Allow running this file directly (python flight_test/sysid_report.py) by putting
+# the src/ package root on sys.path, not just this subpackage's folder.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from common import dynamics
+from common.paths import DATASETS_DIR
 
 SAT_WARN_MS = 400.0
 
@@ -366,7 +371,7 @@ def generate_merged(base):
 
 
 def main():
-    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "datasets")
+    base = DATASETS_DIR
     if len(sys.argv) > 1 and sys.argv[1] == "merge":
         if not os.path.isdir(base):
             print("No datasets/ directory found.", flush=True)

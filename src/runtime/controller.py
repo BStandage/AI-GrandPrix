@@ -2,22 +2,24 @@
 Top-level control loop: pick a flight mode each tick, run it, print a status readout.
 
 Modes (set CONTROL_MODE):
-  "trajectory"   - follow a racing line through the gates (fast; the default)   [trajectory_pilot]
-  "pursuit"      - chase each gate in turn (proven ~34 s fallback)              [pursuit_pilot]
-  "keyboard"     - manual rate-mode flight for data collection                 [dev_modes]
-  "characterize" - fly a scripted profile and log the physics envelope         [dev_modes]
+  "vision"       - fly from the CAMERA alone, no ground truth (Round-1 goal)  [pilots.vision_pilot]
+  "trajectory"   - follow a racing line through the known gates (fast oracle) [pilots.oracle_pilot]
+  "keyboard"     - manual rate-mode flight for data collection               [pilots.dev_modes]
+  "characterize" - fly a scripted profile and log the physics envelope       [pilots.dev_modes]
+
+(The retired "pursuit" pilot lives in archive/pursuit_pilot.py and is no longer wired in.)
 """
 
 import math
 import time
 
-from dynamics import CONTROL_HZ, send_arm, send_sim_reset
-from gate_geometry import active_gate_relative
-from dev_modes import char_phase_at, update_characterize_control, update_keyboard_rate_control
-from pursuit_pilot import update_pursuit_control
-from trajectory_pilot import update_trajectory_control
+from common.dynamics import CONTROL_HZ, send_arm, send_sim_reset
+from common.gate_geometry import active_gate_relative
+from pilots.dev_modes import char_phase_at, update_characterize_control, update_keyboard_rate_control
+from pilots.oracle_pilot import update_trajectory_control
+from pilots.vision_pilot import update_vision_control
 
-CONTROL_MODE = "trajectory"
+CONTROL_MODE = "vision"
 GATE_READOUT_PERIOD_S = 0.5   # print a status line this often
 
 
@@ -29,10 +31,10 @@ class Controller:
         self.tick = 0
 
     def update(self):
-        if CONTROL_MODE == "trajectory":
+        if CONTROL_MODE == "vision":
+            update_vision_control(self.sim_conn, self.system_boot_ms, self.data)
+        elif CONTROL_MODE == "trajectory":
             update_trajectory_control(self.sim_conn, self.system_boot_ms, self.data)
-        elif CONTROL_MODE == "pursuit":
-            update_pursuit_control(self.sim_conn, self.system_boot_ms, self.data)
         elif CONTROL_MODE == "keyboard":
             update_keyboard_rate_control(self.sim_conn, self.system_boot_ms, self.data)
         elif CONTROL_MODE == "characterize":
@@ -69,6 +71,20 @@ class Controller:
             print(f"manual: thr={thr:.3f}  climb={climb_str}m/s  alt={-(z or 0.0):+6.2f}m", flush=True)
             return
 
+        if CONTROL_MODE == "vision":
+            thr = self.data.get("oracle_thrust", 0.0)
+            regime = self.data.get("vision_regime", "?")
+            dbg = self.data.get("vis_dbg")
+            tgt = self.data.get("vision_target")
+            seen = f"gate offx={dbg[0]:+.2f} offy={dbg[1]:+.2f} dist~{dbg[2]:4.1f}m dclimb={dbg[3]:+.1f}" \
+                if dbg else ("acquiring" if tgt is None else "?")
+            # ground-truth nearest gate shown ONLY as a reference check (the pilot does not use it)
+            rel = active_gate_relative(self.data)
+            gtchk = f" | GTchk g{rel['gate_id']} d={rel['distance']:4.1f}m" if rel else ""
+            print(f"vis[{regime}] {seen} climb={climb_str} alt={-(z or 0.0):+6.1f}m thr={thr:.3f}{gtchk}",
+                  flush=True)
+            return
+
         if CONTROL_MODE == "trajectory":
             thr = self.data.get("oracle_thrust", 0.0)
             regime = self.data.get("traj_regime", "?")
@@ -82,28 +98,6 @@ class Controller:
                 flush=True,
             )
             return
-
-        # pursuit readout: show the regime + the active gate it's chasing
-        thr = self.data.get("oracle_thrust", 0.0)
-        regime = self.data.get("pursuit_regime", "?")
-        rs = self.data.get("race_status") or {}
-        rel = active_gate_relative(self.data)
-        if rel is not None:
-            dc = self.data.get("pursuit_desired_climb", 0.0)
-            print(
-                f"pursuit[{regime}] gate {rel['gate_id']} dist={rel['distance']:5.1f}m "
-                f"fwd={rel['forward']:+6.1f} right={rel['right']:+6.1f} down={rel['down']:+6.1f} "
-                f"az={rel['azimuth_deg']:+4.0f} | thr={thr:.3f} climb={climb_str} want={dc:+.2f}m/s",
-                flush=True,
-            )
-        else:
-            print(
-                f"pursuit[{regime}] armed={self.data.get('armed')} "
-                f"gates={len(self.data.get('gates') or [])} "
-                f"pose={'ok' if self.data.get('odometry') is not None else 'MISSING'} "
-                f"active_gate={rs.get('active_gate_index')} thr={thr:.3f}",
-                flush=True,
-            )
 
     def arm(self):
         send_arm(self.sim_conn, arm=True)

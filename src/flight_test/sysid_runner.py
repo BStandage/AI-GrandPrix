@@ -19,9 +19,9 @@ trial (the single most important gotcha in this codebase - see trajectory_pilot.
 import math
 import time
 
-from dynamics import (CONTROL_HZ, KP_ATT, MAX_RATE, PITCH_SIGN, ROLL_SIGN, YAW_SIGN, clamp,
+from common.dynamics import (CONTROL_HZ, KP_ATT, MAX_RATE, PITCH_SIGN, ROLL_SIGN, YAW_SIGN, clamp,
                       send_arm, send_rate_attitude, send_sim_reset, thrust_for_climb)
-from gate_geometry import quat_to_rotmat
+from common.gate_geometry import quat_to_rotmat
 
 # Environment collision id (ground/buildings); 1001 is a gate (mavlink_rx.on_collision).
 COLLISION_ENVIRONMENT = 1002

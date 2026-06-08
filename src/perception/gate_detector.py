@@ -1,12 +1,11 @@
 #
 # Classic-CV gate detector for the high-contrast (Round 1) AI-GP gates.
 #
-# The gate is a bright orange ring on a desaturated world, so an HSV colour
-# threshold segments it cleanly - no training data or ML needed. We threshold
-# the orange, find blobs, and return each gate's bounding box + centre, sorted
-# nearest-first (biggest = closest). This gives the gate's bearing in the image
-# immediately; pose (distance/orientation) comes later via PnP once we have the
-# camera intrinsics.
+# The gate is a bright RED square ring on a desaturated grey world, so an HSV
+# colour threshold segments it cleanly - no training data or ML needed. We
+# threshold the red, find blobs, and return each gate's bounding box + centre,
+# sorted nearest-first (biggest = closest). This gives the gate's bearing in the
+# image immediately; pose (distance/orientation) comes later via PnP.
 #
 # Tune the HSV range with: python gate_detector.py <a_frame.jpg>
 #
@@ -14,26 +13,29 @@
 import cv2
 import numpy as np
 
-# Orange gate in OpenCV HSV (H: 0-179). Orange/red sits near H=0, so we take a
-# low-H band; very high saturation/value because the gate is vivid against grey.
-# The world is desaturated grey, so the orange gate is the only saturated thing.
-# Wide hue (red-orange), and modest S/V floors to catch the whole ring incl. shaded
-# parts - grey stays out (near-zero saturation), the blue racing line is a different hue.
-GATE_HSV_LOWER = (0, 70, 60)
-GATE_HSV_UPPER = (28, 255, 255)
+# RED gate in OpenCV HSV (H: 0-179). Pure red sits at BOTH ends of the hue circle
+# (H~0-12 and H~160-180), so we need two bands OR'd together - a single low-H band
+# misses the wrap-around half and fragments the ring. High S/V floors: the gate is
+# vivid against the desaturated grey world, and crucially this EXCLUDES the bright
+# BLUE racing line (H~100), which is the most saturated thing in frame.
+GATE_HSV_LOWER1 = (0, 90, 70)
+GATE_HSV_UPPER1 = (12, 255, 255)
+GATE_HSV_LOWER2 = (160, 90, 70)
+GATE_HSV_UPPER2 = (180, 255, 255)
 
 MIN_GATE_AREA_FRAC = 0.00015  # ignore blobs smaller than this fraction of the frame
 
-# Camera calibration (regressed from a real approach, see controller.py):
-#   focal length ~229 px, HFOV ~109 deg, camera tilted UP ~26 deg.
+# Camera calibration: focal length 320 px (spec fx=fy=320; confirmed by a focal sweep vs ground
+# truth - the old 229 read gates ~27% too near). Camera tilted UP ~26 deg.
 # Gives a pinhole distance estimate: distance = f * real_height / pixel_height.
-FOCAL_LENGTH_PX = 229.0
+FOCAL_LENGTH_PX = 320.0
 GATE_REAL_HEIGHT_M = 2.7
 
 
 def gate_mask(img):
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(hsv, GATE_HSV_LOWER, GATE_HSV_UPPER)
+    mask = cv2.bitwise_or(cv2.inRange(hsv, GATE_HSV_LOWER1, GATE_HSV_UPPER1),
+                          cv2.inRange(hsv, GATE_HSV_LOWER2, GATE_HSV_UPPER2))
     # close to bridge the gaps the AI-GP text punches in the ring (so it's a solid
     # band), then despeckle. The gate OPENING is recovered separately via convex
     # hull, so solidifying the ring here only helps.
@@ -97,7 +99,10 @@ def detect_gates(img, min_area_frac=MIN_GATE_AREA_FRAC):
             "has_opening": has_opening,
             "offset_x": (cx - w / 2.0) / (w / 2.0),
             "offset_y": (cy - h / 2.0) / (h / 2.0),
-            "distance_m": FOCAL_LENGTH_PX * GATE_REAL_HEIGHT_M / max(max(bw, bh), 1),
+            # distance from the OUTER ring bbox (rw,rh ~ 2.72 m frame), NOT the aim bbox - when we
+            # aim at the inner opening (~1.5 m) the bbox shrinks, and dividing by 2.72 would read
+            # ~1.8x too far. The ring is also the most directly-detected extent (the red blob).
+            "distance_m": FOCAL_LENGTH_PX * GATE_REAL_HEIGHT_M / max(rw, rh, 1),
         })
     dets.sort(key=lambda d: d["area"], reverse=True)
     return dets, mask
@@ -121,8 +126,8 @@ if __name__ == "__main__":
     dets, mask = detect_gates(img)
     print(f"{len(dets)} gate(s):")
     for i, d in enumerate(dets):
-        print(f"  [{i}] bbox={d['bbox']} area={d['area']:.0f} fill={d['fill']:.2f} "
-              f"offset_x={d['offset_x']:+.2f}")
+        print(f"  [{i}] bbox={d['bbox']} area={d['area']:.0f} opening={d['has_opening']} "
+              f"offset_x={d['offset_x']:+.2f} dist={d['distance_m']:.1f}m")
     cv2.imwrite("gate_annotated.jpg", annotate(img, dets))
     cv2.imwrite("gate_mask.jpg", mask)
     print("wrote gate_annotated.jpg and gate_mask.jpg")
