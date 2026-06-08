@@ -120,7 +120,8 @@ class MAVLinkRX:
                 tid = msg.width
                 self.track_chunks.setdefault(tid, {})
                 self.expected_num_track_chunks[tid] = msg.packets
-                print(f"[track] handshake: transfer {tid}, expecting {msg.packets} chunk(s)", flush=True)
+                if not self.data.get("quiet_track"):
+                    print(f"[track] handshake: transfer {tid}, expecting {msg.packets} chunk(s)", flush=True)
                 self._try_assemble_track(tid)
 
     def on_heartbeat(self, msg):
@@ -285,7 +286,7 @@ class MAVLinkRX:
         # (the real race provides no GPS/absolute coordinates).
         self.data["gates"] = gates
         g0 = next((g for g in gates if g.get("gate_id") == 0), gates[0] if gates else None)
-        if g0 is not None:
+        if g0 is not None and not self.data.get("quiet_track"):
             p = g0["position_ned"]
             print(f"[track] LIVE TRACK received: {len(gates)} gates "
                   f"(gate0 at [{p[0]:.1f}, {p[1]:.1f}, {p[2]:.1f}])", flush=True)
