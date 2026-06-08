@@ -35,12 +35,12 @@ TRAJ_MAX_YAW_RATE = 2.0  # rad/s command cap (~6.6 rad/s actual after the 3.3x a
 TRAJ_BRAKE_PITCH = -0.35  # most we'll pitch back (~20 deg) - more braking authority into sharp gates
 TRAJ_ACCEL_PITCH = 0.65   # most forward lean (~37 deg). 43 deg over-thrust + ballooned over the
                           # gates; backed off. Past ~45 deg the tilt-comp can't hold altitude.
-TRAJ_MAX_STRAFE = 0.82    # max bank for lateral correction (~47 deg). RECORD-SETTING value. Next
-                          # experiment: 0.95 (~54 deg) - sinks in hard turns, which is fine/good on
-                          # the descending swings (gate 2->3). Push it once this record is committed.
-TRAJ_V_MAX = 12.0         # m/s target. (13 ballooned earlier but that was the floor-clamp bug.)
-TRAJ_A_LAT = 11.0         # m/s^2 design lateral accel for the corner-speed profile. Up from 9: carry
-                          # more speed through corners (g*tan(47deg)~10.5, so this matches the bank).
+TRAJ_MAX_STRAFE = 0.90    # max bank for lateral correction (~52 deg). Hard banking; sinks a bit in
+                          # the turn (fine on the descending swings, caught by the floor guard near
+                          # the ground). (1.10/63deg cut the inside of the early gates.)
+TRAJ_V_MAX = 13.0         # m/s target straight speed. (15 cut the inside of the early gates.)
+TRAJ_A_LAT = 12.0         # m/s^2 design lateral accel for the corner-speed profile - carry more
+                          # speed through corners. (Higher = brakes less for the sharp gate-3 V.)
 
 # Setpoints are slew-rate-limited so they ramp instead of stepping (a step to full lean from
 # standstill overshot and diverged). Slewing is a stabiliser; it does not cap top speed.
@@ -48,9 +48,12 @@ TRAJ_PITCH_SLEW = 2.5     # rad/s (faster ramp into the lean for quicker accel; 
 TRAJ_ROLL_SLEW = 4.0      # rad/s
 
 # Vertical: strong altitude hold to the line + a fraction of the slope as feedforward.
-TRAJ_KP_H = 3.0           # climb (m/s) per metre below the line
-TRAJ_VFF = 0.8            # fraction of the line's descent rate fed forward
+TRAJ_KP_H = 3.0           # climb (m/s) per metre below the line. (4.0 + full FF overshot the first
+TRAJ_VFF = 0.8            # descent into gate 1's bottom; back to the proven record values.)
 TRAJ_VERT_BIAS = 0.3      # m above gate centres. Bracketed: 0.4 clipped tops, 0.1 clipped bottoms.
+TRAJ_GROUND_MARGIN = 0.3  # m. Floor guard: don't descend more than this below the LOWEST gate centre
+                          # (gates 4/5 rest on the floor). Keyed to the real ground, not spawn. Lower
+                          # = keeps the drone higher / more floor margin (it was still bumping at 0.6).
 TRAJ_KI_THR = 0.0         # altitude integral, disabled (it wound up and fought the descents)
 TRAJ_THR_I_CLAMP = 0.15
 TRAJ_KSPEED_THR = 0.0     # extra thrust per m/s, disabled (it over-lifted with correct climb_up)
@@ -128,6 +131,18 @@ def update_trajectory_control(mavlink_conn, system_boot_ms, data):
     data["traj_thr_i"] = thr_i
     climb_ff = -TRAJ_VFF * near_slope_down * v_cur
     desired_climb = clamp(climb_ff + TRAJ_KP_H * alt_err, -MAX_DESCENT, MAX_CLIMB)
+
+    # Floor guard, referenced to the ACTUAL ground (the lowest gate - gates 4/5 rest on the floor),
+    # NOT spawn. The aggressive descent overshoots the line near the floor and bounces off it after
+    # gate 4. Don't let the drone drop more than TRAJ_GROUND_MARGIN below the lowest gate centre;
+    # this only ever acts right above the real ground, so it never touches the descent above.
+    drone_alt = -drone_z
+    floor_alt = min(-g["position_ned"][2] for g in data["gates"]) - TRAJ_GROUND_MARGIN
+    if drone_alt < floor_alt:
+        # firm upward push - strong gain + a floor so it arrests a FAST descent before the ground,
+        # not the gentle KP_H nudge that let it sink through.
+        desired_climb = clamp(max(desired_climb, 1.0 + 5.0 * (floor_alt - drone_alt)),
+                              -MAX_DESCENT, MAX_CLIMB)
 
 
     # Horizontal: command a world acceleration that pulls onto the line and matches its velocity.
