@@ -115,6 +115,19 @@ class Trajectory:
         self.a_lat = a_lat
         self.vprof = _speed_profile(self.s, self.kappa, v_max, a_lat, a_accel, a_brake)
 
+    def track_point(self, pos, lookahead):
+        """The line point a given distance AHEAD of the nearest point (horizontal-nearest, same as
+        carrot()). For look-ahead / pure-pursuit steering: aim the cross-track correction at where
+        the line is GOING, so the tracker banks into a bend instead of only reacting once it has
+        already drifted off the nearest point. Keep the look-ahead short - a long one points past
+        the apex and cuts the corner (which is why the velocity reference still uses near_tan)."""
+        pos = np.asarray(pos, dtype=float)
+        n = len(self.pts)
+        dh = np.linalg.norm(self.pts[:, :2] - pos[:2], axis=1)
+        i = int(np.argmin(dh))
+        j = min(int(np.searchsorted(self.s, self.s[i] + lookahead)), n - 1)
+        return self.pts[j]
+
     def carrot(self, pos, lookahead):
         """Return (carrot_ned, progress_frac, cross_track_m, tangent_ned, v_target)."""
         pos = np.asarray(pos, dtype=float)
