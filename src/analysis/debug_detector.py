@@ -1,8 +1,8 @@
 #
 # Dump detector debug images (annotated / mask / extracted opening) to debug/.
 # Usage:
-#   python debug_detector.py <frame.jpg> [more.jpg ...]
-#   python debug_detector.py            # uses a few sample frames
+#   python -m analysis.debug_detector <frame.jpg> [more.jpg ...]
+#   python -m analysis.debug_detector            # uses a few sample frames
 #
 import os
 import sys
@@ -10,9 +10,14 @@ import sys
 import cv2
 import numpy as np
 
-from gate_detector import detect_gates, annotate, gate_mask
+# Allow running this file directly (python analysis/debug_detector.py) by putting the
+# src/ package root on sys.path, not just this subpackage's folder.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "debug")
+from perception.gate_detector import detect_gates, annotate, gate_mask
+from common.paths import DEBUG_DIR
+
+OUT = DEBUG_DIR
 
 SAMPLES = [
     "datasets/session_20260605_221219/frames/0000000119.jpg",

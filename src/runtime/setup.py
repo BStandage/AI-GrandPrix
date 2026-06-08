@@ -1,9 +1,9 @@
 from pymavlink import mavutil
-from timesync import TimeSync
-from vision_rx import VisionRX
-from mavlink_rx import MAVLinkRX
-from controller import Controller
-from data_logger import DataLogger
+from comms.timesync import TimeSync
+from perception.vision_rx import VisionRX
+from comms.mavlink_rx import MAVLinkRX
+from runtime.controller import Controller
+from comms.data_logger import DataLogger
 
 def setup_components(shared_data, system_boot_ms, server_ip, server_udp_port):
     # -------------------------------

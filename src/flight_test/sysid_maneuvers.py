@@ -19,7 +19,7 @@ It is singularity-free, unlike Euler roll/pitch which blow up near vertical.
 
 import math
 
-from dynamics import (G_ACC, HOVER_THRUST, KP_ATT, MAX_RATE, PITCH_SIGN, ROLL_SIGN, YAW_SIGN,
+from common.dynamics import (G_ACC, HOVER_THRUST, KP_ATT, MAX_RATE, PITCH_SIGN, ROLL_SIGN, YAW_SIGN,
                       clamp, thrust_for_climb)
 
 # A strong default flip rate for the aerobatic maneuvers. Deliberately above the pilots'

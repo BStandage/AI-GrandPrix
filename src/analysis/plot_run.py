@@ -3,7 +3,7 @@
 # line, from top / side / 3D. Saves a PNG to analyse the line instead of guessing
 # from raw numbers.
 #
-# Usage:  python plot_run.py [session_dir]   (defaults to newest with telemetry)
+# Usage:  python -m analysis.plot_run [session_dir]   (defaults to newest with telemetry)
 #
 # Frames: NED (x fwd-ish/north, y right/east, z DOWN). We plot ALTITUDE = -z so up is up.
 #
@@ -13,19 +13,23 @@ import json
 import os
 import sys
 
+# Allow running this file directly (python analysis/plot_run.py) by putting the
+# src/ package root on sys.path, not just this subpackage's folder.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from trajectory import Trajectory
+from common.trajectory import Trajectory
+from common.paths import DATASETS_DIR
 
 HALF = 1.36   # gate half-opening (m), gate is 2.72 m
 
 
 def newest_session():
-    here = os.path.dirname(os.path.abspath(__file__))
-    cands = sorted(glob.glob(os.path.join(here, "datasets", "session_*")), key=os.path.getmtime)
+    cands = sorted(glob.glob(os.path.join(DATASETS_DIR, "session_*")), key=os.path.getmtime)
     for s in reversed(cands):
         if os.path.exists(os.path.join(s, "telemetry.jsonl")):
             return s
@@ -36,8 +40,7 @@ def load_gates(sess):
     own = os.path.join(sess, "gates.json")
     if os.path.exists(own):
         return json.load(open(own))["gates"], "own live track"
-    here = os.path.dirname(os.path.abspath(__file__))
-    cached = sorted(glob.glob(os.path.join(here, "datasets", "*", "gates.json")), key=os.path.getmtime)
+    cached = sorted(glob.glob(os.path.join(DATASETS_DIR, "*", "gates.json")), key=os.path.getmtime)
     return json.load(open(cached[-1]))["gates"], "cached " + os.path.basename(os.path.dirname(cached[-1]))
 
 

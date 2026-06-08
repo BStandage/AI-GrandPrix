@@ -11,11 +11,11 @@ import math
 
 import keyboard
 
-from dynamics import (CONTROL_HZ, HOVER_THRUST, KP_ATT, KP_THRUST_V, MAX_CLIMB, MAX_DESCENT,
+from common.dynamics import (CONTROL_HZ, HOVER_THRUST, KP_ATT, KP_THRUST_V, MAX_CLIMB, MAX_DESCENT,
                       MAX_RATE, MAX_THRUST, MIN_THRUST, PITCH_SIGN, ROLL_SIGN, YAW_SIGN, clamp,
                       send_rate_attitude, thrust_for_climb)
-from gate_geometry import active_gate_relative
-from race import load_cached_gates, seconds_to_go, should_fly
+from common.gate_geometry import active_gate_relative
+from common.race import load_cached_gates, seconds_to_go, should_fly
 
 PURSUIT_CRUISE_PITCH = 0.22    # rad (~13 deg) forward lean at cruise -> ~5 m/s
 

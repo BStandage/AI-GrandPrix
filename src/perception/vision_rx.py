@@ -1,3 +1,5 @@
+import csv
+import os
 import socket
 import struct
 import threading
@@ -5,7 +7,12 @@ import threading
 import cv2
 import numpy as np
 
-from gate_detector import detect_gates
+from perception.gate_detector import detect_gates
+from perception.vision_pose import shadow_compare
+
+SHADOW_CSV_HEADER = ["frame_id", "sim_time_ns", "gate_id",
+                     "cam_fwd", "cam_right", "cam_down", "gt_fwd", "gt_right", "gt_down",
+                     "cam_dist", "gt_dist", "pos_err", "dist_err"]
 
 # Modify these properties if you want to run the server remotely for example
 SIM_SERVER_UDP_IP = "0.0.0.0"
@@ -16,6 +23,19 @@ class VisionRX:
     def __init__(self, data, logger=None):
         self.data = data
         self.logger = logger
+        self._shadow_n = 0          # vision-shadow frame counter (throttles the console summary)
+        self._shadow_errs = []      # accumulated camera-vs-truth position errors (for the summary)
+        # Vision-shadow goes to a CSV in the session folder; the console only gets a rare summary.
+        self._shadow_f = self._shadow_w = None
+        if logger is not None:
+            try:
+                path = os.path.join(logger.session_dir, "vision_shadow.csv")
+                self._shadow_f = open(path, "w", newline="")
+                self._shadow_w = csv.writer(self._shadow_f)
+                self._shadow_w.writerow(SHADOW_CSV_HEADER)
+                print(f"Vision-shadow logging -> {path}", flush=True)
+            except OSError:
+                self._shadow_f = self._shadow_w = None
         self.thread = threading.Thread(
             target=self._vision_loop,
             daemon=True
@@ -112,6 +132,29 @@ class VisionRX:
         gates, _ = detect_gates(img)
         self.data["vision_gates"] = gates
         self.data["vision_target"] = gates[0] if gates else None
+
+        # VISION-SHADOW: while the oracle flies (on ground truth), measure how close the
+        # camera-only gate pose (detect -> PnP) is to the LIVE ground truth - same frame, so no
+        # replay frame-mismatch. Every comparison is written to vision_shadow.csv; the console
+        # only gets a brief running-median summary every ~5 s so it doesn't flood.
+        cmp = shadow_compare(self.data, img)
+        if cmp is not None:
+            self._shadow_n += 1
+            self._shadow_errs.append(cmp["pos_err"])
+            e, g = cmp["est"], cmp["gt"]
+            if self._shadow_w is not None:
+                self._shadow_w.writerow([
+                    frame_id, sim_time_ns, cmp["gate_id"],
+                    f"{e[0]:.2f}", f"{e[1]:.2f}", f"{e[2]:.2f}",
+                    f"{g[0]:.2f}", f"{g[1]:.2f}", f"{g[2]:.2f}",
+                    f"{np.linalg.norm(e):.2f}", f"{np.linalg.norm(g):.2f}",
+                    f"{cmp['pos_err']:.2f}", f"{cmp['dist_err']:.2f}"])
+                self._shadow_f.flush()
+            if self._shadow_n % 150 == 0:
+                med = sorted(self._shadow_errs)[len(self._shadow_errs) // 2]
+                print(f"[vision-shadow] {self._shadow_n} samples, median err {med:.1f} m "
+                      f"(latest g{cmp['gate_id']} err {cmp['pos_err']:.1f} m) -> vision_shadow.csv",
+                      flush=True)
 
         # record the frame to the dataset for offline training/labeling
         if self.logger is not None:

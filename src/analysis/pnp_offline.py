@@ -23,20 +23,19 @@ import sys
 import cv2
 import numpy as np
 
-from gate_detector import gate_mask, MIN_GATE_AREA_FRAC
-from gate_geometry import relative_gate
+# Allow running this file directly (python analysis/pnp_offline.py) by putting the
+# src/ package root on sys.path, not just this subpackage's folder.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# --- camera model (measured; see gate_detector.py / controller.py) ---
-FOCAL_PX = 229.0
-GATE_SIZE_M = 2.72          # gate width/height from gates.json (square)
-CAM_UPTILT_RAD = 0.446      # camera tilted UP ~26 deg from body forward
+from common.gate_geometry import relative_gate
+from common.paths import DATASETS_DIR
+from perception.vision_pose import gate_corners, pnp_pose_body   # shared camera->gate-pose pipeline
 
 
 def find_session(arg):
-    here = os.path.dirname(os.path.abspath(__file__))
     if arg:
         return arg
-    cands = sorted(glob.glob(os.path.join(here, "datasets", "*", "gates.json")), key=os.path.getmtime)
+    cands = sorted(glob.glob(os.path.join(DATASETS_DIR, "*", "gates.json")), key=os.path.getmtime)
     for g in reversed(cands):
         d = os.path.dirname(g)
         if os.path.isdir(os.path.join(d, "frames")):
@@ -51,8 +50,7 @@ def load_gates(sess):
     own = os.path.join(sess, "gates.json")
     if os.path.exists(own):
         return json.load(open(own))["gates"]
-    here = os.path.dirname(os.path.abspath(__file__))
-    cached = sorted(glob.glob(os.path.join(here, "datasets", "*", "gates.json")), key=os.path.getmtime)
+    cached = sorted(glob.glob(os.path.join(DATASETS_DIR, "*", "gates.json")), key=os.path.getmtime)
     if not cached:
         raise SystemExit("no gates.json anywhere to use as ground truth")
     print(f"  (session has no gates.json; using cached {os.path.relpath(cached[-1])})")
@@ -83,52 +81,6 @@ def nearest_odo(odo, t):
     if i >= len(odo):
         return odo[-1]
     return odo[i] if abs(odo[i][0] - t) < abs(odo[i - 1][0] - t) else odo[i - 1]
-
-
-def gate_corners(img):
-    """Return the 4 corners (ordered TL,TR,BR,BL) of the largest orange gate ring,
-    or None. Uses a 4-point polygon approx of the ring's convex hull; falls back to
-    the min-area rotated rectangle."""
-    h, w = img.shape[:2]
-    mask = gate_mask(img)
-    cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    cnts = [c for c in cnts if cv2.contourArea(c) >= MIN_GATE_AREA_FRAC * h * w]
-    if not cnts:
-        return None
-    c = max(cnts, key=cv2.contourArea)
-    hull = cv2.convexHull(c)
-    peri = cv2.arcLength(hull, True)
-    quad = None
-    for k in (0.02, 0.04, 0.06, 0.08, 0.10):
-        approx = cv2.approxPolyDP(hull, k * peri, True)
-        if len(approx) == 4:
-            quad = approx.reshape(4, 2).astype(np.float32)
-            break
-    if quad is None:
-        quad = cv2.boxPoints(cv2.minAreaRect(c)).astype(np.float32)
-    # order TL, TR, BR, BL
-    s = quad.sum(axis=1)
-    d = quad[:, 0] - quad[:, 1]
-    return np.array([quad[np.argmin(s)], quad[np.argmax(d)],
-                     quad[np.argmax(s)], quad[np.argmin(d)]], dtype=np.float32)
-
-
-def pnp_pose_body(corners, w, h):
-    """solvePnP the gate -> (forward, right, down) of the gate centre in BODY frame."""
-    half = GATE_SIZE_M / 2.0
-    obj = np.array([[-half, -half, 0], [half, -half, 0],
-                    [half, half, 0], [-half, half, 0]], dtype=np.float32)  # x right, y down
-    K = np.array([[FOCAL_PX, 0, w / 2.0], [0, FOCAL_PX, h / 2.0], [0, 0, 1]], dtype=np.float32)
-    # ITERATIVE (not IPPE_SQUARE - that gave ~0.4x the true distance on these gates)
-    ok, rvec, tvec = cv2.solvePnP(obj, corners, K, None, flags=cv2.SOLVEPNP_ITERATIVE)
-    if not ok:
-        return None
-    t = np.asarray(tvec).reshape(3)
-    x, y, z = float(t[0]), float(t[1]), float(t[2])   # OpenCV cam: x right, y down, z fwd
-    # camera axes -> body-aligned (fwd=z, right=x, down=y), then rotate by the up-tilt
-    fwd, right, down = z, x, y
-    c, s = math.cos(CAM_UPTILT_RAD), math.sin(CAM_UPTILT_RAD)
-    return (fwd * c + down * s, right, -fwd * s + down * c)
 
 
 def main():

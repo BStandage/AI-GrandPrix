@@ -13,8 +13,9 @@ import time
 
 import keyboard
 
-from dynamics import (HOVER_THRUST, KP_ATT, MAX_RATE, PITCH_SIGN, ROLL_SIGN, clamp,
+from common.dynamics import (HOVER_THRUST, KP_ATT, MAX_RATE, PITCH_SIGN, ROLL_SIGN, clamp,
                       send_rate_attitude, thrust_for_climb)
+from common.paths import DATASETS_DIR
 
 # --- Keyboard manual control ---------------------------------------------------------------
 # Rate (acro) mode: each axis commands a body rate that is zero when the key is released.
@@ -98,7 +99,7 @@ def update_characterize_control(mavlink_conn, system_boot_ms, data):
 
     now = time.time()
     if "char_t0" not in data:
-        out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "datasets")
+        out_dir = DATASETS_DIR
         os.makedirs(out_dir, exist_ok=True)
         path = os.path.join(out_dir, time.strftime("characterize_%Y%m%d_%H%M%S.csv"))
         f = open(path, "w", newline="")

@@ -21,14 +21,17 @@ import os
 import sys
 import time
 
+# Allow running this file directly (python flight_test/sysid_campaign.py) by putting
+# the src/ package root on sys.path, not just this subpackage's folder.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from pymavlink import mavutil
 
-import sysid_report
-from mavlink_rx import MAVLinkRX
-from sysid_batteries import run_drag, run_feasibility, run_recovery, run_rotational
-from sysid_runner import TrialRunner
-
-DATASETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "datasets")
+from common.paths import DATASETS_DIR
+from comms.mavlink_rx import MAVLinkRX
+from flight_test import sysid_report
+from flight_test.sysid_batteries import run_drag, run_feasibility, run_recovery, run_rotational
+from flight_test.sysid_runner import TrialRunner
 DEFAULT_IP = "127.0.0.1"
 DEFAULT_PORT = 14550
 
