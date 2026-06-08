@@ -33,10 +33,14 @@ TRAJ_MAX_YAW_RATE = 2.0  # rad/s command cap (~6.6 rad/s actual after the 3.3x a
 
 # Roll/pitch tilt limits (the accel->tilt result is clamped to these).
 TRAJ_BRAKE_PITCH = -0.35  # most we'll pitch back (~20 deg) - more braking authority into sharp gates
-TRAJ_ACCEL_PITCH = 0.60   # most forward lean (~34 deg) - lean harder to actually reach 9 m/s
-TRAJ_MAX_STRAFE = 0.65    # max bank for lateral correction (~37 deg) - tighter snap onto the line
-TRAJ_V_MAX = 9.0          # m/s target. Measured top speed ~9.4 m/s (sysid). Watch the sharp gate-3
-                          # V - if it overshoots into the inner post, back this down first.
+TRAJ_ACCEL_PITCH = 0.65   # most forward lean (~37 deg). 43 deg over-thrust + ballooned over the
+                          # gates; backed off. Past ~45 deg the tilt-comp can't hold altitude.
+TRAJ_MAX_STRAFE = 0.82    # max bank for lateral correction (~47 deg). RECORD-SETTING value. Next
+                          # experiment: 0.95 (~54 deg) - sinks in hard turns, which is fine/good on
+                          # the descending swings (gate 2->3). Push it once this record is committed.
+TRAJ_V_MAX = 12.0         # m/s target. (13 ballooned earlier but that was the floor-clamp bug.)
+TRAJ_A_LAT = 11.0         # m/s^2 design lateral accel for the corner-speed profile. Up from 9: carry
+                          # more speed through corners (g*tan(47deg)~10.5, so this matches the bank).
 
 # Setpoints are slew-rate-limited so they ramp instead of stepping (a step to full lean from
 # standstill overshot and diverged). Slewing is a stabiliser; it does not cap top speed.
@@ -53,8 +57,9 @@ TRAJ_KSPEED_THR = 0.0     # extra thrust per m/s, disabled (it over-lifted with 
 
 # Horizontal world-frame tracking gains. With KP_POS this is ~critically damped (omega~1.2,
 # zeta~1.0). Raise KD if it oscillates; raise KP if it tracks corners too loosely.
-TRAJ_KP_POS = 1.5         # m/s^2 of commanded accel per m of cross-track error
-TRAJ_KD_VEL = 2.5         # m/s^2 per m/s of velocity error (this term cancels crab)
+TRAJ_KP_POS = 3.0         # m/s^2 of commanded accel per m of cross-track error (aggressive: pull
+                          # hard onto the line so it hits offset apexes instead of cutting inside)
+TRAJ_KD_VEL = 3.5         # m/s^2 per m/s of velocity error (raised with KP to stay damped)
 
 
 def update_trajectory_control(mavlink_conn, system_boot_ms, data):
@@ -83,7 +88,8 @@ def update_trajectory_control(mavlink_conn, system_boot_ms, data):
     # The odometry frame resets at race start, so a track received before "ready" is in the
     # pre-reset frame; rebuilding on the new gate object means we always fly this run's frame.
     if data.get("_traj") is None or data.get("_traj_gates") is not data.get("gates"):
-        data["_traj"] = Trajectory(data["gates"], v_max=TRAJ_V_MAX, apex_max=TRAJ_APEX_MAX)
+        data["_traj"] = Trajectory(data["gates"], v_max=TRAJ_V_MAX, apex_max=TRAJ_APEX_MAX,
+                                   a_lat=TRAJ_A_LAT)
         data["_traj_gates"] = data["gates"]
         print(f"[traj] racing line built: {data['_traj'].length:.0f} m through "
               f"{len(data['gates'])} gates", flush=True)
@@ -122,6 +128,7 @@ def update_trajectory_control(mavlink_conn, system_boot_ms, data):
     data["traj_thr_i"] = thr_i
     climb_ff = -TRAJ_VFF * near_slope_down * v_cur
     desired_climb = clamp(climb_ff + TRAJ_KP_H * alt_err, -MAX_DESCENT, MAX_CLIMB)
+
 
     # Horizontal: command a world acceleration that pulls onto the line and matches its velocity.
     tan_h = math.hypot(near_tan[0], near_tan[1]) or 1.0
