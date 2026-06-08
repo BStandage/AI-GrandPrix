@@ -64,6 +64,15 @@ TRAJ_KP_POS = 3.0         # m/s^2 of commanded accel per m of cross-track error 
                           # hard onto the line so it hits offset apexes instead of cutting inside)
 TRAJ_KD_VEL = 3.5         # m/s^2 per m/s of velocity error (raised with KP to stay damped)
 
+# Look-ahead (pure-pursuit) for the cross-track target: aim AHEAD on the line so the tracker banks
+# into a bend early instead of reacting after it has cut inside. Distance = TRAJ_LA_TIME * speed,
+# clamped. WEIGHT blends nearest-point (0.0, purely reactive) -> look-ahead point (1.0). Keep the
+# distance modest: too far points past the apex and CUTS the corner.
+TRAJ_LA_TIME = 0.35       # s of look-ahead (distance grows with speed)
+TRAJ_LA_MIN = 1.0         # m (floor at low speed)
+TRAJ_LA_MAX = 6.0         # m (cap so it never over-reaches past an apex)
+TRAJ_LA_WEIGHT = 0.6      # 0 = nearest-point only, 1 = full look-ahead. Lower if it starts cutting.
+
 
 def update_trajectory_control(mavlink_conn, system_boot_ms, data):
     if keyboard.is_pressed('esc'):
@@ -153,7 +162,17 @@ def update_trajectory_control(mavlink_conn, system_boot_ms, data):
     # Position error to the line, cross-track (perpendicular) component only. The along-track
     # part snaps as the discrete nearest-point index steps and would kick the pitch; forward
     # motion is the velocity term's job.
-    perr_raw = (near_pt[0] - pos[0], near_pt[1] - pos[1])
+    #
+    # LOOK-AHEAD (pure pursuit): aim the cross-track target not at the nearest point but at a point
+    # a short, speed-scaled distance AHEAD on the line, blended by TRAJ_LA_WEIGHT. This makes the
+    # tracker anticipate a bend (bank in early) instead of reacting after it has cut inside. Kept
+    # short on purpose - too far points past the apex and cuts the corner. v_ref still uses the
+    # NEAREST tangent (below), so only the position target looks ahead, not the velocity heading.
+    la_dist = clamp(TRAJ_LA_TIME * v_cur, TRAJ_LA_MIN, TRAJ_LA_MAX)
+    la_pt = traj.track_point(pos, la_dist)
+    tgt = ((1.0 - TRAJ_LA_WEIGHT) * near_pt[0] + TRAJ_LA_WEIGHT * la_pt[0],
+           (1.0 - TRAJ_LA_WEIGHT) * near_pt[1] + TRAJ_LA_WEIGHT * la_pt[1])
+    perr_raw = (tgt[0] - pos[0], tgt[1] - pos[1])
     along = perr_raw[0] * tdir[0] + perr_raw[1] * tdir[1]
     perr = (perr_raw[0] - along * tdir[0], perr_raw[1] - along * tdir[1])
     verr = (v_ref[0] - vw[0], v_ref[1] - vw[1])         # velocity error -> cancels crab
