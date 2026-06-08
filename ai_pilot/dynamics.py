@@ -36,8 +36,8 @@ YAW_SIGN = -1.0
 
 # Shared vertical limits and thrust feedback gain (used by both pilots).
 MAX_CLIMB = 10.0       # m/s (the airframe climbs far harder than the old table assumed)
-MAX_DESCENT = 15.0     # m/s. The sysid No-Go-Zone shows a 30 m/s drop recovers in ~13 m, so a
-                       # 15 m/s descent needs only a few metres to arrest - dive hard. (Was 6.0.)
+MAX_DESCENT = 15.0     # m/s. The sysid No-Go-Zone shows a 30 m/s drop recovers in ~13 m, so an
+                       # aggressive descent is safe to arrest. (20 let it overshoot gate 1's bottom.)
 KP_THRUST_V = 0.070    # thrust per m/s of climb-rate error (feedback on top of the FF). Raised
                        # from 0.030: at steep lean the stale/too-hot hover curve made the drone
                        # balloon up over the gates; stronger climb-rate feedback holds altitude
