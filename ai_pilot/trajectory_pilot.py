@@ -32,14 +32,15 @@ TRAJ_KP_YAW = 0.7        # yaw-rate per rad of bearing. The sim amplifies yaw ~3
 TRAJ_MAX_YAW_RATE = 2.0  # rad/s command cap (~6.6 rad/s actual after the 3.3x amplification)
 
 # Roll/pitch tilt limits (the accel->tilt result is clamped to these).
-TRAJ_BRAKE_PITCH = -0.20  # most we'll pitch back (~11 deg)
-TRAJ_ACCEL_PITCH = 0.50   # most forward lean (~29 deg, ~9 m/s)
-TRAJ_MAX_STRAFE = 0.50    # max bank for lateral correction (~29 deg)
-TRAJ_V_MAX = 7.0          # m/s target. Higher overshoots the sharp gate-3 V into the inner post.
+TRAJ_BRAKE_PITCH = -0.35  # most we'll pitch back (~20 deg) - more braking authority into sharp gates
+TRAJ_ACCEL_PITCH = 0.60   # most forward lean (~34 deg) - lean harder to actually reach 9 m/s
+TRAJ_MAX_STRAFE = 0.65    # max bank for lateral correction (~37 deg) - tighter snap onto the line
+TRAJ_V_MAX = 9.0          # m/s target. Measured top speed ~9.4 m/s (sysid). Watch the sharp gate-3
+                          # V - if it overshoots into the inner post, back this down first.
 
 # Setpoints are slew-rate-limited so they ramp instead of stepping (a step to full lean from
 # standstill overshot and diverged). Slewing is a stabiliser; it does not cap top speed.
-TRAJ_PITCH_SLEW = 1.5     # rad/s
+TRAJ_PITCH_SLEW = 2.5     # rad/s (faster ramp into the lean for quicker accel; was 1.5)
 TRAJ_ROLL_SLEW = 4.0      # rad/s
 
 # Vertical: strong altitude hold to the line + a fraction of the slope as feedforward.
