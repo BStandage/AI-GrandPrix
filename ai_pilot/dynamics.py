@@ -19,7 +19,9 @@ MAVLINK_CMD_SIM_RESET = 31000
 
 HOVER_THRUST = 0.299   # collective thrust at which climb rate crosses zero
 KP_ATT = 3.0           # body-rate per rad of attitude error (4.0 caused PIO)
-MAX_RATE = 6.0         # rad/s clamp on commanded body rates (airframe max ~20-28)
+MAX_RATE = 20.0        # rad/s clamp on commanded body rates. Measured airframe max ~29 (roll/
+                       # pitch), ~19 (yaw) via the sysid campaign; 20 unlocks snappy corners/
+                       # recoveries with margin. (Was 6.0 - far below the airframe's real limit.)
 MIN_THRUST = 0.0
 MAX_THRUST = 1.0
 G_ACC = 9.81           # m/s^2, for the accel->tilt conversion: tan(tilt) = a_horizontal / g
@@ -33,8 +35,9 @@ PITCH_SIGN = -1.0
 YAW_SIGN = -1.0
 
 # Shared vertical limits and thrust feedback gain (used by both pilots).
-MAX_CLIMB = 5.0        # m/s
-MAX_DESCENT = 6.0      # m/s (course drops steeply; the airframe free-falls ~10 m/s)
+MAX_CLIMB = 10.0       # m/s (the airframe climbs far harder than the old table assumed)
+MAX_DESCENT = 15.0     # m/s. The sysid No-Go-Zone shows a 30 m/s drop recovers in ~13 m, so a
+                       # 15 m/s descent needs only a few metres to arrest - dive hard. (Was 6.0.)
 KP_THRUST_V = 0.030    # thrust per m/s of climb-rate error (feedback on top of the FF)
 
 # Measured steady-state thrust -> climb rate (m/s, up+). Strongly nonlinear and climb-biased:
