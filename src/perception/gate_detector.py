@@ -10,8 +10,10 @@
 # Tune the HSV range with: python gate_detector.py <a_frame.jpg>
 #
 
+import math
 import cv2
 import numpy as np
+from common.gate_geometry import quat_to_rotmat  # Add this import
 
 # RED gate in OpenCV HSV (H: 0-179). Pure red sits at BOTH ends of the hue circle
 # (H~0-12 and H~160-180), so we need two bands OR'd together - a single low-H band
@@ -117,6 +119,44 @@ def annotate(img, dets):
         cv2.circle(out, (int(d["center"][0]), int(d["center"][1])), 4, color, -1)
         cv2.putText(out, f"{i}", (x, y - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
     return out
+
+def estimate_gate_world_position(det, drone_pos, drone_quat):
+    """
+    Converts a single gate detection's image offsets and estimated distance
+    into an absolute 3D position in the world frame (NED coordinates).
+    """
+    # Camera constants matching the top of gate_detector.py
+    VIS_HALF_TAN_X = 1.0          
+    VIS_HALF_TAN_Y = 0.5625       
+    cam_tilt_rad = math.radians(26.0)  # Camera is hardware-tilted up 26 degrees
+    
+    offx = det["offset_x"]
+    offy = det["offset_y"]
+    dist = det["distance_m"]
+    
+    # 1. Convert normalized image offsets back into actual camera angles (radians)
+    bearing_x = math.atan(offx * VIS_HALF_TAN_X) 
+    bearing_y = math.atan(offy * VIS_HALF_TAN_Y)
+    
+    # 2. Reconstruct relative 3D position vector in Camera Frame
+    cam_x = dist * math.sin(bearing_x)
+    cam_z = dist * math.sin(bearing_y)
+    cam_y = math.sqrt(max(0.0, dist**2 - cam_x**2 - cam_z**2))
+    
+    # 3. Rotate out of camera up-tilt into Drone Body Frame
+    c_tilt, s_tilt = math.cos(cam_tilt_rad), math.sin(cam_tilt_rad)
+    body_x = cam_y * c_tilt - cam_z * s_tilt
+    body_y = cam_x
+    body_z = cam_y * s_tilt + cam_z * c_tilt
+    body_xyz = np.array([body_x, body_y, body_z])
+    
+    # 4. Rotate from Drone Body Frame into fixed World Frame (NED)
+    R = quat_to_rotmat(drone_quat)
+    world_rel_xyz = np.dot(R, body_xyz)  # <-- Use the top-level NumPy dot function
+    
+    # 5. Add drone's position to obtain the absolute world coordinate
+    world_gate_pos = np.array(drone_pos) + world_rel_xyz
+    return world_gate_pos
 
 
 if __name__ == "__main__":
