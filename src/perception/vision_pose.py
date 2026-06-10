@@ -14,13 +14,8 @@ import numpy as np
 
 from perception.gate_detector import gate_mask, MIN_GATE_AREA_FRAC
 from common.gate_geometry import get_drone_pose, relative_gate
-
-# --- camera model ---
-# FOCAL_PX = 320 matches the spec (fx=fy=320) and was confirmed by a focal sweep against live
-# ground truth: 229 read every gate at ~0.73x its true distance (27% too near); 320 gives ~0.97x.
-FOCAL_PX = 320.0
-GATE_SIZE_M = 2.72          # gate width/height from gates.json (square)
-CAM_UPTILT_RAD = 0.446      # camera tilted UP ~26 deg from body forward
+# Camera model: single source of truth (ground truth, spec VADR-TS-002).
+from common.camera import FX as FOCAL_PX, GATE_OUTER_M as GATE_SIZE_M, UPTILT_RAD as CAM_UPTILT_RAD
 
 
 def gate_corners(img):
@@ -73,6 +68,26 @@ def camera_gate_pose(img):
         return None
     h, w = img.shape[:2]
     return pnp_pose_body(corners, w, h)
+
+
+# Camera geometry for projecting a known BODY-frame point back into the image (the inverse of the
+# bearing the detector reports). Used only by offline data collection to label each detection
+# against ground truth: it tells us WHERE a true gate should appear in frame.
+from common.camera import HALF_TAN_X as _HTX, HALF_TAN_Y as _HTY
+_C_TILT, _S_TILT = math.cos(CAM_UPTILT_RAD), math.sin(CAM_UPTILT_RAD)
+
+
+def project_body_to_offset(fwd, right, down):
+    """Project a body-frame point (forward, right, down) to normalised image offsets (ox, oy) in
+    [-1,1], the exact quantity the detector reports. Inverts the de-tilt + pinhole in pnp_pose_body.
+    Returns None if the point is behind the camera. |ox|,|oy| <= 1 means it lands inside the frame."""
+    # body -> camera-aligned (rotate DOWN by the up-tilt): inverse of the de-tilt rotation
+    fwd_cam = _C_TILT * fwd - _S_TILT * down
+    down_cam = _S_TILT * fwd + _C_TILT * down
+    right_cam = right
+    if fwd_cam <= 1e-6:
+        return None
+    return (right_cam / fwd_cam) / _HTX, (down_cam / fwd_cam) / _HTY
 
 
 def shadow_compare(data, img):

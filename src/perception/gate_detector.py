@@ -1,9 +1,9 @@
 #
 # Classic-CV gate detector for the high-contrast (Round 1) AI-GP gates.
 #
-# The gate is a bright RED square ring on a desaturated grey world, so an HSV
-# colour threshold segments it cleanly - no training data or ML needed. We
-# threshold the red, find blobs, and return each gate's bounding box + centre,
+# The gate is a bright red/orange square ring on a desaturated grey world, so an HSV
+# color threshold segments it cleanly - no training data or ML needed. We
+# threshold the red/orange, find blobs, and return each gate's bounding box + centre,
 # sorted nearest-first (biggest = closest). This gives the gate's bearing in the
 # image immediately; pose (distance/orientation) comes later via PnP.
 #
@@ -13,23 +13,41 @@
 import cv2
 import numpy as np
 
-# RED gate in OpenCV HSV (H: 0-179). Pure red sits at BOTH ends of the hue circle
-# (H~0-12 and H~160-180), so we need two bands OR'd together - a single low-H band
-# misses the wrap-around half and fragments the ring. High S/V floors: the gate is
-# vivid against the desaturated grey world, and crucially this EXCLUDES the bright
-# BLUE racing line (H~100), which is the most saturated thing in frame.
-GATE_HSV_LOWER1 = (0, 90, 70)
-GATE_HSV_UPPER1 = (12, 255, 255)
-GATE_HSV_LOWER2 = (160, 90, 70)
+# Camera calibration: single source of truth (ground truth, spec VADR-TS-002).
+from common.camera import FX as FOCAL_LENGTH_PX, GATE_OUTER_M as GATE_REAL_HEIGHT_M
+
+# RED-ORANGE gate in OpenCV HSV (H: 0-179). The gate measures H~5 (a warm vermilion); we take a
+# low band up to H~22 (red through orange, for lighting/edge robustness) PLUS the wrap-around band
+# near 180, since red straddles both ends of the hue circle. High S/V floors keep the desaturated
+# grey world out and EXCLUDE the bright BLUE racing line (H~100), the most saturated thing in frame.
+GATE_HSV_LOWER1 = (0, 80, 70)
+GATE_HSV_UPPER1 = (22, 255, 255)
+GATE_HSV_LOWER2 = (160, 80, 70)
 GATE_HSV_UPPER2 = (180, 255, 255)
 
 MIN_GATE_AREA_FRAC = 0.00015  # ignore blobs smaller than this fraction of the frame
+# (FOCAL_LENGTH_PX, GATE_REAL_HEIGHT_M imported from common.camera above. Pinhole distance estimate:
+#  distance = f * real_height / pixel_height.)
 
-# Camera calibration: focal length 320 px (spec fx=fy=320; confirmed by a focal sweep vs ground
-# truth - the old 229 read gates ~27% too near). Camera tilted UP ~26 deg.
-# Gives a pinhole distance estimate: distance = f * real_height / pixel_height.
-FOCAL_LENGTH_PX = 320.0
-GATE_REAL_HEIGHT_M = 2.7
+
+def ring_corners(contour):
+    """Ordered 4 corners (TL,TR,BR,BL) of one red-ring contour: a 4-point polygon approximation of
+    the convex hull, falling back to the min-area rotated rect. Same logic vision_pose uses on the
+    largest ring, exposed per-contour so the offline collector can solvePnP EVERY detection."""
+    hull = cv2.convexHull(contour)
+    peri = cv2.arcLength(hull, True)
+    quad = None
+    for k in (0.02, 0.04, 0.06, 0.08, 0.10):
+        approx = cv2.approxPolyDP(hull, k * peri, True)
+        if len(approx) == 4:
+            quad = approx.reshape(4, 2).astype(np.float32)
+            break
+    if quad is None:
+        quad = cv2.boxPoints(cv2.minAreaRect(contour)).astype(np.float32)
+    s = quad.sum(axis=1)
+    d = quad[:, 0] - quad[:, 1]
+    return np.array([quad[np.argmin(s)], quad[np.argmax(d)],
+                     quad[np.argmax(s)], quad[np.argmin(d)]], dtype=np.float32)
 
 
 def gate_mask(img):
@@ -44,7 +62,7 @@ def gate_mask(img):
     return mask
 
 
-def detect_gates(img, min_area_frac=MIN_GATE_AREA_FRAC):
+def detect_gates(img, min_area_frac=MIN_GATE_AREA_FRAC, with_corners=False):
     """Return (detections, mask).
 
     The gate is a THICK orange ring - what we must fly through is the HOLE, not the
@@ -91,7 +109,7 @@ def detect_gates(img, min_area_frac=MIN_GATE_AREA_FRAC):
             has_opening = False
 
         cx, cy = x + bw / 2.0, y + bh / 2.0
-        dets.append({
+        det = {
             "bbox": (x, y, bw, bh),
             "center": (cx, cy),
             "area": ring_area,
@@ -103,7 +121,10 @@ def detect_gates(img, min_area_frac=MIN_GATE_AREA_FRAC):
             # aim at the inner opening (~1.5 m) the bbox shrinks, and dividing by 2.72 would read
             # ~1.8x too far. The ring is also the most directly-detected extent (the red blob).
             "distance_m": FOCAL_LENGTH_PX * GATE_REAL_HEIGHT_M / max(rw, rh, 1),
-        })
+        }
+        if with_corners:
+            det["corners"] = ring_corners(c)   # ordered 4 corners for per-detection solvePnP
+        dets.append(det)
     dets.sort(key=lambda d: d["area"], reverse=True)
     return dets, mask
 
@@ -121,8 +142,14 @@ def annotate(img, dets):
 
 if __name__ == "__main__":
     import sys
+    if len(sys.argv) < 2:
+        sys.exit("usage: python -m perception.gate_detector <path-to-frame.jpg>")
     path = sys.argv[1]
     img = cv2.imread(path)
+    if img is None:
+        sys.exit(f"could not read image: {path!r}\n"
+                 f"  (cv2.imread returned None - check the path exists relative to your current "
+                 f"directory. With `-m` the path is relative to src/, e.g. datasets/session_*/frames/xxxx.jpg)")
     dets, mask = detect_gates(img)
     print(f"{len(dets)} gate(s):")
     for i, d in enumerate(dets):

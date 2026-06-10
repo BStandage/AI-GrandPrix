@@ -29,6 +29,7 @@ class Controller:
         self.data = data
         self.system_boot_ms = system_boot_ms
         self.tick = 0
+        data["_control_mode"] = CONTROL_MODE   # so the vision data collector records which pilot flew
 
     def update(self):
         if CONTROL_MODE == "vision":

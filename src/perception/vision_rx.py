@@ -9,6 +9,7 @@ import numpy as np
 
 from perception.gate_detector import detect_gates
 from perception.vision_pose import shadow_compare
+from perception.vision_logger import VisionFrameLogger, COLLECT_VISION_DATA
 
 SHADOW_CSV_HEADER = ["frame_id", "sim_time_ns", "gate_id",
                      "cam_fwd", "cam_right", "cam_down", "gt_fwd", "gt_right", "gt_down",
@@ -36,6 +37,13 @@ class VisionRX:
                 print(f"Vision-shadow logging -> {path}", flush=True)
             except OSError:
                 self._shadow_f = self._shadow_w = None
+        # Comprehensive per-frame data collector (perception + ground truth + control intent).
+        self.vlog = None
+        if COLLECT_VISION_DATA and logger is not None:
+            try:
+                self.vlog = VisionFrameLogger(logger.session_dir)
+            except OSError:
+                self.vlog = None
         self.thread = threading.Thread(
             target=self._vision_loop,
             daemon=True
@@ -113,6 +121,9 @@ class VisionRX:
 
                 del frames[frame_id]
 
+        if self.vlog is not None:
+            self.vlog.close()
+
     def process_frame(self, frame_id, img, sim_time_ns):
         """
         The input var img is a numpy array representing the decoded image frame from the simulator's FPV camera.
@@ -132,6 +143,11 @@ class VisionRX:
         gates, _ = detect_gates(img)
         self.data["vision_gates"] = gates
         self.data["vision_target"] = gates[0] if gates else None
+
+        # COMPREHENSIVE DATA COLLECTION: one rich record per frame (perception + ground truth +
+        # control intent), for offline diagnosis of why the vision pilot misses gates.
+        if self.vlog is not None:
+            self.vlog.log(frame_id, img, sim_time_ns, self.data)
 
         # VISION-SHADOW: while the oracle flies (on ground truth), measure how close the
         # camera-only gate pose (detect -> PnP) is to the LIVE ground truth - same frame, so no
