@@ -14,7 +14,8 @@ import numpy as np
 # src/ package root on sys.path, not just this subpackage's folder.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from perception.gate_detector import detect_gates, annotate, gate_mask
+from perception.detectors.hsv_classic import gate_mask
+from perception.gate_detection import mask_to_detections, annotate
 from common.paths import DEBUG_DIR
 
 OUT = DEBUG_DIR
@@ -32,12 +33,13 @@ def dump(path):
         print("missing:", path)
         return
     name = os.path.splitext(os.path.basename(path))[0]
-    dets, mask = detect_gates(img)
+    mask = gate_mask(img)
+    dets = mask_to_detections(mask, img.shape)
     cv2.imwrite(os.path.join(OUT, f"{name}_1annotated.jpg"), annotate(img, dets))
     cv2.imwrite(os.path.join(OUT, f"{name}_2mask.jpg"), mask)
     t = dets[0] if dets else None
-    info = (f"opening={t['has_opening']} off=({t['offset_x']:+.2f},{t['offset_y']:+.2f}) "
-            f"dist={t['distance_m']:.1f}m") if t else "no gate"
+    info = (f"opening={t.has_opening} off=({t.offset_x:+.2f},{t.offset_y:+.2f}) "
+            f"dist={t.distance_m:.1f}m") if t else "no gate"
     print(f"{name}: {info}")
 
 

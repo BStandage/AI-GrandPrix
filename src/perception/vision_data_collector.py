@@ -1,25 +1,24 @@
 """
-Comprehensive per-frame VISION DATA COLLECTOR.
+Per-frame vision data collector.
 
-For every camera frame it writes ONE rich JSON record to ``vision_frames.jsonl`` in the session
-folder. The record fuses, all at the same instant:
+For every camera frame it writes one rich JSON record to vision_frames.jsonl in the session folder.
+Each record fuses, all at the same instant:
 
-  * the drone's true pose / velocity / attitude (odometry) - sampled at frame time, the same
-    "no replay mismatch" alignment the vision-shadow uses;
-  * the FULL perception output - every red-ring detection with its image offset, area, opening,
-    pinhole distance AND a per-detection solvePnP body pose (not just the nearest gate);
-  * the GROUND-TRUTH geometry of every gate (body frame + world + where it projects in the image),
-    so each detection is auto-labelled against truth (which gate is it, how far off in
-    bearing / elevation / range), and we can see whether the gate we SHOULD be flying
-    through was even detected;
-  * the pilot's control intent that tick (regime, commanded roll/climb/lean/thrust, target).
+  * the drone's true pose, velocity, and attitude (odometry), sampled at frame time with the same
+    "no replay mismatch" alignment the vision-shadow uses
+  * the full perception output: every red-ring detection with its image offset, area, opening, and
+    pinhole distance, plus a per-detection solvePnP body pose (not just the nearest gate)
+  * the ground-truth geometry of every gate (body frame, world, and where it projects in the image),
+    so each detection is auto-labelled against truth (which gate it is, how far off in bearing,
+    elevation, and range), and we can see whether the gate we should be flying through was detected
+  * the pilot's control intent that tick (regime, commanded roll/climb/lean/thrust, target)
 
-This is the "collect everything, then diagnose from data" dataset. Run it on an ORACLE lap to see
-exactly what vision sees along the perfect racing line, and on a VISION lap to see why it misses.
+This is the "collect everything, then diagnose from data" dataset. Run it on an oracle lap to see what
+vision sees along the perfect racing line, and on a vision lap to see why it misses.
 
-Ground truth is logged for ANALYSIS ONLY - the live vision pilot never reads it. Toggle with
-COLLECT_VISION_DATA below. Every operation is wrapped so a logging error can never crash the
-vision thread.
+Ground truth is logged for analysis only. The live vision pilot never reads it. Toggle collection with
+COLLECT_VISION_DATA below. Every operation is wrapped so a logging error can never crash the vision
+thread.
 """
 
 import json
@@ -29,7 +28,8 @@ import time
 
 import numpy as np
 
-from perception.gate_detector import detect_gates
+from perception.detectors.hsv_classic import gate_mask
+from perception.gate_detection import mask_to_detections
 from perception.vision_pose import pnp_pose_body, project_body_to_offset
 from common.gate_geometry import get_drone_pose, relative_gate, quat_to_rotmat
 
@@ -42,7 +42,7 @@ _MATCH_OFFSET_RADIUS = 0.35
 
 
 def _control_intent(data):
-    """Whatever the active pilot decided this tick - works for both vision and oracle modes.
+    """Whatever the active pilot decided this tick. Works for both vision and oracle modes.
     Only keys that are present are emitted (best-effort, never raises)."""
     keys = ("vision_regime", "traj_regime", "oracle_thrust", "vis_lean",
             "pursuit_desired_climb", "traj_xtrack", "traj_vtgt", "traj_vcur", "traj_yawrate")
@@ -87,9 +87,9 @@ def _gt_gates(data, pose):
     return out
 
 
-def _match_to_gt(proj_offx, proj_offy, det_offx, det_offy, gt_gates):
+def _match_to_gt(det_offx, det_offy, gt_gates):
     """Nearest GT gate to a detection by image-offset distance (auto-label). Returns
-    (gate_id, offset_dist) or (None, None) if nothing is within the match radius."""
+    (gate_id, offset_dist), or (None, None) if nothing is within the match radius."""
     best, bd = None, _MATCH_OFFSET_RADIUS
     for g in gt_gates:
         if g["proj_offx"] is None:
@@ -102,14 +102,14 @@ def _match_to_gt(proj_offx, proj_offy, det_offx, det_offy, gt_gates):
     return best["gate_id"], round(bd, 4)
 
 
-class VisionFrameLogger:
+class VisionDataCollector:
 
     def __init__(self, session_dir):
         self.path = os.path.join(session_dir, "vision_frames.jsonl")
         self._f = open(self.path, "w")
         self._n = 0
         self._warned = False
-        print(f"VISION DATA COLLECTION -> {self.path}  (per-frame perception + truth + control)",
+        print(f"Vision data collection writing to {self.path}  (per-frame perception, truth, control)",
               flush=True)
 
     def log(self, frame_id, img, sim_time_ns, data):
@@ -127,7 +127,7 @@ class VisionFrameLogger:
         att = data.get("attitude") or {}
         rs = data.get("race_status") or {}
 
-        # world-frame velocity + yaw (odometry vx/vy/vz are BODY frame)
+        # world-frame velocity + yaw (odometry vx/vy/vz are in the body frame)
         vw = yaw = None
         if pose is not None:
             R = quat_to_rotmat(pose[1])
@@ -140,19 +140,19 @@ class VisionFrameLogger:
 
         gt = _gt_gates(data, pose)
 
-        # FULL perception, with a solvePnP body pose for every detection
-        dets_raw, _ = detect_gates(img, with_corners=True)
+        # FULL perception (classic CV baseline), with a solvePnP body pose for every detection
+        dets_raw = mask_to_detections(gate_mask(img), img.shape)
         dets = []
         for d in dets_raw:
-            corners = d.get("corners")
+            corners = d.corners
             pose_b = pnp_pose_body(corners, w, h) if corners is not None else None
             rec = {
-                "offx": round(d["offset_x"], 4),
-                "offy": round(d["offset_y"], 4),
-                "area_frac": round(d["area_frac"], 6),
-                "has_opening": d["has_opening"],
-                "pinhole_dist": round(d["distance_m"], 2),
-                "bbox": [int(v) for v in d["bbox"]],
+                "offx": round(d.offset_x, 4),
+                "offy": round(d.offset_y, 4),
+                "area_frac": round(d.area_frac, 6),
+                "has_opening": d.has_opening,
+                "pinhole_dist": round(d.distance_m, 2),
+                "bbox": [int(v) for v in d.bbox],
             }
             if pose_b is not None:
                 pf, pr, pd = pose_b
@@ -160,7 +160,7 @@ class VisionFrameLogger:
                 rec["pnp_right"] = round(pr, 3)
                 rec["pnp_down"] = round(pd, 3)
                 rec["pnp_dist"] = round(math.hypot(pf, pr, pd), 3)
-            gid, mdist = _match_to_gt(None, None, d["offset_x"], d["offset_y"], gt)
+            gid, mdist = _match_to_gt(d.offset_x, d.offset_y, gt)
             rec["match_gid"] = gid
             rec["match_offdist"] = mdist
             if gid is not None and pose_b is not None:
@@ -211,7 +211,7 @@ class VisionFrameLogger:
     def close(self):
         try:
             self._f.close()
-            print(f"VISION DATA COLLECTION closed: {self._n} frames -> {self.path}", flush=True)
+            print(f"Vision data collection closed: {self._n} frames written to {self.path}", flush=True)
         except Exception:
             pass
 

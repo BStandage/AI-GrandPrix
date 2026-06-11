@@ -1,10 +1,24 @@
 """
-Camera -> gate pose. The perception half of the vision pilot, shared by the offline validator
-(pnp_offline.py) and the live vision-shadow check (vision_rx.py).
+Camera to gate pose by PnP. Turns the gate's appearance in one image into its 3D position relative to
+the drone (forward, right, down).
 
-Pipeline: detect the red gate ring (gate_detector) -> its 4 corners -> cv2.solvePnP against the
-known gate size + focal length -> gate centre in the camera -> rotate into the drone BODY frame
-(forward, right, down), the SAME quantity the pursuit controller steers on. No ground truth.
+PnP (Perspective-n-Point) recovers a 3D position from a flat 2D photo. A photo normally throws away
+depth: a small gate could be a tiny gate up close or a big gate far away. PnP gets the depth back by
+using one extra fact, the real-world size and shape of the gate.
+
+Concretely:
+  * We know the gate is a 2.7 m square, so we know its 4 corners form a specific shape in the world.
+  * We measure where those 4 corners land in the image (their pixel coordinates).
+  * PnP solves: where must a 2.7 m square sit in 3D for its corners to project onto exactly those
+    pixels? The answer is the gate's pose. Here we keep the position (forward, right, down).
+
+Pipeline: detect the red gate ring (detectors.hsv_classic.gate_mask), find its 4 corners, run
+cv2.solvePnP against the known gate size and focal length, then rotate the result into the drone body
+frame and undo the 20 degree camera up-tilt. No ground truth is used.
+
+Used by the offline data labeling (vision_data_collector) and the vision-shadow accuracy check (vision_rx),
+which compares this camera-only pose against ground truth. The live pilot does not steer on it. It
+distrusts the PnP range and uses the image bearing plus dead reckoning instead.
 """
 
 import math
@@ -12,7 +26,8 @@ import math
 import cv2
 import numpy as np
 
-from perception.gate_detector import gate_mask, MIN_GATE_AREA_FRAC
+from perception.detectors.hsv_classic import gate_mask
+from perception.gate_detection import MIN_GATE_AREA_FRAC
 from common.gate_geometry import get_drone_pose, relative_gate
 # Camera model: single source of truth (ground truth, spec VADR-TS-002).
 from common.camera import FX as FOCAL_PX, GATE_OUTER_M as GATE_SIZE_M, UPTILT_RAD as CAM_UPTILT_RAD
@@ -45,12 +60,17 @@ def gate_corners(img):
 
 
 def pnp_pose_body(corners, w, h):
-    """solvePnP the gate -> (forward, right, down) of the gate centre in the BODY frame, or None."""
+    """Run PnP on the gate's 4 image corners. Returns (forward, right, down) of the gate centre in the
+    body frame, or None. corners are the corner pixel positions from gate_corners."""
+    # The "we know the real size" fact PnP needs: the gate's 4 corners in meters, a flat 2.7 m square
+    # centred on the origin (x = right, y = down, z = 0 in the gate's own plane).
     half = GATE_SIZE_M / 2.0
     obj = np.array([[-half, -half, 0], [half, -half, 0],
-                    [half, half, 0], [-half, half, 0]], dtype=np.float32)  # x right, y down
+                    [half, half, 0], [-half, half, 0]], dtype=np.float32)
+    # Camera matrix (focal length and image centre), so PnP knows how a 3D point projects to a pixel.
     K = np.array([[FOCAL_PX, 0, w / 2.0], [0, FOCAL_PX, h / 2.0], [0, 0, 1]], dtype=np.float32)
-    # ITERATIVE (not IPPE_SQUARE - that gave ~0.4x the true distance on these gates)
+    # Solve for where that square must sit in 3D to land on `corners`. ITERATIVE, not IPPE_SQUARE
+    # (which gave ~0.4x the true distance on these gates).
     ok, rvec, tvec = cv2.solvePnP(obj, corners, K, None, flags=cv2.SOLVEPNP_ITERATIVE)
     if not ok:
         return None
