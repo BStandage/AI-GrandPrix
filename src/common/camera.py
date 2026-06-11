@@ -1,7 +1,7 @@
 """
 Ground-truth camera model (spec VADR-TS-002, sec 3.7-3.8) - the SINGLE source for camera geometry.
 
-Perception (gate_detector, vision_pose) and the vision pilot all import from here, so the
+Perception (detectors, gate_detection, vision_pose) and the vision pilot all import from here, so the
 calibration lives in exactly one place. These are ground truth - do NOT tweak them to fix flight.
 """
 

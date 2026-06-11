@@ -38,10 +38,10 @@ class PerceptionNoise:
         rng = rng or __import__("random")
         if rng.random() > _detect_p(dist):
             return None                                   # missed this frame
-        det["offset_x"] += rng.gauss(0, OFFX_STD)
-        det["offset_y"] += rng.gauss(0, OFFY_STD)
+        det.offset_x += rng.gauss(0, OFFX_STD)
+        det.offset_y += rng.gauss(0, OFFY_STD)
         ratio = max(0.15, rng.gauss(RANGE_MED, RANGE_STD))
         if rng.random() < BLOWUP_P:
             ratio *= rng.uniform(*BLOWUP_MULT)
-        det["distance_m"] = dist * ratio                  # range is the unreliable axis
+        det.distance_m = dist * ratio                     # range is the unreliable axis
         return det

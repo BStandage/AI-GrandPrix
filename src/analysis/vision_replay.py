@@ -1,6 +1,6 @@
 """
 Rebuild the rich per-frame vision dataset (vision_frames.jsonl) from a SAVED session - the same
-records the live collector (perception.vision_logger) writes, but reconstructed offline from the
+records the live collector (perception.vision_data_collector) writes, but reconstructed offline from the
 recorded frames + telemetry + gates. Lets us extract the full perception-vs-truth dataset from any
 past flight without re-flying, and re-run it after improving the detector/PnP.
 
@@ -21,7 +21,7 @@ import sys
 import cv2
 
 from common.paths import DATASETS_DIR
-from perception.vision_logger import VisionFrameLogger
+from perception.vision_data_collector import VisionDataCollector
 
 
 def _newest_session():
@@ -81,7 +81,7 @@ def replay(session_dir):
               flush=True)
 
     out_path = os.path.join(session_dir, "vision_frames.jsonl")
-    vl = VisionFrameLogger.__new__(VisionFrameLogger)   # bypass the "open w" in __init__
+    vl = VisionDataCollector.__new__(VisionDataCollector)   # bypass the "open w" in __init__
     vl.path = out_path
     vl._f = open(out_path, "w")
     vl._n = 0

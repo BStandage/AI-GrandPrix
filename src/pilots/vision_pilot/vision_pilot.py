@@ -58,7 +58,7 @@ def _seconds_to_go(data):
 def _det_dir_body(det):
     """Unit body-frame direction (fwd, right, down) to a detection, from its image offset. The
     image bearing is the pilot's most reliable signal; inverts the 20 deg camera up-tilt + pinhole."""
-    ox, oy = det["offset_x"], det["offset_y"]
+    ox, oy = det.offset_x, det.offset_y
     fc, rc, dc = 1.0, ox * VIS_HALF_TAN_X, oy * VIS_HALF_TAN_Y
     fwd = fc * _C_TILT + dc * _S_TILT
     right = rc
@@ -220,7 +220,7 @@ def update_vision_control(mavlink_conn, system_boot_ms, data):
         data["_vis_fid"] = fid
         # per detection: body direction (its [0] = forward), world direction, and pinhole range
         bdirs = [_det_dir_body(g) for g in gates]
-        dirs = [(_mat_vec(R, bdirs[k]), gates[k].get("distance_m")) for k in range(len(gates))]
+        dirs = [(_mat_vec(R, bdirs[k]), gates[k].distance_m) for k in range(len(gates))]
         used = [False] * len(dirs)
 
         # SELECT THE TARGET GATE = the NEAREST gate ahead (largest blob). Keep the currently-tracked
@@ -231,13 +231,13 @@ def update_vision_control(mavlink_conn, system_boot_ms, data):
         # this size check, was locking onto the far gate and skipping gate 2.)
         ahead = [k for k in range(len(dirs)) if bdirs[k][0] > 0.0]
         if ahead:
-            biggest = max(ahead, key=lambda k: gates[k]["area"])
+            biggest = max(ahead, key=lambda k: gates[k].area)
             j, keep = biggest, False
             if cur is not None:
                 pred = _unit([cur[i] - lf[i] for i in range(3)])
                 cand = min(ahead, key=lambda k: _ang(pred, dirs[k][0]))
                 if (_ang(pred, dirs[cand][0]) < VIS_ASSOC_ANG
-                        and gates[cand]["area"] >= VIS_KEEP_FRAC * gates[biggest]["area"]):
+                        and gates[cand].area >= VIS_KEEP_FRAC * gates[biggest].area):
                     j, keep = cand, True              # same gate still near-biggest: keep tracking it
             if keep:
                 cur = _update_gate(cur, lf, dirs[j][0], dirs[j][1], VIS_FUSE_ALPHA)
@@ -259,7 +259,7 @@ def update_vision_control(mavlink_conn, system_boot_ms, data):
                     nxt = _update_gate(nxt, lf, dirs[j][0], dirs[j][1], VIS_FUSE_ALPHA)
                 # else: keep the dead-reckoned next-gate estimate (no good match this frame)
             elif nxt is None and cand:
-                j = max(cand, key=lambda k: gates[k]["area"])
+                j = max(cand, key=lambda k: gates[k].area)
                 nxt = _update_gate(None, lf, dirs[j][0], dirs[j][1], 1.0)
 
     # 3) GATE PASSED? release the current gate when it's close or behind; promote the next gate.
