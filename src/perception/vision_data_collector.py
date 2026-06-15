@@ -34,7 +34,7 @@ from perception.vision_pose import pnp_pose_body, project_body_to_offset
 from common.gate_geometry import get_drone_pose, relative_gate, quat_to_rotmat
 
 # Master switch. True = write vision_frames.jsonl every run (the data-collection deliverable).
-COLLECT_VISION_DATA = True
+COLLECT_VISION_DATA = False
 
 # A detection is matched to the ground-truth gate whose projected image position is nearest, but
 # only if within this image-offset radius (rejects matches to a gate that isn't really there).

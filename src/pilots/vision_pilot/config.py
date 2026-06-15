@@ -32,9 +32,9 @@ VIS_RANGE_BIAS = 1.6         # the pinhole range reads ~38% SHORT vs truth (meas
 # slowly). A fast-swinging estimate is spurious (detection noise + ~1-frame camera latency rotated
 # by the current attitude while banking) and, fed into the follower, drove a roll PIO. So fuse
 # gently AND hard-cap how far the estimate may move per update.
-VIS_FUSE_ALPHA = 0.25        # how hard each detection pulls a tracked gate onto the camera bearing
+VIS_FUSE_ALPHA = 0.12        # how hard each detection pulls a tracked gate onto the camera bearing
                              # (cross-track correction). Lower = smoother (less PIO), slower to centre.
-VIS_EST_MAX_STEP = 0.20      # m: max the gate estimate may move per detection. The static-gate prior
+VIS_EST_MAX_STEP = 0.08      # m: max the gate estimate may move per detection. The static-gate prior
                              # that kills the oscillation - big per-frame jumps are rejected as noise.
 VIS_ASSOC_ANG = 0.30         # rad (~17 deg): a detection within this bearing of a tracked gate's
                              # predicted direction is that SAME gate (temporal persistence / anti-flip)
@@ -49,12 +49,12 @@ VIS_PASS_DIST = 2.5          # m: once the gate estimate is this close (or behin
                              # release it and promote the next gate to the target.
 
 # --- racing line ----------------------------------------------------------------------------
-VIS_MIN_GATE_GAP = 8.0       # m: only fold the NEXT gate into the line if its estimate is at least
+VIS_MIN_GATE_GAP = 4.0       # m: only fold the NEXT gate into the line if its estimate is at least
                              # this far BEYOND the current gate. Gate depth is unreliable, so a far
                              # blob's range often collapses onto the current gate's depth - two line
                              # knots on top of each other make a degenerate spline that brakes the
                              # speed profile to ~0 and parks the drone short. This rejects that.
-VIS_REBUILD_EVERY = 10       # rebuild the spline every N control ticks (not every tick): the gate
+VIS_REBUILD_EVERY = 25       # rebuild the spline every N control ticks (not every tick): the gate
                              # estimate drifts slowly, so re-splining at 250 Hz just injects jitter.
 # --- vertical: WORLD-elevation servo (range-independent AND pitch-compensated) ---------------
 # A fixed image ROW is wrong: the row a gate sits at depends on the drone's PITCH (it flies ~17 deg
@@ -63,12 +63,15 @@ VIS_REBUILD_EVERY = 10       # rebuild the spline every N control ticks (not eve
 # world_dir = R @ image_bearing already folds in pitch, and an elevation is a DIRECTION so the bad
 # gate range can't corrupt it. elev > 0 = gate above us -> climb; < 0 = below -> descend. Servoing to
 # 0 flies us to the gate's altitude. desired_climb = VIS_KP_VE * (elev - VIS_TARGET_ELEV).
-VIS_TARGET_ELEV = 0.14       # rad: servo the gate's measured world elevation to this. real_miss showed
+VIS_TARGET_ELEV = 0.04       # rad: servo the gate's measured world elevation to this. real_miss showed
                              # it clipping the TOP of gates 0-2 by ~0.1 m (UP0.8-0.9), so raise a bit
                              # more for clean clearance + margin. RAISE if it still clips the top, LOWER
                              # if it starts flying under / into the floor.
-VIS_KP_VE = 9.0              # m/s of climb per rad of world-elevation error
-VIS_VERT_ALPHA = 0.3         # smoothing on the gate elevation (held through detection dropouts)
+VIS_KP_VE = 14.0              # m/s of climb per rad of world-elevation error
+VIS_VERT_ALPHA = 0.28         # smoothing on the gate elevation (held through detection dropouts)
+VIS_APPROACH_DIST = 1.0      # m before the gate to aim through first
+VIS_APPROACH_MIN_RANGE = 5.0 # only add approach point when not already close
+
 
 # --- lateral: body-AZIMUTH servo (range-independent), mirror of the vertical ----------------
 # Same reasoning as vertical: gate range is garbage, and lateral position = range x bearing, so on
@@ -84,7 +87,7 @@ VIS_COMMIT_RANGE = 5.0       # m: ramp the strafe correction to zero over the la
                              # metres and COMMIT straight through - you can't change your arrival
                              # point that late, and chasing the sweeping bearing only lurches it.
 
-VIS_V_MAX = 10.0             # m/s target speed for the estimated line. Below the oracle's 13: depth
+VIS_V_MAX = 5.0             # m/s target speed for the estimated line. Below the oracle's 13: depth
                              # is uncertain and the horizon is only the next 1-2 gates, so carry a bit
                              # less speed. (Raise toward 13 once the estimate proves solid.)
 VIS_FLOOR_MARGIN = 1.0       # m extra floor-guard margin below the lowest ESTIMATED gate (the gate

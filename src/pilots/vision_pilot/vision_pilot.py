@@ -284,7 +284,24 @@ def update_vision_control(mavlink_conn, system_boot_ms, data):
     #    standstill cap, and the altitude reference comes from the gate line, not the drone's own z).
     #    Fold in the next gate ONLY if it's genuinely beyond the current one (a far blob's bad range
     #    can collapse onto the current gate's depth and make a degenerate spline).
-    line_gates = [{"gate_id": 0, "position_ned": list(cur)}]
+    rng = math.dist(cur, lf)
+
+    # Add an approach point before the current gate.
+    # This gives the trajectory a smoother entry direction instead of aiming straight at the gate.
+    line_gates = []
+
+    if rng > VIS_APPROACH_MIN_RANGE:
+        to_gate = [cur[i] - lf[i] for i in range(3)]
+        dist = math.sqrt(sum(c * c for c in to_gate)) or 1.0
+        dir_to_gate = [c / dist for c in to_gate]
+
+        approach_dist = min(VIS_APPROACH_DIST, max(0.0, rng - VIS_PASS_DIST))
+        approach = [cur[i] - dir_to_gate[i] * approach_dist for i in range(3)]
+
+        line_gates.append({"gate_id": -1, "position_ned": approach})
+
+    line_gates.append({"gate_id": 0, "position_ned": list(cur)})
+
     if nxt is not None and math.dist(nxt, cur) > VIS_MIN_GATE_GAP and \
             math.dist(nxt, (0.0, 0.0, 0.0)) > math.dist(cur, (0.0, 0.0, 0.0)):
         line_gates.append({"gate_id": 1, "position_ned": list(nxt)})
@@ -310,20 +327,46 @@ def update_vision_control(mavlink_conn, system_boot_ms, data):
     roll_rate, pitch_rate, yaw_rate, thrust, telem = follow_line(
         traj, tuple(lf), quat, vb, (roll, pitch), state, floor_alt=None, use_yaw=False,
         climb_override=climb_cmd)
-
+    
     rng = math.dist(cur, lf)
-    regime = "PUNCH" if rng < VIS_PASS_DIST + 2 else "PURSUE"
+
+    # ALIGNMENT GATE: if the remembered gate bearing/elevation is not centered,
+    # reduce the forward pitch command so the drone stops charging ahead sideways.
+    az = data.get("_vg_az")
+    elev = data.get("_vg_elev")
+
+    az_err = abs(az) if az is not None else 0.0
+    elev_err = abs(elev - VIS_TARGET_ELEV) if elev is not None else 0.0
+
+    align_err = max(az_err / 0.25, elev_err / 0.22)
+    align_err = clamp(align_err, 0.0, 1.0)
+
+    forward_scale = 1.0 - 0.75 * align_err
+
+    pitch_level_rate = clamp(PITCH_SIGN * KP_ATT * (0.0 - pitch), -MAX_RATE, MAX_RATE)
+    pitch_rate = forward_scale * pitch_rate + (1.0 - forward_scale) * pitch_level_rate
+
+
+    # COMMIT: close to the gate, stop chasing late lateral/vertical corrections.
+    # At this range the gate bearing sweeps fast and can make the drone lurch into the frame.
+    commit_start = VIS_PASS_DIST + VIS_COMMIT_RANGE
+    commit = clamp((commit_start - rng) / max(VIS_COMMIT_RANGE, 1e-6), 0.0, 1.0)
+
+    if commit > 0.0:
+        # Fade lateral correction out as we get close, then level the roll near the gate.
+        roll_level_rate = clamp(ROLL_SIGN * KP_ATT * (0.0 - roll), -MAX_RATE, MAX_RATE)
+        roll_rate = (1.0 - commit) * roll_rate + commit * roll_level_rate
+
+        # Do not yaw while committing through the opening.
+        yaw_rate = 0.0
+
+
+    regime = "COMMIT" if commit > 0.0 else "PURSUE"
     data["vision_regime"] = regime
     data["pursuit_desired_climb"] = telem["desired_climb"]
     data["oracle_thrust"] = thrust
     data["vis_dbg"] = (telem["xtrack"], rng, telem["v_cur"], telem["desired_climb"])
     data["_vis_t"] = data.get("_vis_t", 0) + 1
-    _dbg_log([f"{data['_vis_t'] * dt:.3f}", regime,
-              f"{lf[0]:.1f}", f"{lf[1]:.1f}", f"{lf[2]:.1f}",
-              f"{cur[0]:.1f}", f"{cur[1]:.1f}", f"{cur[2]:.1f}",
-              f"{nxt[0]:.1f}" if nxt else "", f"{nxt[1]:.1f}" if nxt else "", f"{nxt[2]:.1f}" if nxt else "",
-              f"{rng:.1f}", f"{telem['v_cur']:.1f}", f"{telem['v_target']:.1f}",
-              f"{telem['xtrack']:.2f}", f"{data.get('_vg_az') or 0.0:.3f}",
-              f"{elev:.3f}" if elev is not None else "", f"{climb_cmd:.2f}", f"{thrust:.3f}"])
+
 
     send_rate_attitude(mavlink_conn, system_boot_ms, roll_rate, pitch_rate, yaw_rate, thrust)
