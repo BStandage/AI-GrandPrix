@@ -35,6 +35,18 @@ from pilots.vision_pilot.config import *   # perception / estimation params (the
 
 _C_TILT, _S_TILT = math.cos(VIS_CAM_UPTILT), math.sin(VIS_CAM_UPTILT)
 
+# Large-lateral gate constants — move these into config.py alongside the other VIS_ params.
+# They activate a fast-path in _update_gate and _track_az when a gate is well off to the side
+# (gate 3 being the trigger case). Tune VIS_LARGE_LATERAL_M down if the drone still arrives
+# too late; tune VIS_LARGE_LATERAL_ALPHA down if the estimate becomes noisy on straight gates.
+# VIS_LARGE_AZ_DEG: azimuth threshold (degrees off nose) that also triggers the fast EMA.
+if "VIS_LARGE_LATERAL_M" not in dir():
+    VIS_LARGE_LATERAL_M = 1.5       # cross-track jump (m) above which fast fuse activates
+if "VIS_LARGE_LATERAL_ALPHA" not in dir():
+    VIS_LARGE_LATERAL_ALPHA = 0.6   # fuse alpha used in the fast-path (vs normal VIS_FUSE_ALPHA)
+if "VIS_LARGE_AZ_DEG" not in dir():
+    VIS_LARGE_AZ_DEG = 20.0         # gate bearing (deg off nose) that triggers the az fast-path
+
 
 def _race_live(data):
     rs = data.get("race_status") or {}
@@ -124,10 +136,21 @@ def _track_elev(data, world_dir):
 
 def _track_az(data, body_dir):
     """EMA the current gate's BODY azimuth (atan2(right, fwd)) - the range-independent lateral signal.
-    Body frame (nose fixed, yaw off), so this is the gate's left/right bearing off the nose."""
+    Body frame (nose fixed, yaw off), so this is the gate's left/right bearing off the nose.
+    For large lateral bearings (gate well to the side) we raise the alpha so the EMA follows
+    the true bearing quickly — a slow EMA here means the line lags and the drone arrives at the
+    gate depth before the lateral correction has fully propagated."""
     az = math.atan2(body_dir[1], body_dir[0])
     prev = data.get("_vg_az")
-    data["_vg_az"] = az if prev is None else (1 - VIS_AZ_ALPHA) * prev + VIS_AZ_ALPHA * az
+    if prev is None:
+        data["_vg_az"] = az
+        return
+    # If the gate is more than VIS_LARGE_AZ_DEG degrees off the nose, treat it as a large-lateral
+    # event and fuse faster.
+    alpha = VIS_AZ_ALPHA
+    if abs(az) > math.radians(VIS_LARGE_AZ_DEG):
+        alpha = max(alpha, VIS_LARGE_LATERAL_ALPHA)
+    data["_vg_az"] = (1 - alpha) * prev + alpha * az
 
 
 def _reset(data):
@@ -165,15 +188,29 @@ def _update_gate(local, lf_pos, world_dir, pinhole, alpha):
     if pinhole:
         pinhole *= VIS_RANGE_BIAS           # undo the measured ~38%-short pinhole bias before fusing
     if local is None:
+        # Fresh acquisition: snap directly to the camera bearing — no step cap.
+        # A gate far to the side (e.g. gate 3) must be placed at its true bearing immediately;
+        # the step cap here would make the estimate creep laterally and arrive too late.
         rng = clamp(pinhole if pinhole else 12.0, VIS_ACQ_MIN_RANGE, VIS_ACQ_MAX_RANGE)
         return [lf_pos[i] + rng * world_dir[i] for i in range(3)]
     rng = math.dist(local, lf_pos) or 1.0
     if pinhole and abs(pinhole - rng) < VIS_RANGE_OUTLIER and VIS_ACQ_MIN_RANGE <= pinhole <= VIS_ACQ_MAX_RANGE:
         rng += VIS_RANGE_GAIN * (pinhole - rng)
     meas = [lf_pos[i] + rng * world_dir[i] for i in range(3)]
+
+    # Large-lateral fast-path: when the gate is significantly off to the side, the normal fuse
+    # alpha is too slow to pull the estimate (and therefore the racing line) across in time.
+    # Detect this from the cross-track distance between local and meas, and raise alpha temporarily
+    # so the line catches up before the drone is too close to correct.
+    cross = math.dist(meas, local)
+    if cross > VIS_LARGE_LATERAL_M:
+        alpha = max(alpha, VIS_LARGE_LATERAL_ALPHA)
+
     new = [(1 - alpha) * local[i] + alpha * meas[i] for i in range(3)]
     # static-gate prior: cap how far the estimate may jump per update (rejects the noise/latency
     # swings that fed the roll PIO). A real fixed gate's local-frame estimate barely moves.
+    # NOTE: the cap is bypassed on fresh acquisition (local is None, handled above) so that a
+    # sideways gate like gate 3 is placed correctly from the very first frame it's seen.
     step = math.dist(new, local)
     if step > VIS_EST_MAX_STEP:
         s = VIS_EST_MAX_STEP / step
