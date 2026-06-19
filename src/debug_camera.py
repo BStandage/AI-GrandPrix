@@ -25,7 +25,7 @@ vision_rx = components['vision_rx']
 print("Starting live camera debug view. Press Q or ESC to quit.", flush=True)
 
 while shared_data["running"]:
-    frame = shared_data.get("latest_frame")   # ← the fix
+    frame = shared_data.get("latest_frame")   
     if frame is None:
         time.sleep(0.01)
         continue
