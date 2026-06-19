@@ -3,13 +3,9 @@
 #
 
 import time
-import threading
-
-import cv2
 
 from runtime.setup import setup_components
-from perception.detectors.hsv_classic import gate_mask
-from perception.gate_detection import mask_to_detections, annotate
+from debug_camera import start_debug_camera
 
 # Modify these properties if you want to run the server remotely for example
 SIM_SERVER_UDP_IP = "127.0.0.1"
@@ -30,54 +26,13 @@ vision_rx = components['vision_rx']
 logger = components['logger']
 
 
-# ── Debug camera window ───────────────────────────────────────────────────────
-# Runs on its own thread so the cv2.imshow loop never blocks the control loop.
+# Debug camera window 
+# Live 3-panel viewer (raw | HSV mask | detections); see debug_camera.py.
 # Toggle with the DEBUG_CAMERA flag below; set to False for competition runs.
 DEBUG_CAMERA = True
 
-def _debug_camera_thread():
-    """Show a 3-panel live view: raw frame | HSV mask | annotated detections.
-    Pressing Q or ESC inside the window stops the whole program cleanly."""
-    print("[debug] Camera window starting — press Q or ESC in the window to quit.", flush=True)
-    while shared_data["running"]:
-        frame = shared_data.get("latest_frame")
-        if frame is None:
-            time.sleep(0.01)
-            continue
-
-        # Run the same HSV segmentation the flight controller uses
-        mask = gate_mask(frame)
-        dets = mask_to_detections(mask, frame.shape)
-        annotated = annotate(frame.copy(), dets)
-
-        # Stack: raw (left) | mask (centre) | annotated (right)
-        mask_bgr = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
-        combined = cv2.hconcat([frame, mask_bgr, annotated])
-
-        # Status label — gate bearing, distance, area
-        if dets:
-            best = dets[0]
-            label = (f"gate  offset={best.offset_x:+.2f}  dist={best.distance_m:.1f}m  "
-                     f"area={best.area:.0f}  opening={'Y' if best.has_opening else 'N'}")
-        else:
-            label = "no gate detected"
-        cv2.putText(combined, label, (10, 24),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 255, 0), 2)
-
-        cv2.imshow("AI-GP debug  |  raw  |  HSV mask  |  detections", combined)
-
-        key = cv2.waitKey(1) & 0xFF
-        if key in (ord('q'), ord('Q'), 27):     # Q or ESC closes everything
-            shared_data["running"] = False
-            break
-
-    cv2.destroyAllWindows()
-    print("[debug] Camera window closed.", flush=True)
-
 if DEBUG_CAMERA:
-    debug_thread = threading.Thread(target=_debug_camera_thread, daemon=True)
-    debug_thread.start()
-# ─────────────────────────────────────────────────────────────────────────────
+    start_debug_camera(shared_data)
 
 
 print("Arming drone...", flush=True)
