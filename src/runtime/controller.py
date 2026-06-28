@@ -17,9 +17,10 @@ from common.dynamics import CONTROL_HZ, send_arm, send_sim_reset
 from common.gate_geometry import active_gate_relative
 from pilots.dev_modes import char_phase_at, update_characterize_control, update_keyboard_rate_control
 from pilots.oracle_pilot import update_trajectory_control
+from pilots.phase1_pilot.phase1_pilot import update_phase1_control
 from pilots.vision_pilot import update_vision_control
 
-CONTROL_MODE = "vision"
+CONTROL_MODE = "phase1"
 GATE_READOUT_PERIOD_S = 0.5   # print a status line this often
 
 
@@ -36,6 +37,8 @@ class Controller:
             update_vision_control(self.sim_conn, self.system_boot_ms, self.data)
         elif CONTROL_MODE == "trajectory":
             update_trajectory_control(self.sim_conn, self.system_boot_ms, self.data)
+        elif CONTROL_MODE == "phase1":
+            update_phase1_control(self.sim_conn, self.system_boot_ms, self.data)
         elif CONTROL_MODE == "keyboard":
             update_keyboard_rate_control(self.sim_conn, self.system_boot_ms, self.data)
         elif CONTROL_MODE == "characterize":
@@ -93,6 +96,20 @@ class Controller:
             gatestr = f"gate {rel['gate_id']} dist={rel['distance']:4.1f}m" if rel else "no gate"
             print(
                 f"traj[{regime}] xtrack={self.data.get('traj_xtrack', 0.0):4.1f}m "
+                f"yaw={self.data.get('traj_yawrate', 0.0):+4.1f} "
+                f"v={self.data.get('traj_vcur', 0.0):4.1f}/{self.data.get('traj_vtgt', 0.0):3.1f}m/s "
+                f"climb={climb_str} alt={-(z or 0.0):+6.1f}m | {gatestr} thr={thr:.3f}",
+                flush=True,
+            )
+            return
+
+        if CONTROL_MODE == "phase1":
+            thr = self.data.get("oracle_thrust", 0.0)
+            regime = self.data.get("traj_regime", "?")
+            rel = active_gate_relative(self.data)   # for reference: nearest real gate
+            gatestr = f"gate {rel['gate_id']} dist={rel['distance']:4.1f}m" if rel else "no gate"
+            print(
+                f"phase1[{regime}] xtrack={self.data.get('traj_xtrack', 0.0):4.1f}m "
                 f"yaw={self.data.get('traj_yawrate', 0.0):+4.1f} "
                 f"v={self.data.get('traj_vcur', 0.0):4.1f}/{self.data.get('traj_vtgt', 0.0):3.1f}m/s "
                 f"climb={climb_str} alt={-(z or 0.0):+6.1f}m | {gatestr} thr={thr:.3f}",
