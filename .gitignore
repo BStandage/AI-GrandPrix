@@ -15,6 +15,9 @@ datasets/
 # Simulator Code
 AIGP_3364/
 
+# Archives
+*.zip
+
 # Scratch / debug image outputs
 src/debug/
 _scratch/
