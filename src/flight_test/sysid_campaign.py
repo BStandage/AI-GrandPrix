@@ -30,7 +30,8 @@ from pymavlink import mavutil
 from common.paths import DATASETS_DIR
 from comms.mavlink_rx import MAVLinkRX
 from flight_test import sysid_report
-from flight_test.sysid_batteries import run_drag, run_feasibility, run_recovery, run_rotational
+from flight_test.sysid_batteries import (run_attitude, run_drag, run_feasibility, run_point_tracking,
+                             run_recovery, run_rotational)
 from flight_test.sysid_runner import TrialRunner
 DEFAULT_IP = "127.0.0.1"
 DEFAULT_PORT = 14550
@@ -62,6 +63,10 @@ def main():
     ap.add_argument("--drag", action="store_true", help="Tab 2: aerodynamic drag envelope")
     ap.add_argument("--recovery", action="store_true", help="Tab 3: recovery phase-plane (aerobatic)")
     ap.add_argument("--feasibility", action="store_true", help="Tab 4: kinematic feasibility cone")
+    ap.add_argument("--point-tracking", action="store_true",
+                    help="Tab 5: closed-loop point tracking & station hold (Round-1 ODOMETRY)")
+    ap.add_argument("--attitude", action="store_true",
+                    help="Tab 6: attitude-setpoint interface signs/gains (send_attitude_setpoint)")
     ap.add_argument("--all", action="store_true", help="run every battery")
     ap.add_argument("--report-only", nargs="?", const="__latest__", default=None,
                     metavar="DIR", help="skip flying; (re)generate the report from DIR or the latest run")
@@ -83,9 +88,11 @@ def main():
     do_drag = args.drag or args.all
     do_rec = args.recovery or args.all
     do_feas = args.feasibility or args.all
-    if not (do_rot or do_drag or do_rec or do_feas):
-        print("Nothing to do. Pass a battery flag (--rotational/--drag/--recovery/--feasibility) "
-              "or --all. See --help.", flush=True)
+    do_pt = args.point_tracking or args.all
+    do_att = args.attitude or args.all
+    if not (do_rot or do_drag or do_rec or do_feas or do_pt or do_att):
+        print("Nothing to do. Pass a battery flag (--rotational/--drag/--recovery/--feasibility/"
+              "--point-tracking/--attitude) or --all. See --help.", flush=True)
         return 1
 
     out_dir = os.path.join(DATASETS_DIR, time.strftime("sysid_%Y%m%d_%H%M%S"))
@@ -111,6 +118,10 @@ def main():
             run_recovery(runner, out_dir)
         if do_feas and data.get("running"):
             run_feasibility(runner, out_dir, setup_alt=args.alt)
+        if do_pt and data.get("running"):
+            run_point_tracking(runner, out_dir, setup_alt=args.alt)
+        if do_att and data.get("running"):
+            run_attitude(runner, out_dir, setup_alt=args.alt)
     except KeyboardInterrupt:
         print("\nInterrupted.", flush=True)
         data["running"] = False
