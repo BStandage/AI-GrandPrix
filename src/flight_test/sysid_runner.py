@@ -20,8 +20,10 @@ import math
 import time
 
 from common.dynamics import (CONTROL_HZ, KP_ATT, MAX_RATE, PITCH_SIGN, ROLL_SIGN, YAW_SIGN, clamp,
-                      send_arm, send_rate_attitude, send_sim_reset, thrust_for_climb)
+                      send_arm, send_attitude_setpoint, send_rate_attitude, send_sim_reset,
+                      thrust_for_climb)
 from common.gate_geometry import quat_to_rotmat
+from common.race import race_is_live, seconds_to_go
 
 # Environment collision id (ground/buildings); 1001 is a gate (mavlink_rx.on_collision).
 COLLISION_ENVIRONMENT = 1002
@@ -51,7 +53,7 @@ class Trial:
     """
 
     def __init__(self, name, maneuver, setup_alt=45.0, timeout_s=8.0, floor_alt=1.0,
-                 abort_on_collision=True, params=None):
+                 abort_on_collision=True, params=None, mode="rate"):
         self.name = name
         self.maneuver = maneuver
         self.setup_alt = setup_alt
@@ -59,6 +61,11 @@ class Trial:
         self.floor_alt = floor_alt          # below this altitude (m) we abort as a floor breach
         self.abort_on_collision = abort_on_collision
         self.params = params or {}          # metadata echoed into the trial's summary row
+        # "rate": maneuver returns body RATES -> send_rate_attitude (the sysid default).
+        # "attitude": maneuver returns ABSOLUTE angles -> send_attitude_setpoint (Tab 6, the
+        # interface the vision/hover pilots fly). Only the maneuver phase differs; setup/climb
+        # is always rate-mode self-levelling.
+        self.mode = mode
 
 
 class TrialResult:
@@ -156,6 +163,38 @@ class TrialRunner:
                 return True
             time.sleep(0.05)
         return False
+
+    def _wait_for_race_go(self, timeout=60.0):
+        """Hold at spawn, THROTTLE DOWN, until the race goes live - so we never move during the
+        "3..2..1..GO" countdown (moving early = DQ). We stream only zero-thrust level setpoints
+        while disarmed, which is no movement. Each trial calls this after its reset, so it also
+        covers a countdown that restarts on reset. If no race ever goes live within `timeout`
+        (a free-practice sim with no countdown), we proceed anyway rather than hang."""
+        if race_is_live(self.data):
+            return True
+        t0 = time.time()
+        last_note = -1e9
+        while time.time() - t0 < timeout:
+            if self._esc():
+                return False
+            if race_is_live(self.data):
+                return True
+            if time.time() - last_note > 5.0:      # re-print every ~5 s so a long wait isn't silent
+                last_note = time.time()
+                tg = seconds_to_go(self.data)
+                if tg is not None and tg <= 0:
+                    # started in the past but not live = race FINISHED. Waiting won't help; the sim
+                    # needs the race RESTARTED (with this client running) to arm a fresh countdown.
+                    print("  [runner] race is FINISHED - RESTART THE RACE in the sim to continue "
+                          "(holding at spawn, throttle down) ...", flush=True)
+                else:
+                    print("  [runner] waiting for race GO"
+                          + (f" (~{tg:.0f}s)" if (tg and tg > 0) else "") + " - holding at spawn ...",
+                          flush=True)
+            self._send(0.0, 0.0, 0.0, 0.0)   # throttle DOWN, disarmed = no movement, no early start
+            time.sleep(0.05)
+        print("  [runner] no race-go within timeout - proceeding (practice sim?)", flush=True)
+        return True
 
     # -- phases -----------------------------------------------------------------------------
     def _reset(self):
@@ -259,7 +298,10 @@ class TrialRunner:
             return TrialResult(trial.name, "aborted", [], trial.params)
         # Setup can fail two ways: the user hit ESC (running=False -> abort the whole campaign),
         # or the sim wouldn't return to a flyable state (skip just this trial, keep going).
-        if not (self._reset() and self._arm() and self._climb_to(trial.setup_alt)):
+        # Reset FIRST (back to spawn, throttle down), THEN wait out the race countdown before any
+        # movement - arming/climbing during the countdown is an early start and gets us DQ'd.
+        if not (self._reset() and self._wait_for_race_go()
+                and self._arm() and self._climb_to(trial.setup_alt)):
             outcome = "aborted" if not self.data.get("running", True) else "setup_failed"
             return TrialResult(trial.name, outcome, [], trial.params)
 
@@ -286,7 +328,11 @@ class TrialRunner:
                 rr, pr, yr, thrust, extra = cmd
             else:
                 rr, pr, yr, thrust = cmd
-            self._send(rr, pr, yr, thrust)
+            if trial.mode == "attitude":
+                # (rr, pr, yr) are ABSOLUTE roll/pitch/yaw angles here, not rates.
+                send_attitude_setpoint(self.conn, self.boot_ms, rr, pr, yr, thrust)
+            else:
+                self._send(rr, pr, yr, thrust)
             rows.append(self._capture(t, st, (rr, pr, yr, thrust), extra))
 
             if trial.abort_on_collision:
