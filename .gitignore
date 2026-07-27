@@ -29,3 +29,9 @@ _scratch/
 Thumbs.db
 .vscode/
 .idea/
+
+# Organizer sample code (reference only, not ours)
+PyAIPilotExample-v2/
+
+# Intern ML detector experiment (own branch/workflow, includes model checkpoints)
+src/perception/detectors/ML/
