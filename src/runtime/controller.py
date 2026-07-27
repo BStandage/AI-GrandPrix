@@ -18,9 +18,10 @@ from common.gate_geometry import active_gate_relative
 from pilots.dev_modes import char_phase_at, update_characterize_control, update_keyboard_rate_control
 from pilots.oracle_pilot import update_trajectory_control
 from pilots.phase1_pilot.phase1_pilot import update_phase1_control
+from pilots.attack_pilot import update_attack_control
 from pilots.vision_pilot import update_vision_control
 
-CONTROL_MODE = "phase1"
+CONTROL_MODE = "attack"
 GATE_READOUT_PERIOD_S = 0.5   # print a status line this often
 
 
@@ -39,6 +40,8 @@ class Controller:
             update_trajectory_control(self.sim_conn, self.system_boot_ms, self.data)
         elif CONTROL_MODE == "phase1":
             update_phase1_control(self.sim_conn, self.system_boot_ms, self.data)
+        elif CONTROL_MODE == "attack":
+            update_attack_control(self.sim_conn, self.system_boot_ms, self.data)
         elif CONTROL_MODE == "keyboard":
             update_keyboard_rate_control(self.sim_conn, self.system_boot_ms, self.data)
         elif CONTROL_MODE == "characterize":
@@ -99,6 +102,24 @@ class Controller:
                 f"yaw={self.data.get('traj_yawrate', 0.0):+4.1f} "
                 f"v={self.data.get('traj_vcur', 0.0):4.1f}/{self.data.get('traj_vtgt', 0.0):3.1f}m/s "
                 f"climb={climb_str} alt={-(z or 0.0):+6.1f}m | {gatestr} thr={thr:.3f}",
+                flush=True,
+            )
+            return
+
+        if CONTROL_MODE == "attack":
+            regime = self.data.get("attack_regime", "?")
+            gc = self.data.get("_at_gate_count", 0)
+            dr = self.data.get("_at_des_roll", 0.0)
+            dp = self.data.get("_at_des_pitch", 0.0)
+            az = self.data.get("_at_az", 0.0)
+            el = self.data.get("_at_el", 0.0)
+            thr = self.data.get("_at_thrust", 0.0)
+            dets = self.data.get("_at_ndets", 0)
+            area = self.data.get("_at_area", 0.0)
+            print(
+                f"atk[{regime}] gates={gc} roll*={math.degrees(dr):+.0f} pitch*={math.degrees(dp):+.0f} "
+                f"az={math.degrees(az):+.0f} el={math.degrees(el):+.0f} thr={thr:.2f} "
+                f"climb={self.data.get('_at_climb', 0.0):+.1f} dets={dets} area={area:.2f}",
                 flush=True,
             )
             return
