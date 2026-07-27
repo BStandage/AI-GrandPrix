@@ -2,6 +2,7 @@
 Top-level control loop: pick a flight mode each tick, run it, print a status readout.
 
 Modes (set CONTROL_MODE):
+  "steady"       - THE flight-ready pilot: slow attitude-setpoint visual servo [pilots.steady_pilot]
   "vision"       - fly from the CAMERA alone, no ground truth (Round-1 goal)  [pilots.vision_pilot]
   "trajectory"   - follow a racing line through the known gates (fast oracle) [pilots.oracle_pilot]
   "keyboard"     - manual rate-mode flight for data collection               [pilots.dev_modes]
@@ -18,10 +19,10 @@ from common.gate_geometry import active_gate_relative
 from pilots.dev_modes import char_phase_at, update_characterize_control, update_keyboard_rate_control
 from pilots.oracle_pilot import update_trajectory_control
 from pilots.phase1_pilot.phase1_pilot import update_phase1_control
-from pilots.attack_pilot import update_attack_control
+from pilots.steady_pilot import update_steady_control
 from pilots.vision_pilot import update_vision_control
 
-CONTROL_MODE = "attack"
+CONTROL_MODE = "steady"
 GATE_READOUT_PERIOD_S = 0.5   # print a status line this often
 
 
@@ -40,8 +41,8 @@ class Controller:
             update_trajectory_control(self.sim_conn, self.system_boot_ms, self.data)
         elif CONTROL_MODE == "phase1":
             update_phase1_control(self.sim_conn, self.system_boot_ms, self.data)
-        elif CONTROL_MODE == "attack":
-            update_attack_control(self.sim_conn, self.system_boot_ms, self.data)
+        elif CONTROL_MODE == "steady":
+            update_steady_control(self.sim_conn, self.system_boot_ms, self.data)
         elif CONTROL_MODE == "keyboard":
             update_keyboard_rate_control(self.sim_conn, self.system_boot_ms, self.data)
         elif CONTROL_MODE == "characterize":
@@ -106,20 +107,20 @@ class Controller:
             )
             return
 
-        if CONTROL_MODE == "attack":
-            regime = self.data.get("attack_regime", "?")
-            gc = self.data.get("_at_gate_count", 0)
-            dr = self.data.get("_at_des_roll", 0.0)
-            dp = self.data.get("_at_des_pitch", 0.0)
-            az = self.data.get("_at_az", 0.0)
-            el = self.data.get("_at_el", 0.0)
-            thr = self.data.get("_at_thrust", 0.0)
-            dets = self.data.get("_at_ndets", 0)
-            area = self.data.get("_at_area", 0.0)
+        if CONTROL_MODE == "steady":
+            regime = self.data.get("steady_regime", "?")
+            gc = self.data.get("_sp_gate_count", 0)
+            dr = self.data.get("_sp_des_roll", 0.0)
+            dp = self.data.get("_sp_des_pitch", 0.0)
+            az = self.data.get("_sp_az", 0.0)
+            el = self.data.get("_sp_el", 0.0)
+            thr = self.data.get("_sp_thrust", 0.0)
+            dets = self.data.get("_sp_ndets", 0)
+            area = self.data.get("_sp_area", 0.0)
             print(
-                f"atk[{regime}] gates={gc} roll*={math.degrees(dr):+.0f} pitch*={math.degrees(dp):+.0f} "
+                f"steady[{regime}] gates={gc} roll*={math.degrees(dr):+.0f} pitch*={math.degrees(dp):+.0f} "
                 f"az={math.degrees(az):+.0f} el={math.degrees(el):+.0f} thr={thr:.2f} "
-                f"climb={self.data.get('_at_climb', 0.0):+.1f} dets={dets} area={area:.2f}",
+                f"climb={self.data.get('_sp_climb', 0.0):+.1f} dets={dets} area={area:.2f}",
                 flush=True,
             )
             return
