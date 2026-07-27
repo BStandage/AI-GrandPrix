@@ -14,7 +14,10 @@ import time
 
 from pymavlink import mavutil
 
-CONTROL_HZ = 250
+CONTROL_HZ = 90    # command/loop rate. Spec VADR-TS-003 sec 4.4: command rate MUST be < 100 Hz (physics is
+                   # 120 Hz). Was 250 - we were spraying setpoints at 2.5x the allowed rate, which the sim
+                   # can't consume, so commands queued/went stale. 90 Hz is compliant and still fast for the
+                   # inner rate loop. (Vision is 30 Hz, IMU ~144 Hz - both still read every loop.)
 MAVLINK_CMD_SIM_RESET = 31000
 
 HOVER_THRUST = 0.299   # collective thrust at which climb rate crosses zero
@@ -105,6 +108,36 @@ def send_rate_attitude(mavlink_conn, system_boot_ms, roll_rate, pitch_rate, yaw_
         mavutil.mavlink.ATTITUDE_TARGET_TYPEMASK_ATTITUDE_IGNORE,
         [1, 0, 0, 0],   # attitude quaternion (ignored in rate mode)
         roll_rate, pitch_rate, yaw_rate,
+        thrust,
+    )
+
+
+def _euler_to_quat(roll, pitch, yaw):
+    """roll/pitch/yaw (rad) -> quaternion [w, x, y, z]."""
+    cr, sr = math.cos(roll * 0.5), math.sin(roll * 0.5)
+    cp, sp = math.cos(pitch * 0.5), math.sin(pitch * 0.5)
+    cy, sy = math.cos(yaw * 0.5), math.sin(yaw * 0.5)
+    return [cr * cp * cy + sr * sp * sy,
+            sr * cp * cy - cr * sp * sy,
+            cr * sp * cy + sr * cp * sy,
+            cr * cp * sy - sr * sp * cy]
+
+
+def send_attitude_setpoint(mavlink_conn, system_boot_ms, roll, pitch, yaw, thrust):
+    """Send an ATTITUDE (quaternion) + collective-thrust setpoint and let the SIM's stabilised
+    controller hold that attitude. Unlike send_rate_attitude (acro/rate), this needs NO attitude
+    estimate on our side - the sim flies to the commanded roll/pitch/yaw. roll/pitch/yaw in rad."""
+    now_ms = int(time.time() * 1000)
+    mask = (mavutil.mavlink.ATTITUDE_TARGET_TYPEMASK_BODY_ROLL_RATE_IGNORE
+            | mavutil.mavlink.ATTITUDE_TARGET_TYPEMASK_BODY_PITCH_RATE_IGNORE
+            | mavutil.mavlink.ATTITUDE_TARGET_TYPEMASK_BODY_YAW_RATE_IGNORE)
+    mavlink_conn.mav.set_attitude_target_send(
+        now_ms - system_boot_ms,
+        mavlink_conn.target_system,
+        mavlink_conn.target_component,
+        mask,
+        _euler_to_quat(roll, pitch, yaw),
+        0.0, 0.0, 0.0,   # body rates ignored
         thrust,
     )
 

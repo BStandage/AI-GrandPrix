@@ -19,9 +19,26 @@ from perception.detector import MaskDetector
 
 # HSV thresholds, each (hue, sat, val) min and max for cv2.inRange. Red falls at both the low and
 # high end of OpenCV's 0-179 hue scale, so it takes two ranges to catch all of it.
-GATE_HSV_LOWER1 = (0, 80, 70)       # hue 0-22 (red/orange). sat/val mins of 80/70 drop the grey world
-GATE_HSV_UPPER1 = (22, 255, 255)
-GATE_HSV_LOWER2 = (160, 80, 70)     # hue 160-180 (the rest of red, at the top of the scale)
+#
+# Tuning (Phase 2). Two failure modes, balanced by two different knobs measured on real frames:
+#
+#   1. Ring FRAGMENTS into separate blobs -> mask_to_detections (RETR_EXTERNAL) reports each blob as
+#      its own gate (one gate seen as 3). Caused by too-high a SAT/VAL floor: the glowing ring itself
+#      sits at sat 70-140, val 60-130 in dimmer/angled views, so the old 170/110 floor sliced through
+#      it. Fix: floor at 85/75 keeps the whole ring. The near-white bloom/HALO is still rejected by
+#      SATURATION (halo sat < ~60), which is the real halo discriminator - not the height of the floor.
+#
+#   2. Orange FLOOR SPILL (the gate's reflection on the road, directly below it) gets pulled in and,
+#      once the close welds it to the ring, balloons the gate box downward so the aim point sinks into
+#      the road. The spill is separable by HUE: the ring's bright core is hue ~5, the spill is hue ~19
+#      (yellower) and dimmer (val ~73). Capping the upper hue at 12 drops the spill while keeping the
+#      red ring body. (The ring's own yellow bloom fringe at hue 14-19 is also dropped - that fringe
+#      is exactly what inflated the box, so losing it is a feature.)
+#
+# Tune against a real frame: python -m perception.detectors.hsv_classic <f.jpg>
+GATE_HSV_LOWER1 = (0,  85, 75)
+GATE_HSV_UPPER1 = (12, 255, 255)
+GATE_HSV_LOWER2 = (169, 85, 75)
 GATE_HSV_UPPER2 = (180, 255, 255)
 
 
@@ -33,9 +50,12 @@ def gate_mask(img):
     mask = cv2.bitwise_or(cv2.inRange(hsv, GATE_HSV_LOWER1, GATE_HSV_UPPER1),
                           cv2.inRange(hsv, GATE_HSV_LOWER2, GATE_HSV_UPPER2))
 
-    # Close to fill the gaps the AI-GP text punches in the ring, then open to remove speckle. The
-    # opening is recovered later via convex hull, so making the ring solid here only helps.
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8), iterations=2)
+    # Close to RECONNECT the ring into one component: the AI-GP sign + dark opening punch a gap through
+    # the top, and unless the broken posts/bars rejoin into a single contour, RETR_EXTERNAL in
+    # mask_to_detections splits one gate into several detections. 9x9 x2 bridges those gaps while
+    # leaving the central opening intact (recovered later via convex hull). Don't push iterations
+    # higher: an over-strong close re-welds any residual floor spill onto the ring. Then open speckle.
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8), iterations=2)
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8), iterations=1)
     return mask
 

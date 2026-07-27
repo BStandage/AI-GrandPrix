@@ -102,7 +102,9 @@ def mask_to_detections(mask, img_shape, min_area_frac=MIN_GATE_AREA_FRAC):
             x, y, bw, bh = rx, ry, rw, rh           # fallback: whole ring
             has_opening = False
 
-        cx, cy = x + bw / 2.0, y + bh / 2.0
+        # aim at the OUTER RING center. The ring's bounding box is geometrically stable even at an
+        # angle or partly occluded, whereas the inner hole bbox distorts and drifts in those views.
+        cx, cy = rx + rw / 2.0, ry + rh / 2.0
         dets.append(GateDetection(
             offset_x=(cx - w / 2.0) / (w / 2.0),
             offset_y=(cy - h / 2.0) / (h / 2.0),
