@@ -64,6 +64,18 @@ def load_cached_gates(data):
               "client running to load the live track.", flush=True)
 
 
+def race_is_live(data):
+    """True while the race TIMER is running (started, not finished). Pure race_status - no gates/pose,
+    so it works in Phase 2 where odometry is blocked. Use to gate logging to the timed run only."""
+    rs = data.get("race_status") or {}
+    finish = rs.get("race_finish_time_ns", -1)
+    if finish is not None and finish >= 0:
+        return False
+    start = rs.get("race_start_boot_time_ms", -1)
+    now = rs.get("sim_boot_time_ms", 0)
+    return start is not None and start >= 0 and now >= start
+
+
 def should_fly(data):
     """True once we have gates + pose and the race is live (and not finished)."""
     if not (data.get("gates") and data.get("odometry") is not None):

@@ -52,12 +52,17 @@ class DataLogger:
         print(f"Logging dataset to {self.session_dir}", flush=True)
 
     def log_frame(self, frame_id, sim_time_ns, img):
-        # frame_id from the sim is a uint32; zero-pad so files sort in order
-        filename = f"{frame_id:010d}.jpg"
+        # Callers only log during the timed race, so frame_count is a clean race-relative index
+        # (0,1,2,...) - name files by THAT, not the sim's giant global frame_id. Returns the seq so the
+        # caller (and the pilot CSV) can map a row straight to frames/<seq>.jpg. frame_id kept in the
+        # record for exact alignment with telemetry.
+        seq = self.frame_count
+        filename = f"{seq:06d}.jpg"
         cv2.imwrite(os.path.join(self.frames_dir, filename), img)
 
         height, width = img.shape[:2]
         record = {
+            "seq": seq,
             "frame_id": frame_id,
             "sim_time_ns": sim_time_ns,
             "recv_time_ns": time.time_ns(),
@@ -71,6 +76,7 @@ class DataLogger:
             self.frame_count += 1
             if self.frame_count % 300 == 0:    # ~every 10 s at 30 Hz (was every 30 = spammy)
                 print(f"  logged {self.frame_count} frames", flush=True)
+        return seq
 
     def log_telemetry(self, kind, fields):
         record = {"kind": kind, "recv_time_ns": time.time_ns()}

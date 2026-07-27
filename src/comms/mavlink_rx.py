@@ -178,6 +178,13 @@ class MAVLinkRX:
             "xacc": msg.xacc, "yacc": msg.yacc, "zacc": msg.zacc,
             "xgyro": msg.xgyro, "ygyro": msg.ygyro, "zgyro": msg.zgyro,
             "time_usec": msg.time_usec,
+            # PROBE (Phase 2): HIGHRES_IMU also carries baro altitude + magnetometer, which we'd been
+            # discarding. fields_updated is a bitmask of which fields the sim actually populates. If
+            # pressure_alt tracks altitude we have an absolute vertical reference; if mag is live we can
+            # build a non-drifting attitude. (MAVLink HIGHRES_IMU spec field names.)
+            "pressure_alt": msg.pressure_alt,
+            "xmag": msg.xmag, "ymag": msg.ymag, "zmag": msg.zmag,
+            "fields_updated": msg.fields_updated,
         })
 
     def on_encapsulated_data(self, msg):
