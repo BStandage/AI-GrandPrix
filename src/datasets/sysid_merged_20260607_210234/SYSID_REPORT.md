@@ -95,3 +95,36 @@ Max lateral acceleration from a 29° bank: **5.4 m/s²**.
 | 9.0 | 3.48 | 7.42 |
 
 > NB: this airframe tops out ≈ 9 m/s (SPEED_LEAN_TABLE), far below the blueprint's 15–35 m/s assumption. The cone is mapped over realistic speeds; high-speed gate displacement that would force an aerobatic flip does not arise at these speeds.
+
+## 6. Attitude-setpoint interface (`send_attitude_setpoint`)
+
+Sign conventions, attitude gain and lag for the ABSOLUTE-attitude command path the vision / hover pilots fly. The rate tabs above do NOT cover this path, which is why its signs kept surprising the pilots. Measured against ground-truth odometry/attitude.
+
+| Axis | +command drives the drone | Attitude gain (actual/cmd) | Terminal speed (m/s) |
+|---|---|---|---|
+| pitch | **forward (+x body)** | 1.00 | 5.15 |
+| roll | **right (+y body)** | 1.00 | 5.13 |
+
+**Yaw convention** — commanded absolute yaw vs the heading actually reached (does it track = absolute? which sign?):
+
+| commanded yaw (°) | actual yaw reached (°) |
+|---|---|
+| -45 | -44 |
+| 0 | 0 |
+| 0 | 1 |
+| 45 | 45 |
+| 90 | 89 |
+
+**Hover thrust (attitude mode):** 0.298  (dynamics.py `HOVER_THRUST` = 0.299)
+
+Thrust → climb (level attitude hold):
+
+| thrust | climb (m/s, up+) |
+|---|---|
+| 0.150 | -7.12 |
+| 0.200 | -8.84 |
+| 0.250 | -5.78 |
+| 0.299 | 0.11 |
+| 0.350 | 7.37 |
+| 0.450 | 14.69 |
+| 0.600 | 22.46 |

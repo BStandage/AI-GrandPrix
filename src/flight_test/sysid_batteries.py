@@ -18,11 +18,19 @@ import math
 import os
 
 from common.dynamics import CONTROL_HZ
+from common.dynamics import HOVER_THRUST
+from flight_test.sysid_attitude_maneuvers import AttitudeScript
 from flight_test.sysid_maneuvers import (DragRun, InvertedDive, InvertedProbe, LateralStep, RateStep,
                              Recovery)
+from flight_test.sysid_maneuvers_tab5 import PointApproach, StationHold
 from flight_test.sysid_runner import Trial
 
 MOTOR_SAT = 0.98        # a motor output at/above this counts as saturated
+
+
+def _f2(x):
+    """Format a possibly-None metric to 2 dp for the console readouts."""
+    return f"{x:.2f}" if isinstance(x, (int, float)) else "n/a"
 
 
 def _writer(out_dir, filename, header):
@@ -297,3 +305,162 @@ def run_feasibility(runner, out_dir, setup_alt=45.0):
     finally:
         f.close()
     print("  -> tab4_feasibility.csv", flush=True)
+
+
+# ===========================================================================================
+# Tab 5 - Closed-loop point tracking & station hold (Round-1 ODOMETRY only, no vision/gates)
+# ===========================================================================================
+# The missing closed-loop piece: accelerate to an entry speed, then close a world-frame position
+# loop and stop dead at a known point. Conservative starting gains respect the 96 ms rotational
+# lag and the weak passive drag (active nose-up does the braking); they will need tuning.
+PT_TARGET_DISTS = [5.0, 10.0, 20.0]                 # m forward from spawn
+PT_ENTRY_SPEEDS = [2.0, 4.0, 6.0, 8.0]              # m/s to spin up to before closing the loop
+# Assumed active braking authority (~30 deg nose-up, g*tan(30) ~ 5.7 m/s^2, derated). Used only
+# for the feasibility skip below - drops cells where the drone physically cannot stop in distance.
+PT_BRAKE_ACCEL = 5.0                                # m/s^2
+PT_KP_FWD, PT_KD_FWD, PT_KP_LAT, PT_KP_ALT = 0.3, 0.8, 0.3, 0.5
+TAB5_HEADER = ["trial", "t", "phase", "x", "y", "alt", "vx_w", "vy_w", "vz_w", "vh",
+               "roll", "pitch", "err_fwd", "err_lat", "err_alt",
+               "cmd_roll_rate", "cmd_pitch_rate", "cmd_thrust"]
+
+
+def run_point_tracking(runner, out_dir, setup_alt=45.0):
+    print("\n=== Tab 5: Closed-loop point tracking & station hold ===", flush=True)
+    f, w = _writer(out_dir, "tab5_point_tracking.csv", TAB5_HEADER)
+    try:
+        # ---- baseline: how stable is the closed-loop hover before we ask for any motion? ----
+        name = "station_hold"
+        print(f"  {name}", flush=True)
+        man = StationHold(10.0, kp_fwd=PT_KP_FWD, kp_lat=PT_KP_LAT, kp_alt=PT_KP_ALT)
+        trial = Trial(name, man, setup_alt=setup_alt, timeout_s=12.0, floor_alt=3.0,
+                      params={"kind": name})
+        res = runner.run(trial)
+        if res.outcome == "aborted":
+            print("  aborted by user.", flush=True)
+            return
+        for r in res.rows:
+            r["trial"] = name
+            w.writerow(r)
+        f.flush()
+        m = man.metrics
+        print(f"    max_drift={_f2(m['max_drift_m'])} m, rms={_f2(m['rms_error_m'])} m, "
+              f"alt_drift={_f2(m['altitude_drift_m'])} m, outcome={res.outcome}", flush=True)
+
+        # ---- point approaches: dist x entry-speed matrix, skipping the un-stoppable corners ----
+        for dist in PT_TARGET_DISTS:
+            for v in PT_ENTRY_SPEEDS:
+                stop_time = v / PT_BRAKE_ACCEL          # time to bleed v at the assumed braking accel
+                if v * stop_time > 2.0 * dist:          # stopping distance > target -> can't stop in time
+                    print(f"  skip pt_d{dist:g}_v{v:g} (entry speed too high to stop in {dist:g} m)",
+                          flush=True)
+                    continue
+                name = f"pt_d{dist:g}_v{v:g}"
+                print(f"  {name}", flush=True)
+                man = PointApproach(dist, v, PT_KP_FWD, PT_KD_FWD, PT_KP_LAT, PT_KP_ALT)
+                trial = Trial(name, man, setup_alt=setup_alt, timeout_s=20.0, floor_alt=3.0,
+                              params={"target_dist": dist, "entry_speed": v})
+                res = runner.run(trial)
+                if res.outcome == "aborted":
+                    print("  aborted by user.", flush=True)
+                    return
+                for r in res.rows:
+                    r["trial"] = name
+                    w.writerow(r)
+                f.flush()
+                m = man.metrics
+                print(f"    entry_v={_f2(m['entry_speed_actual'])} m/s, "
+                      f"overshoot={_f2(m['peak_overshoot_m'])} m, "
+                      f"settle={_f2(m['settling_time_s'])} s, "
+                      f"final_err={_f2(m['final_error_m'])} m, outcome={res.outcome}", flush=True)
+    finally:
+        f.close()
+    print("  -> tab5_point_tracking.csv", flush=True)
+
+
+# ===========================================================================================
+# Tab 6 - Attitude-setpoint interface (send_attitude_setpoint sign/gain/lag characterisation)
+# ===========================================================================================
+# The rate tabs above characterise send_rate_attitude. This one characterises the ABSOLUTE-attitude
+# interface the vision/hover pilots fly, whose signs were never measured. Each trial commands ONE
+# fixed attitude (mode="attitude") and we log the ground-truth response.
+ATT_ANGLES_DEG = [5, 10, 15, 20]                          # tilt magnitudes swept, both signs
+ATT_THRUSTS = [0.15, 0.20, 0.25, 0.299, 0.35, 0.45, 0.60]  # level-hold thrust sweep
+ATT_YAWS_DEG = [0, 45, -45, 90, 0]                        # absolute-yaw probe sequence
+TAB6_HEADER = ["trial", "group", "seg", "t", "timestamp_ms",
+               "cmd_roll_deg", "cmd_pitch_deg", "cmd_yaw_deg", "cmd_thr",
+               "alt", "roll", "pitch", "yaw", "rollspeed", "pitchspeed", "yawspeed",
+               "vx_w", "vy_w", "vz_w", "vh", "climb_up", "up_align", "motor_max"]
+
+
+def _write_att_rows(w, name, group, rows):
+    for r in rows:
+        w.writerow({
+            # per-row group comes from the maneuver's extra (pitch/roll/yaw/thrust/level); fall back
+            # to the battery-level label only if a row didn't tag one.
+            "trial": name, "group": r.get("group", group), "seg": r.get("seg", ""),
+            "t": r["t"],
+            "timestamp_ms": (r["t_usec"] / 1000.0) if r.get("t_usec") else r["t"] * 1000.0,
+            "cmd_roll_deg": math.degrees(r.get("cmd_roll", 0.0)),
+            "cmd_pitch_deg": math.degrees(r.get("cmd_pitch", 0.0)),
+            "cmd_yaw_deg": math.degrees(r.get("cmd_yaw", 0.0)),
+            "cmd_thr": r.get("cmd_thr", 0.0),
+            "alt": r["alt"], "roll": r["roll"], "pitch": r["pitch"], "yaw": r["yaw"],
+            "rollspeed": r["rollspeed"], "pitchspeed": r["pitchspeed"], "yawspeed": r["yawspeed"],
+            "vx_w": r["vx_w"], "vy_w": r["vy_w"], "vz_w": r["vz_w"],
+            "vh": r["vh"], "climb_up": r["climb_up"], "up_align": r["up_align"],
+            "motor_max": r.get("motor_max", 0.0),
+        })
+
+
+SETTLE_S = 2.0          # level-out between measurement holds (bleed off the accumulated velocity)
+HOLD_S = 3.0            # pitch/roll hold time (reach terminal speed)
+YAW_STEP_S = 2.5       # per yaw setpoint
+THR_HOLD_S = 2.5       # per thrust level
+
+
+def _attitude_phases():
+    """The full sweep as one continuous script: pitch +/-, roll +/-, yaw steps, thrust steps, with a
+    level settle before each. +/- magnitudes are interleaved so forward/back (and L/R) drift cancels."""
+    settle = {"group": "level", "seg": "level", "roll": 0.0, "pitch": 0.0, "yaw": 0.0,
+              "thrust": None, "dur": SETTLE_S}
+    ph = []
+    for axis in ("pitch", "roll"):
+        for deg in ATT_ANGLES_DEG:
+            for sign in (+1, -1):
+                ang = math.radians(sign * deg)
+                ph.append(dict(settle))
+                ph.append({"group": axis, "seg": f"{axis}{sign * deg:+d}",
+                           "roll": ang if axis == "roll" else 0.0,
+                           "pitch": ang if axis == "pitch" else 0.0,
+                           "yaw": 0.0, "thrust": None, "dur": HOLD_S})
+    ph.append(dict(settle))
+    for i, d in enumerate(ATT_YAWS_DEG):
+        ph.append({"group": "yaw", "seg": f"yaw{d:+d}_{i}", "roll": 0.0, "pitch": 0.0,
+                   "yaw": math.radians(d), "thrust": HOVER_THRUST, "dur": YAW_STEP_S})
+    for thr in ATT_THRUSTS:
+        ph.append(dict(settle))
+        ph.append({"group": "thrust", "seg": f"thr{thr:.3f}", "roll": 0.0, "pitch": 0.0,
+                   "yaw": 0.0, "thrust": thr, "dur": THR_HOLD_S})
+    return ph
+
+
+def run_attitude(runner, out_dir, setup_alt=45.0):
+    print("\n=== Tab 6: Attitude-setpoint interface (single continuous flight) ===", flush=True)
+    phases = _attitude_phases()
+    total = sum(p["dur"] for p in phases)
+    print(f"  {len(phases)} phases, ~{total:.0f}s of flight - ONE reset/GO/climb, no per-trial resets",
+          flush=True)
+    f, w = _writer(out_dir, "tab6_attitude.csv", TAB6_HEADER)
+    try:
+        trial = Trial("att_script", AttitudeScript(phases), setup_alt=setup_alt,
+                      timeout_s=total + 2.0, mode="attitude", floor_alt=2.0,
+                      params={"group": "attitude"})
+        res = runner.run(trial)
+        if res.outcome == "aborted":
+            print("  aborted by user.", flush=True)
+        else:
+            print(f"  flight outcome: {res.outcome} ({len(res.rows)} rows)", flush=True)
+        _write_att_rows(w, "att_script", "attitude", res.rows)
+    finally:
+        f.close()
+    print("  -> tab6_attitude.csv", flush=True)

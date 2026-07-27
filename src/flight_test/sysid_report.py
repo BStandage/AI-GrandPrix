@@ -170,7 +170,179 @@ def analyze_feasibility(rows, drag_k):
     return {"flown": flown, "derived": derived, "a_lat": a_lat}
 
 
+def _parse_pt_name(name):
+    """Nominal (target_dist, entry_speed) from a 'pt_d<d>_v<v>' trial name."""
+    d = v = None
+    for part in (name or "").split("_"):
+        if part.startswith("d"):
+            d = _num(part[1:])
+        elif part.startswith("v"):
+            v = _num(part[1:])
+    return d, v
+
+
+def analyze_point_tracking(rows):
+    """Per-trial closed-loop summary re-derived from the per-tick Tab 5 rows.
+
+    Station hold -> drift stats. Point approaches -> braking distance (forward travel from loop
+    closure to the furthest point reached), peak overshoot, settling time (loop closure to
+    |err|<0.5 m & |v|<0.5 m/s) and final error. Everything is computed from the logged err_*/vh/t
+    columns, so the report stays a pure function of the CSVs (same as tabs 1-2)."""
+    trials = {}
+    for r in rows:
+        trials.setdefault(r.get("trial"), []).append(r)
+
+    station = None
+    approaches = []
+    for name, trows in trials.items():
+        if not name:
+            continue
+        if name.startswith("station"):
+            drift = [math.hypot(_num(r.get("err_fwd")) or 0.0, _num(r.get("err_lat")) or 0.0)
+                     for r in trows]
+            altd = [abs(_num(r.get("err_alt")) or 0.0) for r in trows]
+            station = {
+                "max_drift_m": max(drift) if drift else None,
+                "rms_error_m": math.sqrt(sum(d * d for d in drift) / len(drift)) if drift else None,
+                "altitude_drift_m": max(altd) if altd else None,
+            }
+        elif name.startswith("pt_"):
+            home = [r for r in trows if r.get("phase") == "home"]
+            if not home:
+                continue
+            d_nom, v_nom = _parse_pt_name(name)
+            err_fwds = [_num(r.get("err_fwd")) or 0.0 for r in home]
+            ef0 = err_fwds[0]
+            # err_fwd = target - fwd_pos, so forward travel from loop closure to the furthest
+            # forward point = ef0 - min(err_fwd); overshoot past the target = max(0, -min(err_fwd)).
+            brake_distance = ef0 - min(err_fwds)
+            peak_overshoot = max(0.0, -min(err_fwds))
+            entry_v = _num(home[0].get("vh"))
+            t0 = _num(home[0].get("t")) or 0.0
+            settling = final_err = None
+            for r in home:
+                ef = _num(r.get("err_fwd")) or 0.0
+                el = _num(r.get("err_lat")) or 0.0
+                ea = _num(r.get("err_alt")) or 0.0
+                vh = _num(r.get("vh")) or 0.0
+                final_err = math.sqrt(ef * ef + el * el + ea * ea)
+                if settling is None and final_err < 0.5 and vh < 0.5:
+                    settling = (_num(r.get("t")) or 0.0) - t0
+            approaches.append({
+                "trial": name, "d_nom": d_nom, "v_nom": v_nom,
+                "entry_speed_actual": entry_v, "brake_distance_m": brake_distance,
+                "peak_overshoot_m": peak_overshoot, "settling_time_s": settling,
+                "final_error_m": final_err,
+            })
+    approaches.sort(key=lambda a: (a["d_nom"] or 0.0, a["v_nom"] or 0.0))
+    return {"station": station, "approaches": approaches}
+
+
 # ---- rendering -----------------------------------------------------------------------------
+def _att_mean(xs):
+    xs = [x for x in xs if x is not None]
+    return sum(xs) / len(xs) if xs else None
+
+
+def _att_steady(rows, frac=0.4):
+    """Last `frac` of a hold = its steady state (after the attitude has settled)."""
+    if not rows:
+        return []
+    return rows[max(0, int(len(rows) * (1.0 - frac))):]
+
+
+def analyze_attitude(rows):
+    """Tab 6: the send_attitude_setpoint sign/gain/convention map the rate tabs never covered.
+
+    Per held attitude we read the ground-truth steady state: which way it TRANSLATES (sign), how
+    much attitude it actually reached vs commanded (gain), terminal speed, the yaw convention, and
+    the attitude-mode hover point."""
+    if not rows:
+        return None
+    # One continuous flight: each hold has a unique `seg` whose PREFIX names the axis
+    # (pitch.../roll.../yaw.../thr...); "level" settles between holds are skipped. We key off the seg
+    # prefix rather than the `group` column so this is robust regardless of how group was written.
+    def _grp(seg):
+        for g in ("pitch", "roll", "yaw", "thr"):
+            if (seg or "").startswith(g):
+                return "thrust" if g == "thr" else g
+        return "level"
+
+    by_seg = {}
+    for r in rows:
+        seg = r.get("seg")
+        g = _grp(seg)
+        if g == "level":
+            continue
+        by_seg.setdefault((g, seg), []).append(r)
+
+    def fwd_right(r):
+        yaw = _num(r.get("yaw")) or 0.0
+        vx, vy = _num(r.get("vx_w")) or 0.0, _num(r.get("vy_w")) or 0.0
+        return (vx * math.cos(yaw) + vy * math.sin(yaw),      # body-forward speed (world vel on heading)
+                -vx * math.sin(yaw) + vy * math.cos(yaw))     # body-right speed
+
+    out = {"pitch": None, "roll": None, "yaw": None, "hover": None, "thrust_curve": []}
+
+    for axis in ("pitch", "roll"):
+        pts = []
+        for (grp, _seg), rs in by_seg.items():
+            if grp != axis:
+                continue
+            steady = _att_steady(rs)
+            cmd = _att_mean([_num(r.get(f"cmd_{axis}_deg")) for r in steady])
+            act = _att_mean([_num(r.get(axis)) for r in steady])          # actual angle, rad
+            fr = [fwd_right(r) for r in steady]
+            motion = _att_mean([(v[0] if axis == "pitch" else v[1]) for v in fr])
+            speed = _att_mean([_num(r.get("vh")) for r in steady])
+            if cmd is not None:
+                pts.append({"cmd_deg": cmd, "act_deg": math.degrees(act) if act is not None else None,
+                            "motion": motion, "speed": speed})
+        if pts:
+            pos = [p for p in pts if p["cmd_deg"] > 0 and p["motion"] is not None]
+            direction = None
+            if pos:
+                big = max(pos, key=lambda p: p["cmd_deg"])
+                if axis == "pitch":
+                    direction = "forward (+x body)" if big["motion"] > 0 else "backward (-x body)"
+                else:
+                    direction = "right (+y body)" if big["motion"] > 0 else "left (-y body)"
+            gains = [p["act_deg"] / p["cmd_deg"] for p in pts if p["act_deg"] and p["cmd_deg"]]
+            out[axis] = {"direction": direction, "gain": _att_mean(gains),
+                         "term_speed": max((p["speed"] or 0.0) for p in pts),
+                         "pts": sorted(pts, key=lambda p: p["cmd_deg"])}
+
+    steps = []
+    for (grp, seg), rs in by_seg.items():
+        if grp != "yaw":
+            continue
+        steady = _att_steady(rs)
+        steps.append({"seg": seg,
+                      "cmd_deg": _att_mean([_num(r.get("cmd_yaw_deg")) for r in steady]),
+                      "act_deg": (lambda a: math.degrees(a) if a is not None else None)(
+                          _att_mean([_num(r.get("yaw")) for r in steady]))})
+    steps = [s for s in steps if s["cmd_deg"] is not None]
+    if steps:
+        out["yaw"] = sorted(steps, key=lambda s: (s["cmd_deg"], s["seg"]))
+
+    curve = []
+    for (grp, _seg), rs in by_seg.items():
+        if grp != "thrust":
+            continue
+        steady = _att_steady(rs)
+        thr = _att_mean([_num(r.get("cmd_thr")) for r in steady])
+        climb = _att_mean([_num(r.get("climb_up")) for r in steady])
+        if thr is not None and climb is not None:
+            curve.append((thr, climb))
+    curve.sort()
+    out["thrust_curve"] = curve
+    for (t0, c0), (t1, c1) in zip(curve, curve[1:]):
+        if c0 <= 0.0 <= c1 and c1 != c0:
+            out["hover"] = t0 + (t1 - t0) * (0.0 - c0) / (c1 - c0)
+            break
+    return out
+
+
 def _fmt(x, nd=2):
     return f"{x:.{nd}f}" if isinstance(x, (int, float)) else "n/a"
 
@@ -194,11 +366,14 @@ def _cell(r, key, nd=2):
     return f"{v:.{nd}f}" if v is not None else (r.get(key) or "?")
 
 
-def _render(rot_rows, drag_rows, rec_rows, feas_rows, source_label, out_path, provenance=None):
+def _render(rot_rows, drag_rows, rec_rows, feas_rows, pt_rows, source_label, out_path,
+            provenance=None, att_rows=None):
     rot = analyze_rotational(rot_rows)
     drag = analyze_drag(drag_rows)
     rec = analyze_recovery(rec_rows)
     feas = analyze_feasibility(feas_rows, drag.get("drag_k"))
+    pt = analyze_point_tracking(pt_rows)
+    att = analyze_attitude(att_rows or [])
 
     L = []
     L.append("# Flight Dynamics System-Identification Report")
@@ -312,6 +487,108 @@ def _render(rot_rows, drag_rows, rec_rows, feas_rows, source_label, out_path, pr
              "displacement that would force an aerobatic flip does not arise at these speeds.")
     L.append("")
 
+    # ---- closed-loop point tracking & station hold ----
+    L.append("## 6. Closed-loop point tracking & station hold")
+    L.append("")
+    L.append("Full outer position loop on world-frame ODOMETRY (Round-1 ground truth), no vision "
+             "or gate involved: accelerate to an entry speed, then close the loop and stop at a "
+             "known point. These three numbers set the constraints for any forward-speed control "
+             "law — at speed `v` the **braking distance** is the lead room the controller must "
+             "reserve before a gate, the **settling time** is how long after braking the position "
+             "locks, and the **station-hold drift** is the closed-loop hover floor.")
+    L.append("")
+    st = pt["station"]
+    if st and st.get("max_drift_m") is not None:
+        L.append(f"**Station-hold baseline (10 s hover):** max drift **{_fmt(st['max_drift_m'])} m**, "
+                 f"RMS error {_fmt(st['rms_error_m'])} m, altitude drift {_fmt(st['altitude_drift_m'])} m.")
+    else:
+        L.append("_No station-hold data._")
+    L.append("")
+    if pt["approaches"]:
+        dists = sorted({a["d_nom"] for a in pt["approaches"] if a["d_nom"] is not None})
+        speeds = sorted({a["v_nom"] for a in pt["approaches"] if a["v_nom"] is not None})
+        idx = {(a["d_nom"], a["v_nom"]): a for a in pt["approaches"]}
+
+        L.append("**Braking distance (m) — forward travel from loop closure to the furthest point:**")
+        L.append("")
+        L.append("| entry speed \\ target dist | " + " | ".join(f"{d:g} m" for d in dists) + " |")
+        L.append("|---|" + "---|" * len(dists))
+        for v in speeds:
+            cells = [(_fmt(idx[(d, v)]["brake_distance_m"]) if (d, v) in idx else "—") for d in dists]
+            L.append(f"| {v:g} m/s | " + " | ".join(cells) + " |")
+        L.append("")
+
+        L.append("**Settling time (s) — loop closure to |err|<0.5 m & |v|<0.5 m/s** "
+                 "(— = did not converge within the timeout):")
+        L.append("")
+        L.append("| entry speed \\ target dist | " + " | ".join(f"{d:g} m" for d in dists) + " |")
+        L.append("|---|" + "---|" * len(dists))
+        for v in speeds:
+            cells = []
+            for d in dists:
+                a = idx.get((d, v))
+                cells.append(_fmt(a["settling_time_s"], 1) if (a and a["settling_time_s"] is not None)
+                             else "—")
+            L.append(f"| {v:g} m/s | " + " | ".join(cells) + " |")
+        L.append("")
+
+        L.append("Per-trial detail:")
+        L.append("")
+        L.append("| trial | entry v (m/s) | brake dist (m) | overshoot (m) | settling (s) | "
+                 "final err (m) |")
+        L.append("|---|---|---|---|---|---|")
+        for a in pt["approaches"]:
+            settle = _fmt(a["settling_time_s"], 1) if a["settling_time_s"] is not None else "n/a"
+            L.append(f"| {a['trial']} | {_fmt(a['entry_speed_actual'])} | "
+                     f"{_fmt(a['brake_distance_m'])} | {_fmt(a['peak_overshoot_m'])} | {settle} | "
+                     f"{_fmt(a['final_error_m'])} |")
+        L.append("")
+        L.append("> Conservative starting gains (kp_fwd=0.3, kd_fwd=0.8, kp_lat=0.3, kp_alt=0.5) "
+                 "chosen to respect the 96 ms rotational lag and the weak passive drag; blank "
+                 "settling cells mark cells that need gain tuning, not a hard airframe limit.")
+        L.append("")
+    else:
+        L.append("_No point-approach data._")
+        L.append("")
+
+    # ---- 6. Attitude-setpoint interface (only if the battery was run) ----
+    if att:
+        L.append("## 6. Attitude-setpoint interface (`send_attitude_setpoint`)")
+        L.append("")
+        L.append("Sign conventions, attitude gain and lag for the ABSOLUTE-attitude command path the "
+                 "vision / hover pilots fly. The rate tabs above do NOT cover this path, which is why "
+                 "its signs kept surprising the pilots. Measured against ground-truth odometry/attitude.")
+        L.append("")
+        L.append("| Axis | +command drives the drone | Attitude gain (actual/cmd) | Terminal speed (m/s) |")
+        L.append("|---|---|---|---|")
+        for axis in ("pitch", "roll"):
+            a = att.get(axis)
+            if a:
+                L.append(f"| {axis} | **{a.get('direction') or '?'}** | {_fmt(a.get('gain'), 2)} | "
+                         f"{_fmt(a.get('term_speed'))} |")
+        L.append("")
+        if att.get("yaw"):
+            L.append("**Yaw convention** — commanded absolute yaw vs the heading actually reached "
+                     "(does it track = absolute? which sign?):")
+            L.append("")
+            L.append("| commanded yaw (°) | actual yaw reached (°) |")
+            L.append("|---|---|")
+            for s in att["yaw"]:
+                L.append(f"| {_fmt(s['cmd_deg'], 0)} | {_fmt(s['act_deg'], 0)} |")
+            L.append("")
+        if att.get("hover") is not None:
+            L.append(f"**Hover thrust (attitude mode):** {att['hover']:.3f}  "
+                     f"(dynamics.py `HOVER_THRUST` = {dynamics.HOVER_THRUST:.3f})")
+            L.append("")
+        if att.get("thrust_curve"):
+            L.append("Thrust → climb (level attitude hold):")
+            L.append("")
+            L.append("| thrust | climb (m/s, up+) |")
+            L.append("|---|---|")
+            for thr, climb in att["thrust_curve"]:
+                L.append(f"| {thr:.3f} | {_fmt(climb)} |")
+            L.append("")
+
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(L))
     print(f"  wrote {out_path}", flush=True)
@@ -324,11 +601,14 @@ def generate(out_dir):
                    load(os.path.join(out_dir, "tab2_drag.csv")),
                    load(os.path.join(out_dir, "tab3_recovery.csv")),
                    load(os.path.join(out_dir, "tab4_feasibility.csv")),
+                   load(os.path.join(out_dir, "tab5_point_tracking.csv")),
                    f"`{os.path.basename(out_dir)}`",
-                   os.path.join(out_dir, "SYSID_REPORT.md"))
+                   os.path.join(out_dir, "SYSID_REPORT.md"),
+                   att_rows=load(os.path.join(out_dir, "tab6_attitude.csv")))
 
 
-TABS = ["tab1_rotational", "tab2_drag", "tab3_recovery", "tab4_feasibility"]
+TABS = ["tab1_rotational", "tab2_drag", "tab3_recovery", "tab4_feasibility", "tab5_point_tracking",
+        "tab6_attitude"]
 
 
 def _best_source(base, tab):
@@ -366,8 +646,10 @@ def generate_merged(base):
             provenance.append(f"`{tab}` ← (no data)")
     return _render(picked["tab1_rotational"][1], picked["tab2_drag"][1],
                    picked["tab3_recovery"][1], picked["tab4_feasibility"][1],
+                   picked["tab5_point_tracking"][1],
                    f"`{os.path.basename(out_dir)}` (merged)",
-                   os.path.join(out_dir, "SYSID_REPORT.md"), provenance=provenance)
+                   os.path.join(out_dir, "SYSID_REPORT.md"), provenance=provenance,
+                   att_rows=picked["tab6_attitude"][1])
 
 
 def main():
