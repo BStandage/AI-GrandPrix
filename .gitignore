@@ -13,7 +13,10 @@ __pycache__/
 datasets/
 
 # Simulator Code
-AIGP_3364/
+AIGP_*
+
+# Archives
+*.zip
 
 # Scratch / debug image outputs
 src/debug/

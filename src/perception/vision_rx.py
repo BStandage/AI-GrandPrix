@@ -21,6 +21,7 @@ import threading
 import cv2
 import numpy as np
 
+from common.race import race_is_live
 from perception.detectors import active_detector
 from perception.vision_pose import shadow_compare
 from perception.vision_data_collector import VisionDataCollector, COLLECT_VISION_DATA
@@ -213,6 +214,8 @@ class VisionRX:
                       f"(latest g{cmp['gate_id']} err {cmp['pos_err']:.1f} m), see vision_shadow.csv",
                       flush=True)
 
-        # record the frame to the dataset for offline training/labeling
-        if self.logger is not None:
-            self.logger.log_frame(frame_id, sim_time_ns, img)
+        # record the frame to the dataset - ONLY once the race timer is live, numbered 0,1,2,... from the
+        # start (short, sequential names instead of the sim's giant global frame_id). Publish the seq so
+        # the pilot CSV can map each row straight to frames/<seq>.jpg.
+        if self.logger is not None and race_is_live(self.data):
+            self.data["latest_frame_seq"] = self.logger.log_frame(frame_id, sim_time_ns, img)

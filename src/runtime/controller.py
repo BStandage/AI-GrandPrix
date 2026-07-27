@@ -2,6 +2,7 @@
 Top-level control loop: pick a flight mode each tick, run it, print a status readout.
 
 Modes (set CONTROL_MODE):
+  "steady"       - THE flight-ready pilot: slow attitude-setpoint visual servo [pilots.steady_pilot]
   "vision"       - fly from the CAMERA alone, no ground truth (Round-1 goal)  [pilots.vision_pilot]
   "trajectory"   - follow a racing line through the known gates (fast oracle) [pilots.oracle_pilot]
   "keyboard"     - manual rate-mode flight for data collection               [pilots.dev_modes]
@@ -17,9 +18,11 @@ from common.dynamics import CONTROL_HZ, send_arm, send_sim_reset
 from common.gate_geometry import active_gate_relative
 from pilots.dev_modes import char_phase_at, update_characterize_control, update_keyboard_rate_control
 from pilots.oracle_pilot import update_trajectory_control
+from pilots.phase1_pilot.phase1_pilot import update_phase1_control
+from pilots.steady_pilot import update_steady_control
 from pilots.vision_pilot import update_vision_control
 
-CONTROL_MODE = "vision"
+CONTROL_MODE = "steady"
 GATE_READOUT_PERIOD_S = 0.5   # print a status line this often
 
 
@@ -36,6 +39,10 @@ class Controller:
             update_vision_control(self.sim_conn, self.system_boot_ms, self.data)
         elif CONTROL_MODE == "trajectory":
             update_trajectory_control(self.sim_conn, self.system_boot_ms, self.data)
+        elif CONTROL_MODE == "phase1":
+            update_phase1_control(self.sim_conn, self.system_boot_ms, self.data)
+        elif CONTROL_MODE == "steady":
+            update_steady_control(self.sim_conn, self.system_boot_ms, self.data)
         elif CONTROL_MODE == "keyboard":
             update_keyboard_rate_control(self.sim_conn, self.system_boot_ms, self.data)
         elif CONTROL_MODE == "characterize":
@@ -93,6 +100,38 @@ class Controller:
             gatestr = f"gate {rel['gate_id']} dist={rel['distance']:4.1f}m" if rel else "no gate"
             print(
                 f"traj[{regime}] xtrack={self.data.get('traj_xtrack', 0.0):4.1f}m "
+                f"yaw={self.data.get('traj_yawrate', 0.0):+4.1f} "
+                f"v={self.data.get('traj_vcur', 0.0):4.1f}/{self.data.get('traj_vtgt', 0.0):3.1f}m/s "
+                f"climb={climb_str} alt={-(z or 0.0):+6.1f}m | {gatestr} thr={thr:.3f}",
+                flush=True,
+            )
+            return
+
+        if CONTROL_MODE == "steady":
+            regime = self.data.get("steady_regime", "?")
+            gc = self.data.get("_sp_gate_count", 0)
+            dr = self.data.get("_sp_des_roll", 0.0)
+            dp = self.data.get("_sp_des_pitch", 0.0)
+            az = self.data.get("_sp_az", 0.0)
+            el = self.data.get("_sp_el", 0.0)
+            thr = self.data.get("_sp_thrust", 0.0)
+            dets = self.data.get("_sp_ndets", 0)
+            area = self.data.get("_sp_area", 0.0)
+            print(
+                f"steady[{regime}] gates={gc} roll*={math.degrees(dr):+.0f} pitch*={math.degrees(dp):+.0f} "
+                f"az={math.degrees(az):+.0f} el={math.degrees(el):+.0f} thr={thr:.2f} "
+                f"climb={self.data.get('_sp_climb', 0.0):+.1f} dets={dets} area={area:.2f}",
+                flush=True,
+            )
+            return
+
+        if CONTROL_MODE == "phase1":
+            thr = self.data.get("oracle_thrust", 0.0)
+            regime = self.data.get("traj_regime", "?")
+            rel = active_gate_relative(self.data)   # for reference: nearest real gate
+            gatestr = f"gate {rel['gate_id']} dist={rel['distance']:4.1f}m" if rel else "no gate"
+            print(
+                f"phase1[{regime}] xtrack={self.data.get('traj_xtrack', 0.0):4.1f}m "
                 f"yaw={self.data.get('traj_yawrate', 0.0):+4.1f} "
                 f"v={self.data.get('traj_vcur', 0.0):4.1f}/{self.data.get('traj_vtgt', 0.0):3.1f}m/s "
                 f"climb={climb_str} alt={-(z or 0.0):+6.1f}m | {gatestr} thr={thr:.3f}",
