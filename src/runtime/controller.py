@@ -2,6 +2,8 @@
 Top-level control loop: pick a flight mode each tick, run it, print a status readout.
 
 Modes (set CONTROL_MODE):
+  "ace"          - map-based racer: fly the solved trajectory, vision anchors [pilots.ace_pilot]
+  "sprint"       - steady + bang/counter-bang transits (the speed ladder)     [pilots.sprint_pilot]
   "steady"       - THE flight-ready pilot: slow attitude-setpoint visual servo [pilots.steady_pilot]
   "vision"       - fly from the CAMERA alone, no ground truth (Round-1 goal)  [pilots.vision_pilot]
   "trajectory"   - follow a racing line through the known gates (fast oracle) [pilots.oracle_pilot]
@@ -17,13 +19,15 @@ import time
 from common.dynamics import CONTROL_HZ, send_arm, send_sim_reset
 from common.gate_geometry import active_gate_relative
 from pilots.dev_modes import char_phase_at, update_characterize_control, update_keyboard_rate_control
+from pilots.ace_pilot import update_ace_control
 from pilots.oracle_pilot import update_trajectory_control
 from pilots.phase1_pilot.phase1_pilot import update_phase1_control
+from pilots.sprint_pilot import update_sprint_control
 from pilots.steady_pilot import update_steady_control
 from pilots.vision_pilot import update_vision_control
 
-CONTROL_MODE = "steady"
-GATE_READOUT_PERIOD_S = 0.5   # print a status line this often
+CONTROL_MODE = "ace"
+GATE_READOUT_PERIOD_S = 1   # print a status line this often
 
 
 class Controller:
@@ -43,6 +47,10 @@ class Controller:
             update_phase1_control(self.sim_conn, self.system_boot_ms, self.data)
         elif CONTROL_MODE == "steady":
             update_steady_control(self.sim_conn, self.system_boot_ms, self.data)
+        elif CONTROL_MODE == "sprint":
+            update_sprint_control(self.sim_conn, self.system_boot_ms, self.data)
+        elif CONTROL_MODE == "ace":
+            update_ace_control(self.sim_conn, self.system_boot_ms, self.data)
         elif CONTROL_MODE == "keyboard":
             update_keyboard_rate_control(self.sim_conn, self.system_boot_ms, self.data)
         elif CONTROL_MODE == "characterize":
@@ -121,6 +129,30 @@ class Controller:
                 f"steady[{regime}] gates={gc} roll*={math.degrees(dr):+.0f} pitch*={math.degrees(dp):+.0f} "
                 f"az={math.degrees(az):+.0f} el={math.degrees(el):+.0f} thr={thr:.2f} "
                 f"climb={self.data.get('_sp_climb', 0.0):+.1f} dets={dets} area={area:.2f}",
+                flush=True,
+            )
+            return
+
+        if CONTROL_MODE == "ace":
+            # tape replay: the dbg CSV carries the full state - console shows gate ticks only
+            rs = self.data.get("race_status") or {}
+            gi = rs.get("active_gate_index")
+            if gi is not None and gi != self.data.get("_readout_last_gate"):
+                self.data["_readout_last_gate"] = gi
+                print(f"ace: race_gate -> {gi}  [{self.data.get('ace_regime', '?')}]", flush=True)
+            return
+
+        if CONTROL_MODE == "sprint":
+            regime = self.data.get("sprint_regime", "?")
+            gc = self.data.get("_sp_gate_count", 0)
+            dp = self.data.get("_sp_des_pitch", 0.0)
+            az = self.data.get("_sp_az", 0.0)
+            thr = self.data.get("_sp_thrust", 0.0)
+            area = self.data.get("_sp_area", 0.0)
+            print(
+                f"sprint[{regime}] gates={gc} v_est={self.data.get('_sp_v_est', 0.0):+.1f}m/s "
+                f"pitch*={math.degrees(dp):+.0f} az={math.degrees(az):+.0f} thr={thr:.2f} "
+                f"climb={self.data.get('_sp_climb', 0.0):+.1f} area={area:.2f}",
                 flush=True,
             )
             return

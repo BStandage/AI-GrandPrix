@@ -1,0 +1,332 @@
+{
+ "global": [
+  0.0,
+  0.0,
+  0.0
+ ],
+ "gates": {
+  "0": [
+   0.66,
+   -0.43,
+   -0.33
+  ],
+  "1": [
+   -0.44,
+   0.22,
+   1.63
+  ],
+  "2": [
+   2.21,
+   0.76,
+   2.14
+  ],
+  "3": [
+   1.51,
+   1.51,
+   0.61
+  ],
+  "4": [
+   -1.51,
+   -0.31,
+   -0.05
+  ],
+  "5": [
+   -4.5,
+   -0.24,
+   0.83
+  ],
+  "6": [
+   -2.1,
+   1.65,
+   -2.6
+  ],
+  "7": [
+   -1.11,
+   1.69,
+   0.0
+  ],
+  "8": [
+   -0.92,
+   1.92,
+   0.0
+  ],
+  "9": [
+   -0.85,
+   2.31,
+   0.0
+  ]
+ },
+ "_log": [
+  "DECLARED RESET to the g0-threading generation (V7.5 caps, launchlag 0.4, no fitted vscale/lift, YAW 0.15/ATT 0.096) + its offsets + g1 bottom lesson +0.7",
+  "MEASURED g1 crossing +0.68 right of opening -> lateral net -0.18; z 0.7 confirmed",
+  "gate_innovations --apply from ace_dbg_20260728_145555.csv",
+  "reverted batch overcorrection; final-approach-only measurement next",
+  "gate_innovations --apply from ace_dbg_20260728_145718.csv",
+  "gate_innovations --apply from ace_dbg_20260728_150209.csv",
+  "gate_innovations --apply from ace_dbg_20260728_150526.csv",
+  "gate_innovations --apply from ace_dbg_20260728_150816.csv",
+  "g2 z transfer-ratio step: +0.85 (measured 45% delivery)",
+  "g2 z saturated at target level -> LEG LIFT via g1 +0.4 (g1 has margin, crossed centered)",
+  "gate_innovations --apply from ace_dbg_20260728_151437.csv",
+  "gate_innovations --apply from ace_dbg_20260728_151459.csv",
+  "gate_innovations --apply from ace_dbg_20260728_151515.csv",
+  "gate_innovations --apply from ace_dbg_20260728_151524.csv",
+  "gate_innovations --apply from ace_dbg_20260728_151533.csv",
+  "gate_innovations --apply from ace_dbg_20260728_151541.csv",
+  "gate_innovations --apply from ace_dbg_20260728_151550.csv",
+  "restore g0 + g1 leg-lift; protect g1 z (intentional high crossing)",
+  "gate_innovations --apply from ace_dbg_20260728_151601.csv",
+  "gate_innovations --apply from ace_dbg_20260728_151620.csv",
+  "gate_innovations --apply from ace_dbg_20260728_151628.csv",
+  "gate_innovations --apply from ace_dbg_20260728_151637.csv",
+  "gate_innovations --apply from ace_dbg_20260728_151646.csv",
+  "gate_innovations --apply from ace_dbg_20260728_151655.csv",
+  "gate_innovations --apply from ace_dbg_20260728_151703.csv",
+  "gate_innovations --apply from ace_dbg_20260728_151712.csv",
+  "gate_innovations --apply from ace_dbg_20260728_151741.csv",
+  "restored after stub-file compounding (pilot client was in a start loop)",
+  "gate_innovations --apply from ace_dbg_20260728_151920.csv",
+  "gate_innovations --apply from ace_dbg_20260728_152008.csv",
+  "gate_innovations --apply from ace_dbg_20260728_152029.csv",
+  "gate_innovations --apply from ace_dbg_20260728_152053.csv",
+  "gate_innovations --apply from ace_dbg_20260728_152111.csv",
+  "gate_innovations --apply from ace_dbg_20260728_152123.csv",
+  "undo ghost-log g0 z; cap g3 first-reading to 1.2 m",
+  "REVERT to the exact 3-gate tape offsets; g2 centering + g3 distant reading dropped (waypoint moves drag the spline at neighbours - only correct real misses)",
+  "gate_innovations --apply from ace_dbg_20260728_152738.csv",
+  "gate_innovations --apply from ace_dbg_20260728_152914.csv",
+  "gate_innovations --apply from ace_dbg_20260728_152941.csv",
+  "gate_innovations --apply from ace_dbg_20260728_153016.csv",
+  "gate_innovations --apply from ace_dbg_20260728_153047.csv",
+  "gate_innovations --apply from ace_dbg_20260728_153113.csv",
+  "gate_innovations --apply from ace_dbg_20260728_153139.csv",
+  "RESTORED to the 153016 tape state (max_gate 4) by replaying the two applications from the 152738 checkpoint; corrector is now frontier-only",
+  "gate_innovations --apply from ace_dbg_20260728_153554.csv",
+  "gate_innovations --apply from ace_dbg_20260728_153821.csv",
+  "PREFIX LOCK bootstrapped: gates 0..2 bytes frozen through t=10.025 (flight 153554); g3 correction re-applied for the suffix solve",
+  "gate_innovations --apply from ace_dbg_20260728_154455.csv",
+  "gate_innovations --apply from ace_dbg_20260728_154523.csv",
+  "DECLARED RECENTER: medians of 4 same-tape flights applied to g1/g2/g3 (all crossings were edge-marginal; run scatter flipped them); lock cleared for one full re-solve",
+  "RECENTER ABANDONED (camera absolute bias vs counter truth) - replaying the exact build chain of the gate-4 tape",
+  "gate-4 tape state restored: bytes banked through gate-3 crossing t=12.272, g4 carries both measured corrections",
+  "RESTORED the RECENTER tape (flight 155056: 3 gates passed, fast near-miss at the 4th) - Brian confirmed this is the keeper",
+  "RESTORED: exact 154523 tape (fast through 3 gates, first g4 correction) - confirmed target state",
+  "VIA added: dip 1.2 m under the display fighter jet mid-leg between g3 and g4 (crashes clustered ~10 m short of g4; Brian: jet is elevated, go under)",
+  "via deepened/widened: still hit the wing - flat low corridor frac 0.35-0.60 at -1.3",
+  "gate_innovations --apply from ace_dbg_20260728_161816.csv",
+  "vias WORLD-ANCHORED to the 161816 clearing geometry - gate corrections can no longer slide the corridor into the jet",
+  "gate_innovations --apply from ace_dbg_20260728_162254.csv",
+  "gate_innovations --apply from ace_dbg_20260728_162322.csv",
+  "gate_innovations --apply from ace_dbg_20260728_162351.csv",
+  "vias re-aligned onto the current g3->g4 line (kink was braking the leg to 3.6 m/s); 3b fixed so the dip z actually reaches the plan; unbanked to g3 crossing to re-solve the corridor at full speed",
+  "corridor z raised to the 161816 clearing altitude (plan 2.8/2.5): reality sags ~1+ m below plan on this leg - the explicit 0.7 m dip hit the floor",
+  "gate_innovations --apply from ace_dbg_20260728_163449.csv",
+  "corridor restored to PROVEN clearing xy (the dodge was a lateral bow, not a dip); no-brake floor removed (it caused the alternating-roll wobble)",
+  "unbanked the g2-crossing..g3-crossing segment: its bytes carried the old A_LAT 3.1 brake into the 4th-gate approach (nose-up slowdown Brian sees); re-solved under A_LAT 4.5",
+  "corridor rebuilt as a SINGLE apex via (two close points double-kinked the spline - braking to 4.2); one point at frac 0.45, 0.70 m clearance: min speed 6.1, smooth single bank each way",
+  "jet dodge final form: A_LAT 4.5->6.5 (measured ceiling 9.8), single apex at mid-leg 1.3 m off the line - deep clearance AND 6.6 m/s min, no braking = no pitch-back between 4th and 5th gates (Brian rule)",
+  "FULL REVERT to the six-flight-streak build (A_LAT 4.5, apex 0.45/-0.70) per Brian",
+  "MAP-FIT PRIORS: similarity transform fitted on gates 0-4 corrections (scale 1.033, rot +1.4 deg, shift +1.3/-0.7); damped 0.7x predictions applied to g6-g9; refit as each new gate converges",
+  "apex -0.70 -> -1.2: Brian watching live - clipping the right WING (bounding box), 0.5 m more right clears it",
+  "JET DODGE SOLVED-FORM: bow -1.0 @45% + straight-through EXIT PIN 4.5 m past g4 (the late left bulge was the racing line leaning into the g4->g5 turn early - not spline ringing); path never crosses left of the leg line",
+  "bow apex -1.0 -> -1.6 (still hitting; Brian: swing wider right); exit pin unchanged",
+  "OVER THE TOP: bow apex z 2.6 -> 4.2 (still hitting on the return leg - box extends far down the leg; vertical clearance is free speed, no curvature brake)",
+  "over-the-top reverted (dodged but climbed way too much - not the line)",
+  "return-zone lift: third via at 75% of leg, z 3.1, on the bow taper - altitude clears the box (4.2 proved it) but only the return zone needs it",
+  "gate_innovations --apply from ace_dbg_20260728_172959.csv",
+  "g4 aim corrected from clearing flight 172959 (+1.51 lat capped, -0.80 z); exit pin recomputed on the new line (pin follows the aim; obstacle vias stay fixed)",
+  "BANKED idx-3 crossing (t=12.01, flight 172959) BEFORE re-applying the g4 aim correction - the earlier unbanked apply dragged the idx-3 approach (clipped the 4th gate). Rule enforced: never correct with the previous gate unbanked",
+  "GO BELOW (Brian order): corridor vias z -> 2.1 (path down 0.5 m through the jet zone), thrust climb back to the gate at the exit",
+  "NO OBSTACLE (Brian confirmed visually + range-rate data): the \"jet hits\" were the tape maneuvering 8-10 m early because reality flies this leg at ~3.5 m/s vs the model 6.5. Dodge vias deleted; leg re-paced to 4.5 to match measured reality; exit pin kept",
+  "IMPACT LOCALIZED from IMU spike + camera: solid object 12.3 m short of g4 ON the centerline. TWO obstacles on this leg; only the 172959 corridor (bow -1.6@45% + 3.1 lift@75%) ever cleared both. Restored verbatim + banked prefix + measured aim fix; leg cap removed",
+  "UNDER (Brian order): straight line, plan z 1.5 through the jet zone (real ~0.8 with the measured sag - under the belly, above the floor), thrust climb to the gate",
+  "EXIT HOLD at gate-3: via 13% into the leg at crossing altitude - the under-dive started right at the banked-prefix splice (t=12.01 = the crossing) and the transition snap clipped the frame; dive now starts past the gate",
+  "EXIT PIN DELETED: its kink made the brake pass reach back through the g4 crossing into the jet zone (the pitch-back braking after the 4th gate)",
+  "leg speed floor 5.5 on the g3->g4 leg, post-brake-pass: no command below 5.5 mid-leg ever again (kink-induced brake propagation kept re-appearing)",
+  "1 m lower (Brian order): under-dive vias 1.5 -> 0.5",
+  "WHOLE STRETCH LOW (Brian): flat 0.5 corridor from 30% to 85% of the leg, gentle drop after the frame, climb to the gate at the end - no dive timing",
+  "leg floor 5.5 -> 6.9: the banked bytes hand over at ~7 m/s; any plan speed below that = nose-up braking at the handoff (the floor-hit dive)",
+  "vias re-anchored ONTO the banked trajectory (trail dump): the plan line was >1 m off where the frozen bytes deliver the drone, z 2.5 vs demanded 0.5 - the follower dogleg/dive at handoff was closing THAT gap. Plan now continues the banked path and descends gently",
+  "STEADY DECODE: steady flew this leg STRAIGHT and LEVEL (const yaw 132.9, pitch +2.7, alt flat) - the TRUE line is clear; ours was rotated left into the jet (camera said +1.51 right all along). Leg = straight level from banked exit to the fully-corrected crossing; remaining +0.5 aim applied",
+  "TRUE LINE from steady heading 132.9 deg projected from the trusted g3 crossing: our leg line was rotated ~11 deg; g4 aim moved 2.8 m onto the steady line; straight level vias along it",
+  "GROUND-TRUTH REBUILD: vias = the cleared 172959 trail verbatim; aim = its crossing point + camera-measured (1.51 right, 0.80 up). No frames, no projections, no guesses",
+  "dropped the 80% trail pin: follower needs ~10 m to blend 1.5 m laterally into the hole",
+  "IDGAF WIDE (Brian): 3+ m right of the direct line for the whole leg, rejoin only for the measured hole",
+  "wide line rejoin earlier: 3.0 wide to 56%, taper 1.5 -> 0.4 into the hole",
+  "REVERT wide swing: dead straight 4th-gate crossing -> measured 5th-gate hole, level, speed floor 6.9 (no braking, no back pitch), zero vias",
+  "gate_innovations --apply from ace_dbg_20260728_185355.csv",
+  "CLEARED-LINE HOLD: jet sits between the cleared line and the hole; path stays on the cleared line to 62% (past the jet), slides 1.1 left / 0.7 down to the corrected hole over the last 8 m",
+  "SPLICE MOVED to 12.05 (gate-4 exit): impact is 0.7 s after the old splice - no dodge could physically start in time; 1.2 m right of the graze line established from the gate exit, slide to the hole after 60%",
+  "OVER THE JET (Brian order): straight line to the hole, climb to 4.3 over the jet zone (4.2 cleared it earlier today), descend to the crossing",
+  "gate_innovations --apply from ace_dbg_20260728_190145.csv",
+  "BANKED THE JET LEG: flight 190145 passed gates 0-4 (race_gate->5 at t=16.039) - over-the-jet at 4.3, hole threaded; bytes frozen through the crossing; g5 correction re-applied on top",
+  "gate_innovations --apply from ace_dbg_20260728_190359.csv",
+  "no-brake floor extended to the g4->g5 leg (5.5): the pitch-back returned because the floor only covered the jet leg. Standing law: every new frontier leg gets a floor at/above its handoff speed",
+  "g4->g5 leg anchored on the banked arrival trail (roll hunting = plan line offset from delivery point, the recurring pattern)",
+  "arrival-anchor on g4->g5 reverted (banked continuation is off-route here; anchoring to it added an S)",
+  "gate_innovations --apply from ace_dbg_20260728_191046.csv",
+  "COUNTER DEMOTED (Brian): it ticks on plane fly-bys, not hole passage - eyes + close camera are truth now. Fly-over unbanked; aim corrected from two flights (~0.9 right, 0.8 high); descent starts earlier (0.75 via 3.8->3.0)",
+  "descent spread + LEVEL FINAL: apex unchanged (jet clearance proven), descend immediately after, last 14% level at hole height on the hole line",
+  "leg floor 8.8 over the descent: gravity adds ~1.5 m/s falling off the apex and any floor below that = nose-up shedding (the ground-bounce flight). The plan now RIDES the descent speed through the crossing",
+  "BANKED the 5th gate for real: flight 191544 went THROUGH the hoop (Brian eyes-confirmed; bounce and all) - bytes frozen through t=16.28. Ugly but won; polish only as a declared re-solve after the lap closes",
+  "bounce fix (Brian: we descend too much): aim z +0.8 (floor-bounce magnitude = hole is higher than believed), descent shallowed, crossing regenerated",
+  "no-dip final: descent stops ABOVE hole height (0.72@3.5, 0.86@3.0), arrive level onto the crossing - the low approach + late up-sweep is gone",
+  "leg floor 8.2 over the whole jet arc: the plan itself demands full speed, so generated thrust carries the climb (no apex mush) and the descent rides gravity - replaces the byte-clamp attempts",
+  "aim corrected (+1.30/-1.30 measured); final vias re-laid ON the corrected line - the late hard roll was the stale via line kinking into the new aim",
+  "MANUAL apply (fly-by tick blocked the corrector): aim +1.0 right, -1.0 down (measured +1.30/+1.30, capped); final vias on the corrected line",
+  "BANKED the 5th gate THROUGH THE HOLE (Brian eyes-confirmed): bytes frozen through t=15.694 (crossing +0.4 s so the next splice is clear of the frame). Thrash in the arc = polish debt, deferred",
+  "6th gate: distant-camera median -1.04 (gate left of track), damped -0.73 applied; exit pin 2.5 m past the 5th-gate crossing kills the pre-crossing yaw slam",
+  "6th gate same altitude as 5th (Brian eyes): z offset -0.33 -> -0.97 (level leg, no climb)",
+  "6th gate is RIGHT of the exit line (Brian watching; distant-camera left reading rejected as turning-approach bias): left step reverted, +1.0 right applied",
+  "6th gate triangulated (198 sightings): aim set to world fix",
+  "gate-5 leg raised +0.5 (z_off -0.97 -> -0.47): reality flies ~1 m below plan through the turn and the 1.47 m leg left no cushion (floor bounce after gate 4); plan rides higher, reality lands at the hole",
+  "gate-5 aim +0.3 up (Brian: slightly low, pass through center); arc smoothing next",
+  "STRAIGHT SHOT at gate 5 (Brian): 1.2 m exit pin, then dead-straight line to the center - the arc was colliding at the crossing (843 m/s2 at t=18.17); up-right climb to gate 6 follows",
+  "OBSTACLE MAPPED at (-18,+59) ~5.5 m past gate 4 (two impact fixes cluster there; pillar suspected): line bows 1.5 m right around it, rejoins, straight through gate 5. Obstacle registry started in race_offsets[\"obstacles\"]",
+  "g4->g5 leg raised to plan 2.45-2.65 (trail visibly pooling on the floor; reality ~1 m below plan): real cruise ~1.6, cushion restored",
+  "BANKED gate 5 (Brian eyes: threaded): bytes frozen through t=19.934",
+  "gate-5 exit climbs IMMEDIATELY (floor hit at the fresh-leg dip, the recurring pattern): vias force +1.0 by 10% and 5.2 by 28% of the climb leg",
+  "GUARD VIA at the obstacle itself (spline bulged left between pin and bow, through the registered point): 1.8 m right of (-18.15,59.15) at z 2.9",
+  "DENSE RAIL around the (-18,59) obstacle: 5 points every ~1.2 m, right-arc peaking 1.9 m off - no spline span left to bulge through it",
+  "DECLARED re-solve of the g4->g5 leg: lock pulled to 15.60 (crossing 15.29 stays frozen; the 0.03 m obstacle graze at 15.95 becomes plan-governed). Dense-rail dodge vias now active. Gate 5 needs one re-confirmation flight",
+  "rail deepened (peak 2.7 right): 0.53 m clearance too thin vs scatter",
+  "rail back to 1.9 peak: deeper saturated the follower (0.47<0.53) and cost crossing margin. 0.53 m clearance = the ceiling without re-rolling gate 4",
+  "gate-5 aim from re-solve flight: measured +1.65 lat / -1.50 below -> capped +1.0 right, +1.0 up",
+  "gate-5 residual +0.80 -> damped +0.64 right; expecting thread",
+  "FLOOR THEORY TEST (Brian): rail deleted - dead-straight line to gate 5 flown HIGH (plan 3.3-3.6 over the strike zone, real ~2.4+). No dodge = no hard right yaw. If it still hits, the obstacle is tall and the rail returns",
+  "COMBINED dodge: rail (1.8 right) + max height together - diagonal margin from both axes; smooth taper to a straight gate-5 final",
+  "GROUND AVOIDANCE ONLY (Brian): straight line to gate 5, climb off the crossing, zero lateral dash - the strikes were the floor",
+  "FLOW LINE (Brian): exit pin and all straight-holds deleted - one continuous arc carrying momentum through gate 4, climbing over the floor zone, curving through gate 5 into the gate-6 climb. Two z-waypoints only",
+  "WIDE ARC (Brian: 30% of the bank): leg starts on the gate-4 exit heading and bends across the whole leg - low constant bank, oblique gate-5 crossing",
+  "gate-5 near-miss slightly right (Brian eyes; camera direction agrees, its 2.2 magnitude is oblique-crossing smear): -0.45 left step",
+  "another 1.0 left (Brian visual: wide right, clear of the frame - the camera magnitude was right after all, total ~1.45 walked)",
+  "right-border clip -> 0.5 left (camera trusted per Brian)",
+  "BANKED gate 5 (Brian: good enough) through t=19.173",
+  "gate-6 first close measurement (-2.63 lat, +2.17 above): capped -1.0 left, -0.6 down (Brian rated level-off accurate, softer z step)",
+  "STRAIGHT-THROUGH gate-5 crossing (Brian): unbanked; arc completes early, final anchor 3 m before the gate ON the g5->g6 line - exit fires at gate 6, climb leg becomes zero-roll point-and-climb",
+  "pre-gate anchor dropped (pinned the approach against aim corrections); exit-side climb vias provide the straight-at-gate-6 tangent",
+  "LATE-APEX line (Brian): hold gate-4 exit heading to 30%, one concentrated turn, wings level 4.5 m out on the g5->g6 line, straight crossing",
+  "late-apex real under-turn (~80% of model heading change, missed ~1.5-2 right): capped -1.0 aim step; remainder next flight if needed",
+  "DEFLECTION not under-turn: 137 m/s2 graze at the registered (-18,59) obstacle at plan z~3.6 (tall + invisible, Brian called it): aim step reverted, hold-line bent 1.5 right of the point",
+  "dense rail restored for the first 30% (max post-splice dodge authority at the invisible obstacle), late-apex wings-level final kept from 78%",
+  "FLOW ARC restored verbatim (the only geometry that cleared the invisible obstacle AND threaded gate 5 in reality) with the converged aim",
+  "BEZIER RACING LINE (Brian: one direction only, ~20 deg less rotation): single monotonic arc, enters on gate-4 exit heading, exits aligned to gate 6, oblique gate-5 crossing - no reversal anywhere",
+  "cubic racing line: turn begins immediately (3 m hold), slow smooth single-direction rotation, exit aligned to gate 6",
+  "curve re-anchored on the banked DELIVERY point+heading (the first right-flip was the splice position correction): single left rotation start to finish",
+  "turn / LEVEL-OUT (3 m straight at 1/3 leg) / resume curve (Brian shape)",
+  "BANKED gate 5 (eyes-confirmed, wings-level bezier crossing) through t=19.436",
+  "gate-6 measured (+1.79 lat, +2.50 above): capped +1.0 right, -1.0 down",
+  "gate-6: -2.73/-1.53 measured -> capped -1.0 left, -1.0 down",
+  "STRUCTURAL RESET of the g4 passage: unbanked to 14.0, crossing biased +0.35 right inside the hole, curve re-derived from the shifted exit - the exit line now starts clear of the invisible obstacle",
+  "reset attempt reverted (aim-level bias maxes at 0.36 m clearance - the obstacle shadows every legal exit line; needs the angled-crossing re-solve of the whole jet leg, queued for a fresh session). Best-known tape restored"
+ ],
+ "protect_z": [
+  "1"
+ ],
+ "vias": [
+  {
+   "after_gate": 3,
+   "frac": 0.3,
+   "abs": [
+    -1.58,
+    45.09,
+    3.9
+   ]
+  },
+  {
+   "after_gate": 3,
+   "frac": 0.55,
+   "abs": [
+    -6.38,
+    48.55,
+    4.3
+   ]
+  },
+  {
+   "after_gate": 3,
+   "frac": 0.72,
+   "abs": [
+    -9.02,
+    51.28,
+    3.5
+   ]
+  },
+  {
+   "after_gate": 3,
+   "frac": 0.88,
+   "abs": [
+    -11.97,
+    50.8,
+    2.75
+   ]
+  },
+  {
+   "after_gate": 4,
+   "frac": 0.2,
+   "abs": [
+    -15.79,
+    58.11,
+    3.5
+   ]
+  },
+  {
+   "after_gate": 4,
+   "frac": 0.45,
+   "abs": [
+    -19.3,
+    63.93,
+    3.8
+   ]
+  },
+  {
+   "after_gate": 4,
+   "frac": 0.7,
+   "abs": [
+    -22.79,
+    70.54,
+    3.4
+   ]
+  },
+  {
+   "after_gate": 5,
+   "frac": 0.1,
+   "abs": [
+    -23.85,
+    78.65,
+    3.27
+   ]
+  },
+  {
+   "after_gate": 5,
+   "frac": 0.28,
+   "abs": [
+    -23.29,
+    81.73,
+    5.2
+   ]
+  }
+ ],
+ "leg_caps": [],
+ "leg_floors": [
+  {
+   "after_gate": 3,
+   "v": 8.2
+  },
+  {
+   "after_gate": 4,
+   "v": 7.2
+  }
+ ],
+ "obstacles": [
+  {
+   "world": [
+    -18.1,
+    59.0
+   ],
+   "z_range": "floor..3+",
+   "leg": "g4->g5",
+   "evidence": "impacts t=15.87 (old line) and t=15.98 (933 m/s2) both at this point",
+   "note": "amended: probably a GROUND strike, not a pillar - the leg was planned 1.5-1.9 and reality flies ~1 lower"
+  }
+ ]
+}
