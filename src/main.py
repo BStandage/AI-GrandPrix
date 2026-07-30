@@ -29,7 +29,7 @@ logger = components['logger']
 # Debug camera window 
 # Live 3-panel viewer (raw | HSV mask | detections); see debug_camera.py.
 # Toggle with the DEBUG_CAMERA flag below; set to False for competition runs.
-DEBUG_CAMERA = True
+DEBUG_CAMERA = False
 
 if DEBUG_CAMERA:
     start_debug_camera(shared_data)
@@ -52,7 +52,10 @@ elif CONTROL_MODE == "characterize":
     print("  crash - that's fine, we want the data. Logs to datasets/characterize_*.csv.", flush=True)
     print("  When done: python -m analysis.analyze_performance", flush=True)
 
-else:
+elif CONTROL_MODE == "ace":
+    print("  ACE: open-loop tape replay.", flush=True)
+
+elif CONTROL_MODE == "keyboard":
     print("  Manual flight (rate mode):", flush=True)
     print("    R/F = throttle up/down (press R to take off)", flush=True)
     print("    UP/DOWN = pitch  |  LEFT/RIGHT = roll  |  Q/E = yaw  |  ESC = quit", flush=True)

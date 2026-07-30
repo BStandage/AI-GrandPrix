@@ -389,7 +389,11 @@ ATT_YAWS_DEG = [0, 45, -45, 90, 0]                        # absolute-yaw probe s
 TAB6_HEADER = ["trial", "group", "seg", "t", "timestamp_ms",
                "cmd_roll_deg", "cmd_pitch_deg", "cmd_yaw_deg", "cmd_thr",
                "alt", "roll", "pitch", "yaw", "rollspeed", "pitchspeed", "yawspeed",
-               "vx_w", "vy_w", "vz_w", "vh", "climb_up", "up_align", "motor_max"]
+               "vx_w", "vy_w", "vz_w", "vh", "climb_up", "up_align", "motor_max",
+               # ground-truth position + raw IMU accels: everything the ace estimator consumes,
+               # so it can be REPLAYED offline against odometry truth (the validation the first
+               # three ace flights never had)
+               "x", "y", "xacc", "yacc", "zacc"]
 
 
 def _write_att_rows(w, name, group, rows):
@@ -409,6 +413,8 @@ def _write_att_rows(w, name, group, rows):
             "vx_w": r["vx_w"], "vy_w": r["vy_w"], "vz_w": r["vz_w"],
             "vh": r["vh"], "climb_up": r["climb_up"], "up_align": r["up_align"],
             "motor_max": r.get("motor_max", 0.0),
+            "x": r.get("x", 0.0), "y": r.get("y", 0.0),
+            "xacc": r.get("xacc", 0.0), "yacc": r.get("yacc", 0.0), "zacc": r.get("zacc", 0.0),
         })
 
 
@@ -464,3 +470,112 @@ def run_attitude(runner, out_dir, setup_alt=45.0):
     finally:
         f.close()
     print("  -> tab6_attitude.csv", flush=True)
+
+
+# ===========================================================================================
+# Tab 7 - ACE ENVELOPE (the map-racer's crank prerequisites, flown on the VQ1 range)
+# ===========================================================================================
+# Three measurements the ace_pilot crank needs, none covered by Tab 6's <=20 deg / <=0.60 sweep:
+#   1. CREEP DRAG / MAP SCALE: long holds at steady_pilot's exact creep leans. Offline, integrate
+#      the dead-reckoning model over each hold and divide by the odometry distance - that ratio
+#      IS the VQ2 course-map scale error (the map was dead-reckoned from creep-speed flight).
+#   2. HIGH-LEAN ENVELOPE: 30/45/60 deg holds - does the stabilised controller honor them, and
+#      what terminal speed does each reach (drag curve at 8-20 m/s, the crank's speed range)?
+#      Holds are short and sign-interleaved: at 60 deg the drone covers ~35 m per hold.
+#   3. THRUST CEILING: 0.80 and 1.00 level holds - max climb on the CURRENT build (the old
+#      THRUST_CLIMB_TABLE is the June build).
+ACE_ENV_CREEPS_DEG = [1.7, 2.9, 4.0]   # steady's PITCH_FWD is 2.9 deg - the map's speed regime
+ACE_ENV_CREEP_S = 12.0                 # long: the scale calibration integrates distance over this
+ACE_ENV_LEANS = [(30, 5.0), (45, 4.0), (60, 3.5)]   # (deg, hold_s) - excursion-bounded
+ACE_ENV_THRUSTS = [0.80, 1.00]
+ACE_ENV_THR_S = 2.5
+
+
+def _ace_envelope_phases():
+    settle = {"group": "level", "seg": "level", "roll": 0.0, "pitch": 0.0, "yaw": 0.0,
+              "thrust": None, "dur": SETTLE_S}
+    ph = []
+    for deg in ACE_ENV_CREEPS_DEG:
+        for sign in (+1, -1):     # out-and-back cancels net drift
+            ph.append(dict(settle))
+            ph.append({"group": "creep", "seg": f"creep{sign * deg:+.1f}",
+                       "roll": 0.0, "pitch": math.radians(sign * deg), "yaw": 0.0,
+                       "thrust": None, "dur": ACE_ENV_CREEP_S})
+    for deg, dur in ACE_ENV_LEANS:
+        for sign in (+1, -1):
+            ph.append(dict(settle))
+            ph.append({"group": "lean", "seg": f"pitch{sign * deg:+d}",
+                       "roll": 0.0, "pitch": math.radians(sign * deg), "yaw": 0.0,
+                       "thrust": None, "dur": dur})
+    # one roll pair at 45 for axis-symmetry check
+    for sign in (+1, -1):
+        ph.append(dict(settle))
+        ph.append({"group": "lean", "seg": f"roll{sign * 45:+d}",
+                   "roll": math.radians(sign * 45), "pitch": 0.0, "yaw": 0.0,
+                   "thrust": None, "dur": 4.0})
+    # DIAGONAL probe (Brian's "fly sideways" question): is the 45-deg clamp PER-AXIS (square
+    # envelope - pitch45+roll45 = 54.7 deg total tilt, g*sqrt2 = 13.9 m/s^2, terminal ~24) or
+    # on TOTAL tilt (circular - no gain)? Sign-interleaved out-and-back; the 60/60 pair also
+    # shows the clamp's shape when both axes exceed it.
+    for p_deg, r_deg, dur in [(45, 45, 3.5), (-45, -45, 3.5), (45, -45, 3.5),
+                              (30, 30, 4.0), (-30, -30, 4.0), (60, 60, 3.0), (-60, -60, 3.0)]:
+        ph.append(dict(settle))
+        ph.append({"group": "diag", "seg": f"diag_p{p_deg:+d}_r{r_deg:+d}",
+                   "roll": math.radians(r_deg), "pitch": math.radians(p_deg), "yaw": 0.0,
+                   "thrust": None, "dur": dur})
+    # FULL ENVELOPE SWEEP - no assumed limits. The "45-deg clamp" is ONE datapoint (pitch 60
+    # -> 45); sweep BOTH axes to 90, diagonals to 90/90, and probe past vertical (120, 180):
+    # if the stabilised interface will command through inverted, flips/split-S are available
+    # WITHOUT rate mode. Extreme holds are short (near-90 the vertical thrust component -> 0
+    # and it falls ~7 m/s^2 while there; 45 m setup alt gives room).
+    for axis in ("pitch", "roll"):
+        for deg, dur in [(60, 2.5), (-60, 2.5), (75, 1.8), (-75, 1.8), (90, 1.2), (-90, 1.2)]:
+            ph.append(dict(settle))
+            ph.append({"group": "envmax", "seg": f"{axis}max{deg:+d}",
+                       "roll": math.radians(deg) if axis == "roll" else 0.0,
+                       "pitch": math.radians(deg) if axis == "pitch" else 0.0,
+                       "yaw": 0.0, "thrust": None, "dur": dur})
+    for deg, dur in [(75, 1.8), (90, 1.2)]:
+        ph.append(dict(settle))
+        ph.append({"group": "envmax", "seg": f"diagmax_p{deg:+d}_r{deg:+d}",
+                   "roll": math.radians(deg), "pitch": math.radians(deg), "yaw": 0.0,
+                   "thrust": None, "dur": dur})
+    # INVERSION probes: does the interface fly THROUGH vertical toward an inverted setpoint,
+    # clamp, or do something else? Answers whether aerobatics exist in attitude mode at all.
+    for deg in (120, 180):
+        ph.append(dict(settle))
+        ph.append({"group": "invert", "seg": f"pitchinv{deg:+d}",
+                   "roll": 0.0, "pitch": math.radians(deg), "yaw": 0.0,
+                   "thrust": None, "dur": 1.2})
+        ph.append({"group": "recover", "seg": f"recinv{deg:+d}", "roll": 0.0, "pitch": 0.0,
+                   "yaw": 0.0, "thrust": None, "dur": 3.0})
+    for thr in ACE_ENV_THRUSTS:
+        ph.append(dict(settle))
+        ph.append({"group": "thrust", "seg": f"thr{thr:.2f}", "roll": 0.0, "pitch": 0.0,
+                   "yaw": 0.0, "thrust": thr, "dur": ACE_ENV_THR_S})
+        ph.append({"group": "recover", "seg": f"rec{thr:.2f}", "roll": 0.0, "pitch": 0.0,
+                   "yaw": 0.0, "thrust": 0.10, "dur": 2.0})   # bleed the climb before the next
+    ph.append(dict(settle))
+    return ph
+
+
+def run_ace_envelope(runner, out_dir, setup_alt=45.0):
+    print("\n=== Tab 7: ACE envelope (creep scale + high lean + thrust ceiling) ===", flush=True)
+    phases = _ace_envelope_phases()
+    total = sum(p["dur"] for p in phases)
+    print(f"  {len(phases)} phases, ~{total:.0f}s of flight - single continuous flight",
+          flush=True)
+    f, w = _writer(out_dir, "tab7_ace_envelope.csv", TAB6_HEADER)
+    try:
+        trial = Trial("ace_env", AttitudeScript(phases), setup_alt=setup_alt,
+                      timeout_s=total + 2.0, mode="attitude", floor_alt=5.0,
+                      params={"group": "ace_envelope"})
+        res = runner.run(trial)
+        if res.outcome == "aborted":
+            print("  aborted by user.", flush=True)
+        else:
+            print(f"  flight outcome: {res.outcome} ({len(res.rows)} rows)", flush=True)
+        _write_att_rows(w, "ace_env", "ace_envelope", res.rows)
+    finally:
+        f.close()
+    print("  -> tab7_ace_envelope.csv", flush=True)
