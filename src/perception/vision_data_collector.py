@@ -30,7 +30,7 @@ import numpy as np
 
 from perception.detectors.hsv_classic import gate_mask
 from perception.gate_detection import mask_to_detections
-from perception.vision_pose import pnp_pose_body, project_body_to_offset
+from perception.vision_pose import pnp_pose_body_ex, project_body_to_offset
 from common.gate_geometry import get_drone_pose, relative_gate, quat_to_rotmat
 
 # Master switch. True = write vision_frames.jsonl every run (the data-collection deliverable).
@@ -145,7 +145,9 @@ class VisionDataCollector:
         dets = []
         for d in dets_raw:
             corners = d.corners
-            pose_b = pnp_pose_body(corners, w, h) if corners is not None else None
+            pose_ex = pnp_pose_body_ex(corners, w, h) if corners is not None else None
+            pose_b = pose_ex[0] if pose_ex is not None else None
+            rvec = pose_ex[1] if pose_ex is not None else None
             rec = {
                 "offx": round(d.offset_x, 4),
                 "offy": round(d.offset_y, 4),
@@ -153,13 +155,22 @@ class VisionDataCollector:
                 "has_opening": d.has_opening,
                 "pinhole_dist": round(d.distance_m, 2),
                 "bbox": [int(v) for v in d.bbox],
+                "ring_bbox": [int(v) for v in d.ring_bbox] if d.ring_bbox else None,
+                "opening_bbox": ([int(v) for v in d.opening_bbox]
+                                 if d.opening_bbox else None),
             }
+            if corners is not None:
+                # ordered TL,TR,BR,BL pixel corners for offline re-PnP / BA
+                rec["corners"] = [[round(float(p[0]), 2), round(float(p[1]), 2)]
+                                  for p in np.asarray(corners).reshape(-1, 2)]
             if pose_b is not None:
                 pf, pr, pd = pose_b
                 rec["pnp_fwd"] = round(pf, 3)
                 rec["pnp_right"] = round(pr, 3)
                 rec["pnp_down"] = round(pd, 3)
                 rec["pnp_dist"] = round(math.hypot(pf, pr, pd), 3)
+            if rvec is not None:
+                rec["rvec"] = [round(float(v), 5) for v in rvec]
             gid, mdist = _match_to_gt(d.offset_x, d.offset_y, gt)
             rec["match_gid"] = gid
             rec["match_offdist"] = mdist

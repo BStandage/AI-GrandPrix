@@ -62,6 +62,18 @@ def gate_corners(img):
 def pnp_pose_body(corners, w, h):
     """Run PnP on the gate's 4 image corners. Returns (forward, right, down) of the gate centre in the
     body frame, or None. corners are the corner pixel positions from gate_corners."""
+    return _pnp_pose_body_impl(corners, w, h, return_rvec=False)
+
+
+def pnp_pose_body_ex(corners, w, h):
+    """Like pnp_pose_body but also returns OpenCV rvec (3,) for offline BA / orientation.
+
+    Returns ((fwd, right, down), rvec_list) or None.
+    """
+    return _pnp_pose_body_impl(corners, w, h, return_rvec=True)
+
+
+def _pnp_pose_body_impl(corners, w, h, return_rvec=False):
     # The "we know the real size" fact PnP needs: the gate's 4 corners in meters, a flat 2.7 m square
     # centred on the origin (x = right, y = down, z = 0 in the gate's own plane).
     half = GATE_SIZE_M / 2.0
@@ -78,7 +90,10 @@ def pnp_pose_body(corners, w, h):
     x, y, z = float(t[0]), float(t[1]), float(t[2])   # OpenCV cam: x right, y down, z fwd
     fwd, right, down = z, x, y                         # camera -> body-aligned
     c, s = math.cos(CAM_UPTILT_RAD), math.sin(CAM_UPTILT_RAD)
-    return (fwd * c + down * s, right, -fwd * s + down * c)   # de-tilt by the camera up-angle
+    body = (fwd * c + down * s, right, -fwd * s + down * c)   # de-tilt by the camera up-angle
+    if return_rvec:
+        return body, np.asarray(rvec).reshape(3).tolist()
+    return body
 
 
 def camera_gate_pose(img):

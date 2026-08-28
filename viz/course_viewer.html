@@ -1,0 +1,525 @@
+<title>PQ1OHGP Course Viewer</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #0D141B;
+    --panel: #131C25;
+    --panel-border: #243140;
+    --grid: #1D2833;
+    --text: #DCE6EF;
+    --muted: #7C8B9C;
+    --gate: #F5A028;
+    --gate-top: #FF7A5C;
+    --line: #46C8F0;
+    --warn: #E8B44C;
+    --font-display: "Rajdhani", "Segoe UI", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    overflow: hidden;
+  }
+  #view { position: fixed; inset: 0; cursor: grab; touch-action: none; }
+  #view.dragging { cursor: grabbing; }
+
+  .hud {
+    position: fixed; top: 16px; left: 16px; max-width: 340px;
+    background: rgba(19, 28, 37, 0.88);
+    border: 1px solid var(--panel-border);
+    border-radius: 6px; padding: 14px 16px 12px;
+    backdrop-filter: blur(4px);
+  }
+  .hud h1 {
+    font-family: var(--font-display); font-weight: 700; font-size: 22px;
+    letter-spacing: 0.06em; line-height: 1.1;
+  }
+  .hud .sub {
+    font-size: 11px; color: var(--muted); margin-top: 2px;
+    letter-spacing: 0.02em;
+  }
+  .stats {
+    display: flex; gap: 14px; margin-top: 10px;
+    font-size: 11px; color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .stats b { color: var(--text); font-weight: 600; display: block; font-size: 14px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chip {
+    font-size: 10px; letter-spacing: 0.08em; padding: 3px 8px;
+    border-radius: 3px; border: 1px solid var(--panel-border);
+    color: var(--muted);
+  }
+  .chip.warn { color: var(--warn); border-color: rgba(232, 180, 76, 0.45); }
+  .toggles { display: flex; gap: 12px; margin-top: 12px; font-size: 11px; color: var(--muted); }
+  .toggles label { display: flex; gap: 5px; align-items: center; cursor: pointer; user-select: none; }
+  .toggles input { accent-color: var(--line); }
+  .toggles input:focus-visible { outline: 2px solid var(--line); outline-offset: 2px; }
+
+  .panel {
+    position: fixed; top: 16px; right: 16px; width: 300px;
+    max-height: calc(100vh - 32px); overflow-y: auto;
+    background: rgba(19, 28, 37, 0.88);
+    border: 1px solid var(--panel-border);
+    border-radius: 6px; backdrop-filter: blur(4px);
+  }
+  .panel h2 {
+    font-family: var(--font-display); font-size: 13px; font-weight: 600;
+    letter-spacing: 0.14em; color: var(--muted);
+    padding: 12px 14px 8px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  th {
+    text-align: left; font-weight: 500; color: var(--muted);
+    letter-spacing: 0.08em; font-size: 9px;
+    padding: 2px 8px 6px; border-bottom: 1px solid var(--panel-border);
+  }
+  td {
+    padding: 5px 8px; border-bottom: 1px solid rgba(36, 49, 64, 0.5);
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  th:first-child, td:first-child { padding-left: 14px; }
+  tr.g { cursor: pointer; }
+  tr.g:hover, tr.g.hi { background: rgba(70, 200, 240, 0.08); }
+  td .ord {
+    display: inline-block; min-width: 20px; text-align: center;
+    font-weight: 600; color: var(--bg); background: var(--gate);
+    border-radius: 3px; padding: 1px 3px;
+  }
+  tr.stacked td .ord { background: var(--gate-top); }
+  td.conf-low { color: var(--warn); }
+  td.conf-med { color: var(--muted); }
+  .panel .foot { padding: 10px 14px 12px; font-size: 10px; color: var(--muted); line-height: 1.5; }
+
+  .help {
+    position: fixed; left: 16px; bottom: 14px;
+    font-size: 10px; color: var(--muted); letter-spacing: 0.05em;
+    background: rgba(13, 20, 27, 0.7); padding: 4px 8px; border-radius: 4px;
+  }
+  @media (max-width: 900px) {
+    .panel { display: none; }
+    .hud { max-width: 260px; }
+  }
+</style>
+
+<canvas id="view"></canvas>
+
+<div class="hud">
+  <h1>PQ1OHGP COURSE</h1>
+  <div class="sub">estimated from overhead render &middot; grid-anchored frame</div>
+  <div class="stats">
+    <span><b>12</b>gates</span>
+    <span><b>11</b>locations</span>
+    <span><b>112 m</b>lap</span>
+    <span><b>0.14 m</b>grid RMS</span>
+  </div>
+  <div class="chips">
+    <span class="chip">2 LAPS &middot; START g0</span>
+    <span class="chip">OPENINGS z 1.35 m</span>
+    <span class="chip warn">g10 DOUBLE: TOP OUT &darr; &middot; BOTTOM BACK &uarr;</span>
+  </div>
+  <div class="toggles">
+    <label><input type="checkbox" id="tLine" checked>racing line</label>
+    <label><input type="checkbox" id="tCones" checked>cones</label>
+    <label><input type="checkbox" id="tLabels" checked>labels</label>
+    <label><input type="checkbox" id="tOrbit" checked>orbit</label>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>TRAVERSAL &middot; &times;2 LAPS</h2>
+  <table>
+    <thead><tr><th>gate</th><th>x, y (m)</th><th>entry</th><th>conf</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <div class="foot">
+    2-lap race from g0. The double gate g10 closes each lap as an
+    out-and-back: south through the TOP opening (4.05 m), U-turn beyond
+    it, back north through the BOTTOM opening (1.35 m), then on to g0.
+    The drawn climb/dive shape is illustrative &mdash; only the crossings
+    and directions are data. Meter-scale estimate; refine with survey
+    flight data.
+  </div>
+</div>
+
+<div class="help">drag&nbsp;orbit &middot; shift-drag&nbsp;pan &middot; wheel&nbsp;zoom</div>
+
+<script>
+"use strict";
+const GATES = [
+  {id:9,  order:0,  x:3.78,  y:16.57, yaw:-3.132, entry:1.581,  type:"single",  conf:"med"},
+  {id:6,  order:1,  x:2.83,  y:21.12, yaw:3.133,  entry:1.562,  type:"single",  conf:"med"},
+  {id:4,  order:2,  x:3.47,  y:28.45, yaw:3.118,  entry:1.547,  type:"single",  conf:"med"},
+  {id:1,  order:3,  x:4.72,  y:38.22, yaw:3.1,    entry:1.53,   type:"single",  conf:"med"},
+  {id:0,  order:4,  x:11.95, y:44.95, yaw:1.565,  entry:-0.006, type:"single",  conf:"med"},
+  {id:2,  order:5,  x:21.6,  y:37.9,  yaw:-3.126, entry:-1.555, type:"single",  conf:"med"},
+  {id:3,  order:6,  x:19.71, y:28.71, yaw:-3.102, entry:-1.531, type:"single",  conf:"low"},
+  {id:5,  order:7,  x:11.89, y:23.87, yaw:1.574,  entry:0.003,  type:"single",  conf:"med"},
+  {id:7,  order:8,  x:20.99, y:17.81, yaw:-3.136, entry:-1.565, type:"single",  conf:"med"},
+  {id:8,  order:9,  x:17.95, y:10.23, yaw:2.521,  entry:-2.192, type:"single",  conf:"med"},
+  {id:10, order:10, x:11.96, y:4.84,  yaw:0.0,    entry:1.571,  type:"stacked", conf:"low"},
+];
+const PATH = [[12.24,5.9],[11.91,5.95],[11.51,6.12],[11.19,6.39],[10.9,6.78],[10.59,7.15],[10.3,7.53],[9.98,7.89],[9.68,8.27],[9.36,8.64],[9.07,9.02],[8.75,9.39],[8.41,9.75],[8.1,10.12],[7.81,10.5],[7.51,10.88],[7.2,11.25],[6.88,11.62],[6.59,12.0],[6.3,12.38],[6.0,12.76],[5.72,13.14],[5.45,13.53],[5.2,13.92],[4.93,14.31],[4.67,14.71],[4.43,15.11],[4.23,15.53],[4.06,15.96],[3.89,16.38],[3.73,16.82],[3.57,17.26],[3.48,17.72],[3.39,18.18],[3.3,18.64],[3.23,19.11],[3.18,19.59],[3.13,20.07],[3.1,20.56],[3.1,21.06],[3.1,21.56],[3.1,22.06],[3.1,22.56],[3.1,23.06],[3.1,23.56],[3.14,24.04],[3.19,24.52],[3.21,25.01],[3.23,25.5],[3.28,25.98],[3.35,26.45],[3.4,26.93],[3.45,27.41],[3.45,27.91],[3.45,28.41],[3.47,28.9],[3.52,29.38],[3.57,29.86],[3.57,30.36],[3.57,30.86],[3.57,31.36],[3.57,31.86],[3.57,32.36],[3.57,32.86],[3.6,33.35],[3.64,33.83],[3.69,34.31],[3.71,34.8],[3.78,35.27],[3.88,35.74],[3.95,36.21],[4.04,36.67],[4.21,37.1],[4.41,37.52],[4.64,37.92],[4.84,38.34],[5.03,38.76],[5.23,39.18],[5.47,39.58],[5.77,39.96],[6.06,40.34],[6.35,40.72],[6.63,41.1],[6.93,41.48],[7.26,41.84],[7.61,42.2],[7.95,42.56],[8.27,42.93],[8.6,43.26],[8.98,43.55],[9.36,43.84],[9.74,44.12],[10.14,44.36],[10.56,44.55],[10.99,44.72],[11.45,44.82],[11.94,44.84],[12.44,44.84],[12.93,44.83],[13.4,44.76],[13.85,44.63],[14.28,44.46],[14.7,44.27],[15.11,44.06],[15.52,43.84],[15.93,43.62],[16.32,43.37],[16.71,43.1],[17.1,42.83],[17.49,42.56],[17.87,42.27],[18.24,41.96],[18.61,41.64],[18.97,41.32],[19.33,40.97],[19.68,40.61],[20.03,40.26],[20.37,39.9],[20.67,39.52],[20.94,39.13],[21.19,38.74],[21.39,38.32],[21.55,37.88],[21.7,37.44],[21.82,37.0],[21.89,36.52],[21.95,36.05],[21.98,35.58],[21.95,35.11],[21.9,34.63],[21.87,34.14],[21.82,33.66],[21.73,33.2],[21.64,32.74],[21.51,32.29],[21.39,31.84],[21.25,31.4],[21.07,30.97],[20.86,30.56],[20.66,30.14],[20.46,29.73],[20.17,29.35],[19.83,29.02],[19.46,28.7],[19.1,28.37],[18.73,28.05],[18.33,27.8],[17.92,27.6],[17.49,27.43],[17.06,27.26],[16.62,27.11],[16.17,26.99],[15.71,26.88],[15.26,26.77],[14.81,26.66],[14.36,26.54],[13.9,26.44],[13.45,26.31],[13.0,26.2],[12.55,26.08],[12.09,25.98],[11.65,25.85],[11.21,25.7],[10.81,25.46],[10.6,25.1],[10.68,24.75],[11.02,24.46],[11.42,24.22],[11.82,23.98],[12.22,23.74],[12.63,23.52],[13.05,23.32],[13.46,23.13],[13.87,22.9],[14.28,22.68],[14.69,22.47],[15.11,22.27],[15.53,22.08],[15.93,21.85],[16.34,21.63],[16.74,21.39],[17.15,21.18],[17.56,20.96],[17.97,20.73],[18.36,20.47],[18.76,20.23],[19.15,19.98],[19.52,19.67],[19.87,19.31],[20.23,18.96],[20.52,18.58],[20.73,18.16],[20.88,17.73],[21.0,17.27],[21.07,16.8],[21.05,16.31],[20.98,15.84],[20.84,15.4],[20.7,14.96],[20.54,14.52],[20.36,14.1],[20.13,13.69],[19.91,13.28],[19.7,12.87],[19.48,12.46],[19.24,12.06],[18.99,11.66],[18.73,11.27],[18.47,10.88],[18.18,10.49],[17.86,10.13],[17.58,9.74],[17.25,9.39],[16.9,9.06],[16.54,8.74],[16.17,8.42],[15.78,8.15],[15.39,7.89],[15.0,7.64],[14.61,7.36],[14.23,7.08],[13.85,6.79],[13.47,6.5],[13.08,6.23],[12.73,6.01]];
+const CONES = [[-0.14,50.1],[15.79,50.11],[-0.12,32.8],[15.73,32.81],[-0.1,17.55],[15.89,17.54],[-0.13,13.56],[15.56,13.56],[-0.11,1.25],[15.89,1.24]];
+
+const OUTER = 2.7, OPEN = 1.5, Z0 = 1.35, ZTOP = 4.05, DEPTH = 0.26;
+const FLY_Z = 1.35;
+
+// Flight path in 3D. The drawn 2D line ends and restarts at the double
+// gate; the real maneuver there: through the TOP opening heading south,
+// U-turn beyond it, back through the BOTTOM opening heading north.
+// Catmull-Rom sampler. The first and last controls are tangent handles
+// only — output runs from pts[1] to pts[len-2], so joining the result to
+// polylines that contain those handle points is tangent-continuous.
+function crSpline(pts, seg) {
+  const out = [];
+  for (let i = 1; i < pts.length - 2; i++) {
+    const p0 = pts[i - 1], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2];
+    for (let s = 0; s < seg; s++) {
+      const t = s / seg, t2 = t * t, t3 = t2 * t;
+      const f = k => 0.5 * (2 * p1[k] + (-p0[k] + p2[k]) * t
+        + (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * t2
+        + (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * t3);
+      out.push({ x: f(0), y: f(1), z: f(2) });
+    }
+  }
+  const e = pts[pts.length - 2];
+  out.push({ x: e[0], y: e[1], z: e[2] });
+  return out;
+}
+// The traced 2D line pinches into a V at the double gate. Cut everything
+// near the gate and bridge with one spline whose end controls are real
+// kept path points, so both joins stay smooth.
+const RAW = PATH.map(p => ({ x: p[0], y: p[1], z: FLY_Z }));
+const GS = { x: 11.96, y: 4.84 }, CUT = 4.5;
+const dg = p => Math.hypot(p.x - GS.x, p.y - GS.y);
+let a = 0; while (a < RAW.length && dg(RAW[a]) < CUT) a++;
+let b = RAW.length - 1; while (b > 0 && dg(RAW[b]) < CUT) b--;
+const KEPT = RAW.slice(a, b + 1);
+// smooth climb toward the top opening, starting just after gate 9
+const G9 = { x: 17.95, y: 10.23 };
+let climbFrom = 0, bd = 1e9;
+KEPT.forEach((p, i) => {
+  const d = (p.x - G9.x) ** 2 + (p.y - G9.y) ** 2;
+  if (d < bd) { bd = d; climbFrom = i; }
+});
+climbFrom += 3;
+for (let i = climbFrom; i < KEPT.length; i++) {
+  const t = (i - climbFrom) / (KEPT.length - 1 - climbFrom);
+  KEPT[i].z = FLY_Z + (3.5 - FLY_Z) * t * t * (3 - 2 * t);
+}
+const kh = KEPT[KEPT.length - 2], kl = KEPT[KEPT.length - 1];
+const h0 = KEPT[0], h1 = KEPT[1];
+const BRIDGE = crSpline([
+  [kh.x, kh.y, kh.z],                        // tangent handle (in)
+  [kl.x, kl.y, kl.z],
+  [13.3, 7.4, 3.95], [11.96, 6.6, 4.05],
+  [11.96, 4.84, 4.05],                       // top opening, southbound
+  [11.96, 3.0, 3.6], [12.35, 1.8, 2.9], [13.15, 1.25, 2.2],
+  [13.95, 1.8, 1.75], [13.9, 2.95, 1.5], [13.05, 3.85, 1.38],
+  [12.25, 4.15, 1.35],
+  [11.96, 4.84, 1.35],                       // bottom opening, northbound
+  [11.35, 6.0, 1.35], [10.5, 7.1, 1.35],
+  [h0.x, h0.y, h0.z],
+  [h1.x, h1.y, h1.z],                        // tangent handle (out)
+], 8);
+const PATH3 = KEPT.concat(BRIDGE);
+
+const cv = document.getElementById("view");
+const ctx = cv.getContext("2d");
+let W = 0, Hh = 0, dpr = 1;
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; Hh = window.innerHeight;
+  cv.width = W * dpr; cv.height = Hh * dpr;
+  cv.style.width = W + "px"; cv.style.height = Hh + "px";
+}
+window.addEventListener("resize", () => { resize(); draw(); });
+resize();
+
+// ---- camera -------------------------------------------------------------
+const target = { x: 11.5, y: 25.5, z: 1.0 };
+let camYaw = -2.2, camPitch = 0.62, camDist = 52;
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function camera() {
+  const cp = Math.cos(camPitch), sp = Math.sin(camPitch);
+  const dir = { x: cp * Math.cos(camYaw), y: cp * Math.sin(camYaw), z: sp };
+  const pos = { x: target.x + dir.x * camDist,
+                y: target.y + dir.y * camDist,
+                z: target.z + dir.z * camDist };
+  const f = { x: -dir.x, y: -dir.y, z: -dir.z };
+  let r = { x: f.y, y: -f.x, z: 0 };                    // f x up(0,0,1)
+  const rn = Math.hypot(r.x, r.y) || 1;
+  r = { x: r.x / rn, y: r.y / rn, z: 0 };
+  const u = { x: r.y * f.z - r.z * f.y, y: r.z * f.x - r.x * f.z,
+              z: r.x * f.y - r.y * f.x };
+  return { pos, r, u, f };
+}
+let cam = camera();
+const FOCAL = 1.35;
+
+function proj(p) {
+  const d = { x: p.x - cam.pos.x, y: p.y - cam.pos.y, z: p.z - cam.pos.z };
+  const zc = d.x * cam.f.x + d.y * cam.f.y + d.z * cam.f.z;
+  if (zc < 0.5) return null;
+  const xc = d.x * cam.r.x + d.y * cam.r.y + d.z * cam.r.z;
+  const yc = d.x * cam.u.x + d.y * cam.u.y + d.z * cam.u.z;
+  const s = FOCAL * Math.min(W, Hh * 1.4) / zc;
+  return { x: W / 2 + xc * s, y: Hh / 2 - yc * s, z: zc };
+}
+
+// ---- input --------------------------------------------------------------
+let drag = null;
+cv.addEventListener("pointerdown", e => {
+  drag = { x: e.clientX, y: e.clientY, pan: e.shiftKey };
+  cv.classList.add("dragging");
+  cv.setPointerCapture(e.pointerId);
+});
+cv.addEventListener("pointermove", e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  drag.x = e.clientX; drag.y = e.clientY;
+  if (drag.pan) {
+    const k = camDist / 900;
+    target.x -= (dx * cam.r.x - dy * cam.u.x) * k;
+    target.y -= (dx * cam.r.y - dy * cam.u.y) * k;
+  } else {
+    camYaw -= dx * 0.008;
+    camPitch = Math.min(1.45, Math.max(0.08, camPitch + dy * 0.006));
+  }
+  draw();
+});
+cv.addEventListener("pointerup", () => { drag = null; cv.classList.remove("dragging"); });
+cv.addEventListener("wheel", e => {
+  e.preventDefault();
+  camDist = Math.min(160, Math.max(12, camDist * (e.deltaY > 0 ? 1.1 : 0.9)));
+  draw();
+}, { passive: false });
+
+// ---- scene helpers ------------------------------------------------------
+function line3(a, b, color, width) {
+  const pa = proj(a), pb = proj(b);
+  if (!pa || !pb) return;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.beginPath(); ctx.moveTo(pa.x, pa.y); ctx.lineTo(pb.x, pb.y); ctx.stroke();
+}
+function poly3(pts, color, width, close) {
+  ctx.strokeStyle = color; ctx.lineWidth = width;
+  ctx.beginPath();
+  let started = false;
+  for (const p of pts) {
+    const q = proj(p);
+    if (!q) { started = false; continue; }
+    if (!started) { ctx.moveTo(q.x, q.y); started = true; }
+    else ctx.lineTo(q.x, q.y);
+  }
+  if (close) ctx.closePath();
+  ctx.stroke();
+}
+
+function gateFrame(g, zc) {
+  // square frame centered (g.x, g.y, zc), spanning along the bar axis
+  const ax = Math.cos(g.yaw), ay = Math.sin(g.yaw);
+  const corners = h => [
+    { x: g.x - ax * h, y: g.y - ay * h, z: zc - h },
+    { x: g.x + ax * h, y: g.y + ay * h, z: zc - h },
+    { x: g.x + ax * h, y: g.y + ay * h, z: zc + h },
+    { x: g.x - ax * h, y: g.y - ay * h, z: zc + h },
+  ];
+  return { outer: corners(OUTER / 2), inner: corners(OPEN / 2) };
+}
+
+function drawGate(g, zc, color, hi) {
+  const { outer, inner } = gateFrame(g, zc);
+  const po = outer.map(proj), pi = inner.map(proj);
+  if (po.some(p => !p) || pi.some(p => !p)) return;
+  // frame face fill (outer minus opening)
+  ctx.beginPath();
+  po.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+  ctx.closePath();
+  pi.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+  ctx.closePath();
+  ctx.fillStyle = color + (hi ? "55" : "2E");
+  ctx.fill("evenodd");
+  // frame depth: back face offset along the gate normal
+  const nx = -Math.sin(g.yaw) * DEPTH, ny = Math.cos(g.yaw) * DEPTH;
+  const back = outer.map(p => ({ x: p.x + nx, y: p.y + ny, z: p.z }));
+  for (let i = 0; i < 4; i++) line3(outer[i], back[i], color + "66", hi ? 2 : 1);
+  poly3(back, color + "66", hi ? 2 : 1, true);
+  poly3(outer, color, hi ? 3 : 1.8, true);
+  poly3(inner, color + "AA", hi ? 2 : 1, true);
+  // ground feet
+  line3({ x: outer[0].x, y: outer[0].y, z: 0 }, outer[0], color + "88", 1.4);
+  line3({ x: outer[1].x, y: outer[1].y, z: 0 }, outer[1], color + "88", 1.4);
+}
+
+function drawArrow(g, hi, heading, z) {
+  const hx = Math.cos(heading), hy = Math.sin(heading);
+  const a = { x: g.x - hx * 2.2, y: g.y - hy * 2.2, z };
+  const b = { x: g.x + hx * 2.2, y: g.y + hy * 2.2, z };
+  const c = "#46C8F0";
+  line3(a, b, c, hi ? 2.5 : 1.5);
+  const wing = 0.55;
+  for (const s of [-1, 1]) {
+    const wx = hx * Math.cos(2.5) - s * hy * Math.sin(2.5);
+    const wy = s * hx * Math.sin(2.5) + hy * Math.cos(2.5);
+    line3(b, { x: b.x + wx * wing * 1.6, y: b.y + wy * wing * 1.6, z },
+          c, hi ? 2.5 : 1.5);
+  }
+}
+
+// ---- render -------------------------------------------------------------
+let highlightId = null;
+// animation starts at g0 (the start gate)
+let phase = 0, pg = 1e9;
+PATH3.forEach((p, i) => {
+  const d = (p.x - 3.78) ** 2 + (p.y - 16.57) ** 2;
+  if (d < pg) { pg = d; phase = i; }
+});
+const showLine = document.getElementById("tLine");
+const showCones = document.getElementById("tCones");
+const showLabels = document.getElementById("tLabels");
+const orbitBox = document.getElementById("tOrbit");
+if (reduceMotion) orbitBox.checked = false;
+[showLine, showCones, showLabels, orbitBox].forEach(
+  t => t.addEventListener("change", draw));
+
+function draw() {
+  cam = camera();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = "#0D141B";
+  ctx.fillRect(0, 0, W, Hh);
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+
+  // floor grid, 5 m pitch, full 25 m width
+  for (let gx = 0; gx <= 25; gx += 5)
+    poly3([{ x: gx, y: 0, z: 0 }, { x: gx, y: 55, z: 0 }], "#1D2833", 1);
+  for (let gy = 0; gy <= 55; gy += 5)
+    poly3([{ x: 0, y: gy, z: 0 }, { x: 25, y: gy, z: 0 }], "#1D2833", 1);
+  poly3([{ x: 0, y: 0, z: 0 }, { x: 25, y: 0, z: 0 }, { x: 25, y: 55, z: 0 },
+         { x: 0, y: 55, z: 0 }], "#2C3B4C", 1.4, true);
+  // axis ticks
+  if (showLabels.checked) {
+    ctx.fillStyle = "#546375";
+    ctx.font = "10px 'IBM Plex Mono', monospace";
+    ctx.textAlign = "center";
+    for (let gx = 0; gx <= 25; gx += 5) {
+      const p = proj({ x: gx, y: -1.6, z: 0 });
+      if (p) ctx.fillText(gx + "m", p.x, p.y);
+    }
+    for (let gy = 0; gy <= 50; gy += 10) {
+      const p = proj({ x: -2.2, y: gy, z: 0 });
+      if (p) ctx.fillText(gy + "m", p.x, p.y);
+    }
+  }
+
+  // cones
+  if (showCones.checked) {
+    for (const [cx, cy] of CONES) {
+      const b = proj({ x: cx, y: cy, z: 0 }), t = proj({ x: cx, y: cy, z: 0.5 });
+      if (!b || !t) continue;
+      const r = Math.max(2, 90 / b.z);
+      ctx.fillStyle = "#B0552E";
+      ctx.beginPath();
+      ctx.moveTo(b.x - r, b.y); ctx.lineTo(b.x + r, b.y); ctx.lineTo(t.x, t.y);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+
+  // racing line: floor shadow + glowing flight line
+  if (showLine.checked) {
+    poly3(PATH3.map(p => ({ x: p.x, y: p.y, z: 0 })), "#46C8F02E", 3, true);
+    ctx.shadowColor = "#46C8F0";
+    ctx.shadowBlur = 7;
+    poly3(PATH3, "#5FD4FF", 2.4, true);
+    ctx.shadowBlur = 0;
+  }
+
+  // gates, far to near
+  const sorted = GATES.map(g => {
+    const d = { x: g.x - cam.pos.x, y: g.y - cam.pos.y, z: Z0 - cam.pos.z };
+    return { g, depth: d.x * d.x + d.y * d.y + d.z * d.z };
+  }).sort((a, b) => b.depth - a.depth);
+  for (const { g } of sorted) {
+    const hi = g.id === highlightId;
+    drawGate(g, Z0, "#F5A028", hi);
+    if (g.type === "stacked") {
+      drawGate(g, ZTOP, "#FF7A5C", hi);
+      drawArrow(g, hi, g.entry + Math.PI, ZTOP);  // top: outbound (south)
+      drawArrow(g, hi, g.entry, Z0);              // bottom: back north
+    } else {
+      drawArrow(g, hi, g.entry, Z0);
+    }
+  }
+
+  // drone dot along the line (direction indicator)
+  if (showLine.checked) {
+    const i = Math.floor(phase) % PATH3.length;
+    const j = (i + 1) % PATH3.length;
+    const t = phase - Math.floor(phase);
+    const p = proj({ x: PATH3[i].x + (PATH3[j].x - PATH3[i].x) * t,
+                     y: PATH3[i].y + (PATH3[j].y - PATH3[i].y) * t,
+                     z: PATH3[i].z + (PATH3[j].z - PATH3[i].z) * t });
+    if (p) {
+      ctx.fillStyle = "#DCE6EF";
+      ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(2.5, 160 / p.z), 0, 7); ctx.fill();
+      ctx.strokeStyle = "#46C8F0"; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(4.5, 260 / p.z), 0, 7); ctx.stroke();
+    }
+  }
+
+  // labels
+  if (showLabels.checked) {
+    ctx.font = "600 12px 'IBM Plex Mono', monospace";
+    ctx.textAlign = "center";
+    for (const g of GATES) {
+      const top = g.type === "stacked" ? ZTOP + OUTER / 2 : Z0 + OUTER / 2;
+      const p = proj({ x: g.x, y: g.y, z: top + 0.9 });
+      if (!p) continue;
+      const txt = g.order === 0 ? "g0 START" : "g" + g.order;
+      const w = ctx.measureText(txt).width + 10;
+      ctx.fillStyle = g.id === highlightId ? "#46C8F0"
+        : (g.type === "stacked" ? "#FF7A5C" : "rgba(19,28,37,0.85)");
+      ctx.beginPath();
+      const rx = p.x - w / 2, ry = p.y - 16;
+      ctx.roundRect(rx, ry, w, 16, 3); ctx.fill();
+      ctx.fillStyle = (g.id === highlightId || g.type === "stacked")
+        ? "#0D141B" : "#DCE6EF";
+      ctx.fillText(txt, p.x, p.y - 4);
+    }
+  }
+}
+
+// ---- gate table ---------------------------------------------------------
+const rows = document.getElementById("rows");
+for (const g of [...GATES].sort((a, b) => a.order - b.order)) {
+  const tr = document.createElement("tr");
+  tr.className = "g" + (g.type === "stacked" ? " stacked" : "");
+  const deg = (g.entry * 180 / Math.PI).toFixed(0);
+  tr.innerHTML =
+    `<td><span class="ord">g${g.order}</span>` +
+    `${g.type === "stacked" ? " &#9650;&#9660;" : ""}</td>` +
+    `<td>${g.x.toFixed(1)}, ${g.y.toFixed(1)}</td>` +
+    `<td>${deg}&deg;</td>` +
+    `<td class="conf-${g.conf}">${g.conf}</td>`;
+  tr.addEventListener("mouseenter", () => { highlightId = g.id; draw(); });
+  tr.addEventListener("mouseleave", () => { highlightId = null; draw(); });
+  rows.appendChild(tr);
+}
+
+// ---- animation ----------------------------------------------------------
+function tick() {
+  const orbiting = orbitBox.checked && !drag;
+  if (orbiting) camYaw += 0.0012;
+  if (!reduceMotion) phase = (phase + 0.35) % PATH3.length;
+  if (orbiting || !reduceMotion) draw();
+  requestAnimationFrame(tick);
+}
+draw();
+requestAnimationFrame(tick);
+</script>
