@@ -34,7 +34,10 @@ from raceline.config import AIGP_REPO, load_config
 
 def _smooth(x: np.ndarray, t: np.ndarray, win_s: float) -> np.ndarray:
     n = max(1, int(round(win_s / max(np.median(np.diff(t)), 1e-4))) | 1)
-    return np.convolve(x, np.ones(n) / n, mode="same")
+    # edge-pad with the boundary values: plain convolve pads with ZEROS,
+    # which fabricated an 8 m/s^2 "overshoot" on the file's final step
+    xp = np.pad(x, n // 2, mode="edge")
+    return np.convolve(xp, np.ones(n) / n, mode="valid")
 
 
 def analyze(csv_path, margin: float = 0.8) -> dict:
@@ -166,7 +169,10 @@ def autopilot(update):
     elif phase == "RECOVER":
         a_cmd = (cfg.follower.kp_pos * (HOVER[:2] - est.p[:2])
                  - cfg.follower.kd_pos * est.v[:2])
-        if _settled(est) or t - _state["t0"] > RECOVER_S:
+        # minimum hold so every step keeps a data tail (a settle check that
+        # passed instantly left the last step with 1 ms of post-step data)
+        if ((t - _state["t0"] > 1.5 and _settled(est))
+                or t - _state["t0"] > RECOVER_S):
             _advance_phase(t)
     elif phase == "DONE":
         if not _state["written"]:

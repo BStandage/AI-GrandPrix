@@ -45,6 +45,17 @@ def resolve_path(pathstr):
 
 def make_plan(cfg, out_path=None):
     p = planner_mod.plan(cfg)
+    if p.meta.get("frame_violations", 0):
+        # a plan that touches gate frames crashes the run (referee rule) -
+        # repair it through the optimizer, which prices contacts at 50 s each
+        print(f"PLAN  {p.meta['frame_violations']} frame-contact samples - "
+              "repairing via the line optimizer")
+        from raceline import line_opt
+        _, p = line_opt.optimize(cfg, maxfev=2500, verbose=True)
+        if p.meta.get("frame_violations", 0):
+            print("ERROR plan still touches a gate frame after repair - "
+                  "not flying it")
+            raise SystemExit(4)
     print(planner_mod.report(p, baseline_s=BASELINE_S))
     out = Path(out_path) if out_path else planner_mod.next_numbered(
         str(REPO / "out" / "plans" / "plan_XXX.json"))
@@ -66,23 +77,54 @@ def run_sim(sim_repo: Path, plan_path: Path, cfg, sim_time_s: float) -> int:
         AIGP_TRAJ=str(plan_path.resolve()),
         AIGP_VEHICLE_TOML=str(cfg.path.resolve()),
         AIGP_SIM_TIME=f"{sim_time_s:.0f}",
+        AIGP_LAPS=str(cfg.planner.laps),   # sim tracker must expect the
+                                           # same lap count the plan flies
     )
     cmd = ["uv", "run", "elodin", "run", "sim/main.py"]
     print(f"\nSIM   {' '.join(cmd)}  (cwd={sim_repo}, "
           f"sim_time={sim_time_s:.0f} s, ~0.8x realtime)")
-    # `elodin run` reliably HANGS after "Simulation stopped" on this build;
-    # results are already on disk by then, so a hard deadline is safe.
+    # Two sim failure modes are handled here, both observed repeatedly:
+    # 1. `elodin run` HANGS after "Simulation stopped" -> hard deadline.
+    # 2. Betaflight sometimes wedges at boot (bridge never gets a warmup
+    #    response; every tick times out) -> detect and RETRY the launch.
     deadline = sim_time_s * 2.0 + 120.0
-    try:
-        proc = subprocess.run(cmd, cwd=sim_repo, env=env, timeout=deadline)
-        rc = proc.returncode
-    except subprocess.TimeoutExpired:
-        print(f"\nSIM   note: killed after {deadline:.0f} s deadline "
-              "(elodin run does not exit on its own; results are on disk)")
-        rc = 0
-    for pat in ("elodin run", "render-server", "betaflight_SITL"):
-        subprocess.run(["pkill", "-f", pat], capture_output=True)
-    return rc
+    for attempt in (1, 2):
+        rc = _run_sim_once(cmd, sim_repo, env, deadline)
+        for pat in ("elodin run", "render-server", "betaflight_SITL"):
+            subprocess.run(["pkill", "-f", pat], capture_output=True)
+        if rc != 9:
+            return rc
+        print(f"\nSIM   dead bridge at boot (attempt {attempt}) - retrying")
+    return 9
+
+
+def _run_sim_once(cmd, sim_repo, env, deadline) -> int:
+    import time
+    proc = subprocess.Popen(cmd, cwd=sim_repo, env=env,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, errors="replace")
+    t0 = time.time()
+    warmed = False
+    stalled = 0
+    for line in proc.stdout:
+        print(line, end="")
+        if "Warmup complete" in line:
+            # a wedged Betaflight sometimes answers 1-2 packets of ~500;
+            # demand a real handshake before calling the bridge alive
+            import re as _re
+            m = _re.search(r"\((\d+) responses", line)
+            warmed = bool(m and int(m.group(1)) >= 50)
+        if "cannot achieve real-time" in line and "99." in line:
+            stalled += 1          # TOTAL count: status lines interleave with
+            if not warmed and stalled > 20:   # stall lines, so a consecutive
+                proc.kill()                   # counter never fired (measured)
+                return 9          # bridge never answered: retryable
+        if time.time() - t0 > deadline:
+            print(f"\nSIM   note: killed after {deadline:.0f} s deadline "
+                  "(results are on disk)")
+            proc.kill()
+            return 0
+    return proc.wait()
 
 
 def newest_result(sim_repo: Path, known: set) -> Path | None:
@@ -93,6 +135,9 @@ def newest_result(sim_repo: Path, known: set) -> Path | None:
 def print_report(rec: dict, plan_events):
     total = rec.get("total_time_s")
     n, ntot = rec["gates_passed"], rec["events_total"]
+    for c in rec.get("gate_contacts", []):
+        print(f"\nCRASH hit {c['gate']} frame at t={c['t']:.2f} s "
+              f"pos={c['pos']} - RUN INVALID")
     if rec["complete"]:
         delta = total - BASELINE_S
         print(f"\nRACE  {n}/{ntot} COMPLETE   total {total:.2f} s  "

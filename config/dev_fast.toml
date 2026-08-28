@@ -10,7 +10,7 @@
 # editing this file and re-running race.py - nothing else.
 
 [meta]
-name    = "elodin-sitl-quad"        # becomes "neros-..." when day-1 sysid lands
+name    = "elodin-sitl-quad-FAST"        # becomes "neros-..." when day-1 sysid lands
 updated = "2026-08-28"
 
 [vehicle]                 # physical truth - sysid replaces this section wholesale
@@ -21,8 +21,7 @@ drag_quad = 0.0           # N per (m/s)^2
 [thrust]
 hover_pwm = 1240          # measured steady-state hover RC on the SITL plant
 pwm_min   = 1000
-pwm_max   = 2000          # was 1600 (wobble-era cap, never measured); full range,
-                          # real ceiling comes from solvers.sysid_thrust
+pwm_max   = 2000          # full range; measured ceiling from solvers.sysid_thrust
 # Thrust curve, pwm -> vertical accel (m/s^2). PLACEHOLDER 3-point
 # linearization around hover; replace with the FAQ thrust/accel data or a
 # measured sweep. Not consumed by the v1 planner (it uses the a_accel/a_brake
@@ -31,23 +30,21 @@ curve_pwm = [1350, 1500, 1650, 1800, 2000]
 curve_acc = [13.88, 19.32, 23.44, 26.25, 29.21]   # MEASURED, drag-fixed plant (sysid_thrust run 1)
 
 [limits]                  # ceilings shared by planner AND follower
-max_tilt_deg     = 22.0   # lateral accel budget = g*tan(this)
-max_yaw_rate_rps = 1.0    # nose-follows-tangent ceiling; enters v_lim directly.
-                          # Must stay consistent with follower.yaw_clamp
-                          # (~0.31 rad/s per 60 PWM measured => 200 PWM ~ 1.0)
+max_tilt_deg     = 35.0   # 12-gate-proven envelope; raise ONE lever at a time
+max_yaw_rate_rps = 1.0
 a_lat_rate_max   = 5.3    # m/s^3 - attitude-slew ceiling: how fast lateral
                           # accel can CHANGE (v <= (rate/|dkappa/ds|)^(1/3)).
                           # MEASURED on this plant (solvers.sysid_slew run C,
                           # 2026-08-28, with ka_att 300 / stick_clamp 150):
                           # full-amplitude slew 6.6-7.2, 80% margin -> 5.3.
                           # Re-measure after any gain or plant change.
-v_max_mps        = 6.0    # global straight-line cap
-v_gate_mps       = 3.0    # cap within gate_window_m of ANY crossing center -
-gate_window_m    = 2.0    # one uniform rule, never special-cased per gate
-vz_up_max        = 4.0    # measured ceiling 8.1 m/s at full throttle; margin for tilt
+v_max_mps        = 8.0
+v_gate_mps       = 3.0    # the speed with ZERO frame contacts across every flight today
+gate_window_m    = 2.5    # settle speed BEFORE the opening: hot oblique arrivals grazed posts
+vz_up_max        = 5.0    # measured ceiling 8.1 m/s at full throttle; margin for tilt
 vz_down_max      = 3.0
-a_accel_max      = 4.0   # thrust-backed (TWR ~3 measured)
-a_brake_max      = 5.0
+a_accel_max      = 6.0
+a_brake_max      = 7.0
 
 [planner]
 laps = 1                  # dev iteration: one lap is the same information in half
@@ -62,13 +59,13 @@ takeoff_alt_m = 1.35           # first anchor above the spawn point
 v_floor_mps   = 0.3            # numerical floor for the profile/timestamps
 
 [optimizer]               # racing-line optimizer (raceline.line_opt)
-apex_max_m = 0.40         # 0.75 window minus measured ~0.35 tracking error
+apex_max_m = 0.20         # PHYSICAL budget: opening half 0.75 - drone 0.15 = 0.60;
                           # (0.55 lost lap-2 g0 by ~3 cm: line legal, flying
                           # fine, the SUM over the edge)
 
 [follower]
-kp_pos      = 1.2       # position error -> accel
-kd_pos      = 2.1       # velocity error (vs plan) -> accel
+kp_pos      = 1.2
+kd_pos      = 2.1
 lookahead_m = 1.5       # arc-length carrot distance
 lookahead_t = 0.8       # seconds of warning; carrot = max(lookahead_m, t*v)
 ka_att      = 300.0   # was 120: starved the tilt loop (max ~45 PWM); A-B tested 2026-08-28
