@@ -41,3 +41,9 @@ src/perception/detectors/ML/
 
 # Working notes, not for the repo history
 docs/MEGA_AUDIT_2026-08-13.md
+
+# Agent config and generated artifacts
+out/
+CLAUDE.md
+RESTRICTIONS.md
+.cursor/
