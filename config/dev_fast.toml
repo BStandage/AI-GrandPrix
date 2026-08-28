@@ -26,8 +26,8 @@ pwm_max   = 2000          # full range; measured ceiling from solvers.sysid_thru
 # linearization around hover; replace with the FAQ thrust/accel data or a
 # measured sweep. Not consumed by the v1 planner (it uses the a_accel/a_brake
 # scalars below) - the slot exists for exactly that swap.
-curve_pwm = [1100, 1240, 1450]
-curve_acc = [ 6.5,  9.81, 14.0]
+curve_pwm = [1350, 1500, 1650, 1800, 2000]
+curve_acc = [10.23, 10.98, 11.58, 11.89, 12.16]   # MEASURED (solvers.sysid_thrust run 0):
 
 [limits]                  # ceilings shared by planner AND follower
 max_tilt_deg     = 35.0   # was 22: the babysitting cap. 35 deg = 6.9 m/s^2 lateral
@@ -43,7 +43,8 @@ a_lat_rate_max   = 5.3    # m/s^3 - attitude-slew ceiling: how fast lateral
 v_max_mps        = 8.0    # was 6.0
 v_gate_mps       = 4.0    # was 3.0: crossing speed, THE lap-time lever
 gate_window_m    = 2.0    # one uniform rule, never special-cased per gate
-vz_up_max        = 2.5    # m/s climb cap (planner slope limit)
+vz_up_max        = 0.7    # MEASURED ceiling ~0.8 m/s at FULL throttle (sysid_thrust);
+                          # the old 2.5 was fantasy - this plant is vertically weak
 vz_down_max      = 2.0    # m/s descent cap
 a_accel_max      = 5.0    # was 3.0
 a_brake_max      = 6.0    # was 3.5: braking is where overshoot dies
