@@ -192,6 +192,81 @@ race.cmd --keep-db                        # keep the sim's flight DB for debuggi
 
 ---
 
+## What actually happens when you run race.cmd
+
+The whole pipeline, in order. Nothing is hidden; every stage is one file
+you can read.
+
+```
+race.cmd
+  |
+  | hops into WSL, runs race.py
+  v
+[1] LOAD CONFIG        config/vehicle.toml (strict loader, typos fail loudly)
+  v
+[2] LOAD COURSE        data/course_map.json -> sim.pq_course -> 24 gate
+                       crossings in sim coordinates (2 laps x 12, the
+                       stacked gate counts twice)
+  v
+[3] PLAN THE LINE      src/raceline/planner.py, ~2 seconds, offline:
+                       a. anchors: for every crossing, points before/at/
+                          after the opening along its required direction
+                          (wider standoff where the travel turns hard,
+                          which handles the g10 out-and-back and the g7
+                          switchback with one global rule)
+                       b. smooth spline through the anchors
+                       c. speed limit at every point = min of:
+                          - v_max
+                          - tilt (corner accel = g * tan(max_tilt_deg))
+                          - attitude slew (a_lat_rate_max vs curvature change)
+                          - yaw rate (nose must keep up with the path)
+                          - climb/descent rate on slopes
+                          - v_gate inside gate_window_m of ANY crossing
+                       d. forward pass (can it accelerate that fast?) and
+                          backward pass (can it brake in time?) sharing
+                          one tilt budget
+                       e. timestamps + feedforward accel fall out
+  v
+[4] PLAN ARTIFACTS     out/plans/plan_XXX.json (the trajectory contract)
+                       out/plans/plan_XXX.png  (speed-colored line, LOOK AT IT)
+                       terminal: predicted lap times (model prediction,
+                       unverified) + the CHECK line (slowest point + which
+                       physical limit rules the profile)
+  v
+[5] LAUNCH THE SIM     elodin physics + a real Betaflight flight
+                       controller, in lockstep, headless. Env vars carry
+                       the plan: RACE_SOLVER=solvers.follower,
+                       AIGP_TRAJ=<plan>, AIGP_VEHICLE_TOML=<config>
+  v
+[6] EVERY PHYSICS TICK (the actual flying, src/solvers/follower.py)
+                       sensors -> StateSource (ground truth today,
+                                  estimator on the real drone)
+                       -> Tracker: find nearest point on the line, aim at
+                          a carrot a few meters ahead, desired accel =
+                          plan feedforward + position/velocity correction
+                       -> rc_backend: accel -> tilt -> 4 RC stick values
+                       -> Betaflight: sticks -> motor speeds
+                       -> physics moves the drone
+                       meanwhile the tracker (sim/pq_course.py) checks
+                       every position against the NEXT expected opening:
+                       right order, right direction, inside 1.5 m, only
+                       then does a gate count
+  v
+[7] REPORT + ARCHIVE   race_result_XXX.json -> terminal report:
+                       gates N/24, lap times, per-gate delta vs the plan
+                       (worst 3 flagged). Everything that produced the
+                       number (plan + result + exact vehicle.toml) is
+                       copied to out/races/race_XXX/ so it is reproducible.
+```
+
+The two things worth internalizing:
+
+- The SOLUTION is found offline in step [3], in 2 seconds, from the map
+  and the toml. The flight only tracks it. That is why the same planner
+  works on an unseen September course: new map in, new line out.
+- The tracker in step [6] is ordered: miss one gate and nothing after it
+  scores. Clean early gates beat a fast ragged lap.
+
 ## 4. Your first tune
 
 The workflow is always: **edit `config/vehicle.toml` -> `race.py` -> compare
@@ -232,7 +307,62 @@ nothing, so edit boldly.
 
 ---
 
-## 5. The rules (read RESTRICTIONS.md, seriously)
+## 5. What if you want to make your own solver?
+
+Tuning the toml changes how the EXISTING race solver flies. Write your own
+solver when you want different behavior entirely: a vision-based pilot, a
+measurement flight, a wild experiment. A solver is one file with one
+function:
+
+```python
+def autopilot(update: SensorUpdate) -> RCCommand:
+```
+
+The sim calls it every physics tick. `update` carries everything the
+drone knows (IMU, baro, camera frame, ground-truth pose for now, next
+expected gate); you return 4 RC stick values plus the arm switch. That is
+the whole contract - same one the real drone uses in September.
+
+The path:
+
+```
+cd src/solvers
+cp _template.py my_solver.py     # 80 commented lines that already fly
+```
+
+Open `my_solver.py`. It arms, takes off, and hovers in front of gate 0.
+Everything you keep is labeled; the part you replace is marked
+`YOUR BRAIN GOES HERE` - it computes one thing, a desired horizontal
+acceleration, and the shared loops turn that into sticks:
+
+- `raceline.rc_backend` gives you the proven throttle, tilt, and yaw
+  loops. Do not reinvent them; every solver flying today uses them.
+- `raceline.course` gives you every gate position and crossing direction.
+- `raceline.planner` gives you a full timed racing line if you want one.
+
+Run it:
+
+```
+RACE_SOLVER=solvers.my_solver AIGP_SIM_TIME=60 uv run elodin run sim/main.py
+```
+
+(from the sim repo in WSL; add `run_race.cmd solvers.my_solver` if you
+want to watch it in the editor). The gate tracker scores every solver
+automatically - a `race_result_XXX.json` appears no matter who is flying.
+
+Three rules, non-negotiable:
+
+1. Numbers go in `config/vehicle.toml`, not in your code. If your solver
+   needs a knob that does not exist, add the key to the schema in
+   `raceline/config.py` - the strict loader is what keeps tuning sane.
+2. Nothing per-gate, ever (`RESTRICTIONS.md`).
+3. If it flies well, it proves it the same way as everyone: gates scored
+   by the tracker, at 24/24, on a `race_result` record.
+
+The knob-to-key table and the full solver list live in
+`src/solvers/README.md`.
+
+## 6. The rules (read RESTRICTIONS.md, seriously)
 
 - **Every parameter is global.** The schema cannot express a per-gate
   value, and nobody adds one. "g4 keeps clipping so nudge g4" is the banned
