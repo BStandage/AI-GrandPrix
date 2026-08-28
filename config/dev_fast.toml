@@ -10,7 +10,7 @@
 # editing this file and re-running race.py - nothing else.
 
 [meta]
-name    = "elodin-sitl-quad"        # becomes "neros-..." when day-1 sysid lands
+name    = "elodin-sitl-quad-FAST"        # becomes "neros-..." when day-1 sysid lands
 updated = "2026-08-28"
 
 [vehicle]                 # physical truth - sysid replaces this section wholesale
@@ -21,8 +21,7 @@ drag_quad = 0.0           # N per (m/s)^2
 [thrust]
 hover_pwm = 1240          # measured steady-state hover RC on the SITL plant
 pwm_min   = 1000
-pwm_max   = 2000          # was 1600 (wobble-era cap, never measured); full range,
-                          # real ceiling comes from solvers.sysid_thrust
+pwm_max   = 2000          # full range; measured ceiling from solvers.sysid_thrust
 # Thrust curve, pwm -> vertical accel (m/s^2). PLACEHOLDER 3-point
 # linearization around hover; replace with the FAQ thrust/accel data or a
 # measured sweep. Not consumed by the v1 planner (it uses the a_accel/a_brake
@@ -31,7 +30,7 @@ curve_pwm = [1100, 1240, 1450]
 curve_acc = [ 6.5,  9.81, 14.0]
 
 [limits]                  # ceilings shared by planner AND follower
-max_tilt_deg     = 22.0   # lateral accel budget = g*tan(this)
+max_tilt_deg     = 35.0   # was 22: the babysitting cap. 35 deg = 6.9 m/s^2 lateral
 max_yaw_rate_rps = 1.0    # nose-follows-tangent ceiling; enters v_lim directly.
                           # Must stay consistent with follower.yaw_clamp
                           # (~0.31 rad/s per 60 PWM measured => 200 PWM ~ 1.0)
@@ -41,13 +40,13 @@ a_lat_rate_max   = 5.3    # m/s^3 - attitude-slew ceiling: how fast lateral
                           # 2026-08-28, with ka_att 300 / stick_clamp 150):
                           # full-amplitude slew 6.6-7.2, 80% margin -> 5.3.
                           # Re-measure after any gain or plant change.
-v_max_mps        = 6.0    # global straight-line cap
-v_gate_mps       = 3.0    # cap within gate_window_m of ANY crossing center -
+v_max_mps        = 8.0    # was 6.0
+v_gate_mps       = 4.0    # was 3.0: crossing speed, THE lap-time lever
 gate_window_m    = 2.0    # one uniform rule, never special-cased per gate
 vz_up_max        = 2.5    # m/s climb cap (planner slope limit)
 vz_down_max      = 2.0    # m/s descent cap
-a_accel_max      = 3.0    # longitudinal accel budget (v1 scalar; later derived
-a_brake_max      = 3.5    # from the thrust curve)
+a_accel_max      = 5.0    # was 3.0
+a_brake_max      = 6.0    # was 3.5: braking is where overshoot dies
 
 [planner]
 laps = 2                  # per run; official PQ scoring is 2, lower for quick tests

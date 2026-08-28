@@ -149,11 +149,12 @@ def _cr_segment(p0, p1, p2, p3, n: int, alpha: float = 0.5) -> np.ndarray:
     return out
 
 
-def sample_spline(anchors: np.ndarray):
+def sample_spline(anchors: np.ndarray, dense_ds: float = _DENSE_DS):
     """Dense-sample the spline through all anchors.
 
     Returns (dense[N,3], s[N], anchor_dense_idx) where anchor_dense_idx[i]
     is the dense-sample index of anchor i (used to pin event arc positions).
+    dense_ds can be coarsened by the line optimizer's inner loop.
     """
     ext = np.vstack([2 * anchors[0] - anchors[1], anchors,
                      2 * anchors[-1] - anchors[-2]])
@@ -162,7 +163,7 @@ def sample_spline(anchors: np.ndarray):
     for i in range(1, len(ext) - 2):
         anchor_dense_idx.append(len(dense))
         chord = float(np.linalg.norm(ext[i + 1] - ext[i]))
-        n = max(8, int(chord / _DENSE_DS))
+        n = max(8, int(chord / dense_ds))
         dense.extend(_cr_segment(ext[i - 1], ext[i], ext[i + 1], ext[i + 2], n))
     dense.append(ext[-2])
     anchor_dense_idx.append(len(dense) - 1)
@@ -331,7 +332,7 @@ def _speed_profile(P: np.ndarray, s: np.ndarray, cfg: VehicleConfig,
 
 def plan(cfg: VehicleConfig, course=None) -> Plan:
     if course is None:
-        course = course_bridge.load_course()
+        course = course_bridge.load_course(laps=cfg.planner.laps)
 
     anchors, center_idx = build_anchors(course, cfg)
     dense, s_dense, anchor_dense_idx = sample_spline(anchors)

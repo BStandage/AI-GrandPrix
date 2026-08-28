@@ -66,6 +66,8 @@ def run_sim(sim_repo: Path, plan_path: Path, cfg, sim_time_s: float) -> int:
         AIGP_TRAJ=str(plan_path.resolve()),
         AIGP_VEHICLE_TOML=str(cfg.path.resolve()),
         AIGP_SIM_TIME=f"{sim_time_s:.0f}",
+        AIGP_LAPS=str(cfg.planner.laps),   # sim tracker must expect the
+                                           # same lap count the plan flies
     )
     cmd = ["uv", "run", "elodin", "run", "sim/main.py"]
     print(f"\nSIM   {' '.join(cmd)}  (cwd={sim_repo}, "
