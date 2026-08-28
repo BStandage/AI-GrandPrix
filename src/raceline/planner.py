@@ -1,15 +1,15 @@
 """Offline racing-line planner: course map + vehicle.toml -> timed trajectory.
 
 Pipeline (all GLOBAL parameters, nothing per-gate):
-  1. ANCHORS — per crossing k with center c and required-direction normal n:
+  1. ANCHORS - per crossing k with center c and required-direction normal n:
      (c - d_pre*n, c, c + d_post*n). Standoffs follow the two-value rule:
      the base standoff normally, the larger turn standoff on BOTH sides of a
      junction whose consecutive crossing headings differ by more than
      turn_angle_deg. The g10 out-and-back (headings ~180 deg apart) falls out
-     of this rule — the planner never names a gate.
-  2. PATH — centripetal Catmull-Rom through the anchors (interpolating, no
+     of this rule - the planner never names a gate.
+  2. PATH - centripetal Catmull-Rom through the anchors (interpolating, no
      overshoot loops on uneven spacing), resampled to uniform arc length.
-  3. SPEED PROFILE — pointwise ceiling
+  3. SPEED PROFILE - pointwise ceiling
         v_lim = min( v_max,
                      sqrt(a_lat / kappa),            a_lat = margin*g*tan(tilt)
                      yaw_rate_max / |dpsi/ds|,       nose-follows-tangent
@@ -110,7 +110,7 @@ def build_anchors(course, cfg: VehicleConfig):
         post = ctr + post_d[k] * n
         # Anchor crowding rule (global): when the previous exit anchor and
         # this entry anchor are closer than the base standoff they fight each
-        # other and the spline S-wiggles — merge them into their midpoint.
+        # other and the spline S-wiggles - merge them into their midpoint.
         # The stacked pair is unaffected (its post/pre are 2.7 m apart in z).
         gap = float(np.linalg.norm(pre - anchors[-1]))
         if k > 0 and gap < p.anchor_standoff_m:
@@ -267,7 +267,7 @@ def _speed_profile(P: np.ndarray, s: np.ndarray, cfg: VehicleConfig,
 
     # Attitude-slew ceiling: a_lat = v^2*kappa, so at steady speed
     # d(a_lat)/dt ~ v^3 * dkappa/ds. Heavy low-pitch builds (8" Archer) are
-    # limited by how fast they can ROTATE to a tilt, not by the tilt itself —
+    # limited by how fast they can ROTATE to a tilt, not by the tilt itself -
     # without this cap, corner ENTRIES are geometrically fine but physically
     # unreachable, and it presents as tracking error that looks like bad
     # gains.
@@ -430,7 +430,7 @@ def report(p: Plan, baseline_s: Optional[float] = 225.3) -> str:
     lap_str = "  ".join(
         f"lap{i} {t - (laps[i-1] if i else 0.0):.1f}s" for i, t in enumerate(laps))
     lines.append(f"      predicts total {p.total_s:.1f} s ({lap_str}) "
-                 f"— model prediction, unverified"
+                 f"- model prediction, unverified"
                  + (f"; baseline {baseline_s:.1f} s" if baseline_s else ""))
 
     # Speed-profile minimum BETWEEN first and last crossing (excludes the
@@ -452,7 +452,7 @@ def report(p: Plan, baseline_s: Optional[float] = 225.3) -> str:
                  f" 1/m^2, dpsi/ds={p.dpsi_ds[i]:.2f} rad/m, "
                  f"v_lim={p.v_lim[i]:.2f} m/s")
     # Where each ceiling class rules the profile (samples between the first
-    # and last crossing) — one line to see WHAT this vehicle config is
+    # and last crossing) - one line to see WHAT this vehicle config is
     # limited by overall.
     from collections import Counter
     counts = Counter(str(b) for b in p.binding[idx])

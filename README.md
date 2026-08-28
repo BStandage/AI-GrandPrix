@@ -1,16 +1,33 @@
+> ## Team members: start here
+>
+> Everything below this box is the organizers' original dev-kit readme
+> (the OLD Windows sim era). Our current stack races in the **elodin sim**:
+>
+> | You want to... | Go to |
+> |---|---|
+> | Get set up and fly your first race | `docs/GETTING_STARTED_RACING_LINE.md` |
+> | Understand drones/Betaflight from zero | `docs/WHAT_IS_BETAFLIGHT.md` |
+> | Write or tune a solver | `src/solvers/README.md` |
+> | Understand the stack's design | `docs/RACING_LINE_STACK.md` |
+> | Know what's banned before planning | `RESTRICTIONS.md` (read it first) |
+> | September physical-race facts | `src/PQ_SPECS_INTAKE.md`, `src/PQ_PROCEDURE.md` |
+>
+> Tune ONLY `config/vehicle.toml`. Race with `race.cmd`. Old tape-era code
+> lives in `src/_archive/` - reference, not a starting point.
+
 ## AI Grand Prix (AI-GP) Development Kit
 Conceived by Anduril founder Palmer Luckey and partnered with the Drone Champions League (DCL), Neros Technologies, and JobsOhio, AI-GP is a premier autonomous drone racing competition.
-This global challenge invites elite engineers and teams of up to 8 people to design, build, and deploy autonomy software capable of piloting high-speed racing drones through professional-grade courses—with absolutely zero human intervention.
+This global challenge invites elite engineers and teams of up to 8 people to design, build, and deploy autonomy software capable of piloting high-speed racing drones through professional-grade courses-with absolutely zero human intervention.
 For complete competition details and updates, visit the official website at www.theaigrandprix.com.
 
-## 🏆 Competition Highlights
+## Competition Highlights
 
 * The Stakes: Compete for a share of a $500,000 prize pool and career opportunities at Anduril.
 * The Hardware: Complete competitive parity. All teams utilize identical racing drones built by Neros Technologies incorporating DCL's AI vector module.
-* The Mission: Program the ultimate AI pilot to conquer dynamic, real-world flight conditions using onboard vision sensing—no GPS or absolute coordinate data will be provided.
+* The Mission: Program the ultimate AI pilot to conquer dynamic, real-world flight conditions using onboard vision sensing-no GPS or absolute coordinate data will be provided.
 
 ------------------------------
-## 📁 Repository Contents
+## Repository Contents
 This package contains the foundational tools required to develop, test, and qualify your autonomous flight software.
 ## 1. AIGP_X.zip (The Simulator)
 This archive contains the official AI-GP flight simulator environment for Windows.
@@ -26,16 +43,16 @@ This archive provides a starter template to help you interface with the simulato
 * Setup:
 1. Unzip the archive.
    2. Install the required dependencies:
-   
+
    pip install -r requirements.txt
-   
+
    * Execution: Run the primary script to connect to the simulator:
 
 python main.py
 
 
 ------------------------------
-## 💻 System Requirements
+## System Requirements
 The simulator environment has been successfully tested on Windows 11 with a GeForce RTX 3070. For stable performance, your system should meet or exceed the following hardware specifications:
 
 | Requirement | Minimum Specification |
@@ -48,7 +65,7 @@ The simulator environment has been successfully tested on Windows 11 with a GeFo
 | Storage | 12 GB available space |
 
 ------------------------------
-## 📅 Timeline & Structure
+## Timeline & Structure
 
 * Virtual Qualifier Round 1: Simple, high-contrast, desaturated gate environment to test core flight logic.
 * Virtual Qualifier Round 2: High-fidelity, visually complex 3D-scanned environments.
@@ -56,7 +73,7 @@ The simulator environment has been successfully tested on Windows 11 with a GeFo
 * The Finals (November 2026): The premier AI Grand Prix live event in Ohio.
 
 ------------------------------
-## ℹ️ Technical Specification & More Information
+## Technical Specification & More Information
 Can be found here:
 
 https://www.theaigrandprix.com/previousupdates/

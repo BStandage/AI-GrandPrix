@@ -4,7 +4,7 @@ loops that turn desired accel / altitude / yaw into Betaflight sticks.
 Used by the trajectory follower AND the sysid diagnostics, so both fly the
 identical plant interface. This module is also the sim->real boundary: on
 hardware, GroundTruthSource is replaced by an estimator and the RCCommand
-goes to a UART writer — these loops and their toml gains carry.
+goes to a UART writer - these loops and their toml gains carry.
 """
 
 from __future__ import annotations
