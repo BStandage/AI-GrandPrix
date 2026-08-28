@@ -61,12 +61,12 @@ a_accel_max      = 4.0   # ESTIMATE; thrust curve will refine
 a_brake_max      = 4.0
 
 [planner]
-laps = 2                  # per run; official PQ scoring is 2, lower for quick tests
+laps = 1                  # dev iteration: one lap is the same information in half
 anchor_standoff_m      = 2.0
 anchor_standoff_turn_m = 3.5
 turn_angle_deg         = 100.0
 sample_ds_m   = 0.25
-a_lat_margin  = 0.8
+a_lat_margin  = 0.7            # 0.8 left no transient reserve: braking balloons hit frames
 takeoff_alt_m = 1.35
 v_floor_mps   = 0.3
 

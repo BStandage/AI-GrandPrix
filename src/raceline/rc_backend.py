@@ -79,6 +79,11 @@ class AltitudeLoop:
         else:
             out = (th.hover_pwm + f.kp_z * err + f.kd_z * (vz_ff - est.v[2])
                    + self.i_term)
+            # no-balloon guard: aggressive braking transients lifted the
+            # drone 1.4 m above its line and into a gate's top bar. Well
+            # above target, throttle may not exceed hover-minus-margin.
+            if err < -0.4:
+                out = min(out, th.hover_pwm - 60)
         self.last_t = t
         return int(round(clamp(out, th.pwm_min, th.pwm_max)))
 
