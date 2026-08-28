@@ -132,8 +132,30 @@ class MAVLinkRX:
         self.data["armed"] = armed
 
     def on_timesync(self, msg):
-        request_time = msg.ts1
-        response_time = msg.tc1
+        """Estimate server−client clock offset (ns) from TIMESYNC responses.
+
+        Request (we send): tc1=0, ts1=local_ns.
+        Response: tc1=server_ns, ts1=echoed local_ns.
+        offset ≈ tc1 + RTT/2 − now  (add to client time → server time).
+        """
+        import time as _time
+        now = _time.time_ns()
+        tc1 = int(msg.tc1)
+        ts1 = int(msg.ts1)
+        if tc1 == 0 or ts1 <= 0:
+            return
+        rtt = now - ts1
+        if rtt <= 0 or rtt > 500_000_000:  # discard absurd RTT (>0.5 s)
+            return
+        offset = tc1 + rtt // 2 - now
+        samples = self.data.setdefault("_timesync_samples", [])
+        samples.append(offset)
+        if len(samples) > 21:
+            del samples[0]
+        med = sorted(samples)[len(samples) // 2]
+        self.data["timesync_offset_ns"] = med
+        self.data["timesync_rtt_ns"] = rtt
+        self.data["timesync_n"] = len(samples)
 
     def _log(self, kind, fields):
         # mirror the latest value into shared_data (for live use by the controller)

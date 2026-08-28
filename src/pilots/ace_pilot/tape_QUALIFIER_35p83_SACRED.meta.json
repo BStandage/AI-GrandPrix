@@ -1,0 +1,9 @@
+{
+ "label": "QUALIFIER 35.83 \u2014 ace full-course completion. DO NOT TOUCH / DO NOT OVERWRITE",
+ "best_time_s": 35.83,
+ "sha256": "d663cb03e82dd0b164a3f22845433363177db82ce3481e503a902ee9dbe98090",
+ "rows": 4436,
+ "tend": 49.2778,
+ "source": "archived as tape_COMPLETED_3583.json; restored for submission zip",
+ "note": "Official VQ2 qualifying flyer for CONTROL_MODE=ace. Live tape.json may have post-qualify edits; this file is the sealed qualifier bytes."
+}

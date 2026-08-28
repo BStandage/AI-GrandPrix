@@ -12,8 +12,7 @@ This file contains ONLY values the spec actually publishes. There are deliberate
   * The spec publishes gate DIMENSIONS (sec 3.7) but NO gate positions anywhere.
   * Phase 2 (sec 9.3) BLOCKS GATE_INFO, LOCAL_POSITION_NED, ODOMETRY and ATTITUDE.
     Any world-frame gate map therefore comes from a now-blocked feed. Flying to a
-    hardcoded map is "manipulation of simulator constraints" (sec 9.2) and is the
-    first thing a code audit looks for. The VQ2 pilot navigates by vision + IMU only.
+    hardcoded map is "manipulation of simulator constraints" (sec 9.2). The VQ2 pilot navigates by vision + IMU only.
 
 So: geometry and intrinsics are fair game (they're in the PDF). Positions are not.
 """

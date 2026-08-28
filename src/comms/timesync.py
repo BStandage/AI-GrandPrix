@@ -30,9 +30,10 @@ class TimeSync:
 
     def timesync_loop(self):
         while self.is_running:
+            # Standard MAVLink TIMESYNC request: tc1=0, ts1=local ns.
             now = int(time.time_ns())
             self.mavlink_conn.mav.timesync_send(
-                now,  # tc1 = client time
-                0     # ts1 = 0 (request)
+                0,    # tc1 = 0 → request
+                now,  # ts1 = client time (echoed in response)
             )
             time.sleep(1.0 / TIMESYNC_REQUEST_HZ)

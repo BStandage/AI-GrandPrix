@@ -24,6 +24,9 @@ _scratch/
 *.jpg
 *.png
 
+# VQ2 grind debris (snapshots / session diary / scratch) - do not ship
+src/_archive/
+
 # OS / editor
 .DS_Store
 Thumbs.db
