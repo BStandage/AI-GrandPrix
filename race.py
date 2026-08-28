@@ -72,19 +72,50 @@ def run_sim(sim_repo: Path, plan_path: Path, cfg, sim_time_s: float) -> int:
     cmd = ["uv", "run", "elodin", "run", "sim/main.py"]
     print(f"\nSIM   {' '.join(cmd)}  (cwd={sim_repo}, "
           f"sim_time={sim_time_s:.0f} s, ~0.8x realtime)")
-    # `elodin run` reliably HANGS after "Simulation stopped" on this build;
-    # results are already on disk by then, so a hard deadline is safe.
+    # Two sim failure modes are handled here, both observed repeatedly:
+    # 1. `elodin run` HANGS after "Simulation stopped" -> hard deadline.
+    # 2. Betaflight sometimes wedges at boot (bridge never gets a warmup
+    #    response; every tick times out) -> detect and RETRY the launch.
     deadline = sim_time_s * 2.0 + 120.0
-    try:
-        proc = subprocess.run(cmd, cwd=sim_repo, env=env, timeout=deadline)
-        rc = proc.returncode
-    except subprocess.TimeoutExpired:
-        print(f"\nSIM   note: killed after {deadline:.0f} s deadline "
-              "(elodin run does not exit on its own; results are on disk)")
-        rc = 0
-    for pat in ("elodin run", "render-server", "betaflight_SITL"):
-        subprocess.run(["pkill", "-f", pat], capture_output=True)
-    return rc
+    for attempt in (1, 2):
+        rc = _run_sim_once(cmd, sim_repo, env, deadline)
+        for pat in ("elodin run", "render-server", "betaflight_SITL"):
+            subprocess.run(["pkill", "-f", pat], capture_output=True)
+        if rc != 9:
+            return rc
+        print(f"\nSIM   dead bridge at boot (attempt {attempt}) - retrying")
+    return 9
+
+
+def _run_sim_once(cmd, sim_repo, env, deadline) -> int:
+    import time
+    proc = subprocess.Popen(cmd, cwd=sim_repo, env=env,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, errors="replace")
+    t0 = time.time()
+    warmed = False
+    stalled = 0
+    for line in proc.stdout:
+        print(line, end="")
+        if "Warmup complete" in line:
+            # a wedged Betaflight sometimes answers 1-2 packets of ~500;
+            # demand a real handshake before calling the bridge alive
+            import re as _re
+            m = _re.search(r"\((\d+) responses", line)
+            warmed = bool(m and int(m.group(1)) >= 50)
+        if "cannot achieve real-time" in line and "99." in line:
+            stalled += 1
+            if not warmed and stalled > 20:
+                proc.kill()
+                return 9          # bridge never answered: retryable
+        else:
+            stalled = 0
+        if time.time() - t0 > deadline:
+            print(f"\nSIM   note: killed after {deadline:.0f} s deadline "
+                  "(results are on disk)")
+            proc.kill()
+            return 0
+    return proc.wait()
 
 
 def newest_result(sim_repo: Path, known: set) -> Path | None:

@@ -55,9 +55,15 @@ Source: `20260818_PQ_Technical_Spec_0001.pdf`
 - No data sharing between teams.
 
 ### Still open (push organizers)
-- [ ] **Angle limit / ACRO permission** - extractable from `diff all` on
-      day 1, but knowing NOW sets `max_tilt_deg` and every predicted lap
-      time.
+- [x] **Angle limit / ACRO - largely self-answered (2026-08-28):**
+      Betaflight's angle limit only exists in ANGLE mode; ACRO has no
+      attitude cap at all. The FAQ grants full config access (rates,
+      PIDs, filters) with no reflash and version <= 2026.6.1 - so if the
+      units ship in ANGLE, we set `angle_limit` (BF default 55 deg) or
+      configure ACRO ourselves. The VQ sim's 45 deg clamp was a property
+      of the old attitude-setpoint API, NOT of PQ's RC-over-UART
+      interface. Residual question only: does any competition RULE pin
+      specific FC settings?
 - [x] Training cage = **5 x 5 m** (confirmed 2026-08-28). Big enough for:
       hover/throttle sysid, SHORT-BURST attitude steps (~0.5 s, +-2.5 m of
       room), camera calibration, detector imagery. NOT big enough for
