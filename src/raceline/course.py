@@ -1,7 +1,7 @@
 """Bridge to the elodin sim repo's course module (sim.pq_course).
 
 pq_course is deliberately elodin-free (numpy + stdlib), owns the ONE
-map->sim transform, and defines the 24-event crossing sequence — so both
+map->sim transform, and defines the 24-event crossing sequence - so both
 the planner (standalone) and the follower (inside the sim process) consume
 the course through it and are guaranteed the same frame.
 
