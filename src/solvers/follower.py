@@ -67,6 +67,11 @@ class Tracker:
         self.acc = plan["acc"]
         self.n = len(self.s)
         self.cfg = cfg
+        # arc position of every crossing event: the tracker may never run
+        # ahead of the next UNSCORED gate (lap 1 and lap 2 overlap in XY;
+        # at the g7 hairpin the search walked onto the lap-2 branch and the
+        # drone 'finished' a lap the referee never saw)
+        self.event_s = [e["s"] for e in plan["events"]]
         ds = np.diff(self.s)
         self._ds = float(np.median(ds))
         # Forward search window. Kept SHORT so the nearest-point search can
@@ -79,9 +84,13 @@ class Tracker:
         self.idx = 0
         self.started = False
 
-    def _advance(self, p: np.ndarray) -> int:
-        """Monotonic nearest-sample search within a forward window."""
+    def _advance(self, p: np.ndarray, next_event: int) -> int:
+        """Monotonic nearest-sample search, forward window, CAPPED at the
+        next unscored gate plus margin."""
         hi = min(self.n, self.idx + self._win)
+        if 0 <= next_event < len(self.event_s):
+            cap = int(np.searchsorted(self.s, self.event_s[next_event] + 3.0))
+            hi = min(hi, max(cap, self.idx + 1))
         d = np.linalg.norm(self.pos[self.idx:hi] - p, axis=1)
         self.idx += int(np.argmin(d))
         return self.idx
@@ -90,7 +99,7 @@ class Tracker:
         return min(self.n - 1,
                    int(np.searchsorted(self.s, s_target)))
 
-    def step(self, est: StateEstimate):
+    def step(self, est: StateEstimate, next_event: int = -1):
         f = self.cfg.follower
 
         # Start-settle: hover onto the first plan point before releasing the
@@ -106,9 +115,50 @@ class Tracker:
                 a_des = f.kp_pos * err0[:2] - f.kd_pos * est.v[:2]
                 return a_des, float(self.pos[0][2]), 0.0, None, False
 
-        i = self._advance(est.p)
+        i = self._advance(est.p, next_event)
         s_here = float(self.s[i])
-        ic = self._at_s(s_here + f.lookahead_m)
+
+        # RETRY: past the next unscored gate without credit (a miss) the
+        # gate cap would deadlock us against it forever. Re-approach: target
+        # the path 2.5 m BEFORE the opening and cross it again - the ordered
+        # referee accepts late crossings, so a near-miss costs seconds, not
+        # the race. General rule, no per-gate anything.
+        if 0 <= next_event < len(self.event_s):
+            s_ev = self.event_s[next_event]
+            if s_here > s_ev + 0.5:
+                j = self._at_s(max(0.0, s_ev - 2.5))
+                self.idx = j
+                a_des = (1.5 * f.kp_pos * (self.pos[j][:2] - est.p[:2])
+                         - f.kd_pos * est.v[:2])
+                a_max = self.cfg.a_lat_full()
+                n = float(np.hypot(a_des[0], a_des[1]))
+                if n > a_max:
+                    a_des *= a_max / n
+                return (a_des, float(self.pos[j][2]), 0.0, None, False)
+
+        # RECOVERY: far off the line, plan feedforward is poison (it kept a
+        # stalled drone hovering at a stable equilibrium 11 m off-course).
+        # Fly straight back to the nearest path point, nothing else.
+        d_near = float(np.linalg.norm(self.pos[i] - est.p))
+        if d_near > 2.0:
+            a_des = (1.5 * f.kp_pos * (self.pos[i][:2] - est.p[:2])
+                     - f.kd_pos * est.v[:2])
+            a_max = self.cfg.a_lat_full()
+            n = float(np.hypot(a_des[0], a_des[1]))
+            if n > a_max:
+                a_des *= a_max / n
+            return a_des, float(self.pos[i][2]), 0.0, None, False
+        # velocity-scaled carrot: a fixed distance is a fixed WARNING TIME
+        # only at one speed - at full-mode pace 3.5 m was 0.6 s and corners
+        # arrived faster than the loop could lean (two gate misses at the
+        # window edge). Standard pure-pursuit scaling.
+        # scaled by speed, FLOORED low: a 3.5 m carrot at hairpin-crawl
+        # speed points across the path fold and stalls the follower there
+        look = max(f.lookahead_m, f.lookahead_t * float(np.linalg.norm(est.v)))
+        s_carrot = s_here + look
+        if 0 <= next_event < len(self.event_s):
+            s_carrot = min(s_carrot, self.event_s[next_event] + 2.0)
+        ic = self._at_s(s_carrot)
 
         # accel feedforward and VELOCITY target from where we ARE (the
         # plan's speed here is the speed to hold - chasing the carrot's
@@ -162,7 +212,8 @@ def autopilot(update: SensorUpdate) -> RCCommand:
         return RCCommand(arm=1800, throttle=1000)
 
     est = _SOURCE.estimate(update)
-    a_des, z_target, vz_ff, yaw_des, done = _TRACKER.step(est)
+    a_des, z_target, vz_ff, yaw_des, done = _TRACKER.step(
+        est, update.next_gate_index)
 
     if done:
         if _state["done_t"] is None:
@@ -177,14 +228,16 @@ def autopilot(update: SensorUpdate) -> RCCommand:
     if airborne:
         roll, pitch, eb = attitude_sticks(CFG, est, a_des)
         yaw_stick = _YAW.stick(est, yaw_des)
-        if t - _state["dbg_t"] >= 1.0:
-            _state["dbg_t"] = t
-            i = _TRACKER.idx
-            print(f"[RL] t={t:5.1f} s={_TRACKER.s[i]:6.1f} "
-                  f"p=({est.p[0]:+5.1f},{est.p[1]:+5.1f},{est.p[2]:4.2f}) "
-                  f"v={np.linalg.norm(est.v):4.2f} "
-                  f"xtrack={np.linalg.norm(_TRACKER.pos[i] - est.p):4.2f} "
-                  f"stk=({roll},{pitch},{throttle},{yaw_stick})")
+    # heartbeat ALWAYS prints - a crash below 1 m used to go silent for
+    # 23 s while the drone skidded 140 m (measured); crashes must narrate
+    if t - _state["dbg_t"] >= 1.0:
+        _state["dbg_t"] = t
+        i = _TRACKER.idx
+        print(f"[RL] t={t:5.1f} s={_TRACKER.s[i]:6.1f} "
+              f"p=({est.p[0]:+5.1f},{est.p[1]:+5.1f},{est.p[2]:4.2f}) "
+              f"v={np.linalg.norm(est.v):4.2f} "
+              f"xtrack={np.linalg.norm(_TRACKER.pos[i] - est.p):4.2f} "
+              f"air={airborne} stk=({roll},{pitch},{throttle},{yaw_stick})")
 
     return RCCommand(arm=1800, throttle=throttle, roll=roll, pitch=pitch,
                      yaw=yaw_stick)

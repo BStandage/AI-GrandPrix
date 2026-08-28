@@ -71,12 +71,13 @@ takeoff_alt_m = 1.35
 v_floor_mps   = 0.3
 
 [optimizer]
-apex_max_m = 0.55       # uniform off-center allowance through any opening
+apex_max_m = 0.40         # 0.75 window minus measured ~0.3 tracking error;
 
 [follower]              # SIM-TUNED gains - placeholders for hardware. The
 kp_pos      = 1.2       # real-drone control stack reuses the Tracker; the
 kd_pos      = 2.1       # RC backend + these gains get retuned on the real
-lookahead_m = 3.5       # plant (cage first).
+lookahead_m = 1.5       # plant (cage first).
+lookahead_t = 0.8       # seconds of warning; carrot = max(lookahead_m, t*v)
 ka_att      = 120.0
 stick_clamp = 45
 kp_z        = 140.0

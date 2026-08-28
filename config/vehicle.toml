@@ -28,7 +28,7 @@ pwm_max   = 2000          # was 1600 (wobble-era cap, never measured); full rang
 # measured sweep. Not consumed by the v1 planner (it uses the a_accel/a_brake
 # scalars below) - the slot exists for exactly that swap.
 curve_pwm = [1350, 1500, 1650, 1800, 2000]
-curve_acc = [10.23, 10.98, 11.58, 11.89, 12.16]   # MEASURED (solvers.sysid_thrust run 0):
+curve_acc = [13.88, 19.32, 23.44, 26.25, 29.21]   # MEASURED, drag-fixed plant (sysid_thrust run 1)
 
 [limits]                  # ceilings shared by planner AND follower
 max_tilt_deg     = 22.0   # lateral accel budget = g*tan(this)
@@ -44,11 +44,10 @@ a_lat_rate_max   = 5.3    # m/s^3 - attitude-slew ceiling: how fast lateral
 v_max_mps        = 6.0    # global straight-line cap
 v_gate_mps       = 3.0    # cap within gate_window_m of ANY crossing center -
 gate_window_m    = 2.0    # one uniform rule, never special-cased per gate
-vz_up_max        = 0.7    # MEASURED ceiling ~0.8 m/s at FULL throttle (sysid_thrust);
-                          # the old 2.5 was fantasy - this plant is vertically weak
-vz_down_max      = 2.0    # m/s descent cap
-a_accel_max      = 3.0    # longitudinal accel budget (v1 scalar; later derived
-a_brake_max      = 3.5    # from the thrust curve)
+vz_up_max        = 4.0    # measured ceiling 8.1 m/s at full throttle; margin for tilt
+vz_down_max      = 3.0
+a_accel_max      = 4.0   # thrust-backed (TWR ~3 measured)
+a_brake_max      = 5.0
 
 [planner]
 laps = 2                  # per run; official PQ scoring is 2, lower for quick tests
@@ -63,14 +62,15 @@ takeoff_alt_m = 1.35           # first anchor above the spawn point
 v_floor_mps   = 0.3            # numerical floor for the profile/timestamps
 
 [optimizer]               # racing-line optimizer (raceline.line_opt)
-apex_max_m = 0.55         # how far off-center the line may pass through ANY
-                          # opening (one uniform rule; the tracker window is
-                          # +-0.75, this leaves 0.20 of tracking margin)
+apex_max_m = 0.40         # 0.75 window minus measured ~0.35 tracking error
+                          # (0.55 lost lap-2 g0 by ~3 cm: line legal, flying
+                          # fine, the SUM over the edge)
 
 [follower]
 kp_pos      = 1.2       # position error -> accel
 kd_pos      = 2.1       # velocity error (vs plan) -> accel
-lookahead_m = 3.5       # arc-length carrot distance
+lookahead_m = 1.5       # arc-length carrot distance
+lookahead_t = 0.8       # seconds of warning; carrot = max(lookahead_m, t*v)
 ka_att      = 300.0   # was 120: starved the tilt loop (max ~45 PWM); A-B tested 2026-08-28
 stick_clamp = 150     # was 45: clipped the louder commands
 kp_z        = 140.0     # altitude loop (proven), plus plan vz feedforward
