@@ -1,0 +1,363 @@
+{
+ "source": "PNP-TICK steady_dbg_20260813_224401.csv + session_20260813_224359",
+ "frame": "spawn-relative, yaw-frame world, z up (PnP opening + el self-cal)",
+ "prior": "course_map_tick.json",
+ "el_bias_deg": 0.0,
+ "clock_offset_s": -0.0022,
+ "gates": [
+  {
+   "gate_id": 0,
+   "x": -1.29,
+   "y": 9.81,
+   "z": 1.09,
+   "cross_dir": [
+    0.444,
+    0.896
+   ],
+   "heading_deg": 63.6,
+   "anchor": "pnp_tick",
+   "n_pnp": 6,
+   "n_dwell": 1,
+   "n_tick": 6,
+   "sig_xy_m": 0.228,
+   "sig_z_m": 0.338,
+   "t_pass": 8.861,
+   "z_chain_old": 3.41
+  },
+  {
+   "gate_id": 1,
+   "x": 5.856675029348445,
+   "y": 19.28255211096174,
+   "z": 3.05,
+   "cross_dir": [
+    0.463,
+    0.887
+   ],
+   "heading_deg": 62.4,
+   "anchor": "pnp_tick",
+   "n_pnp": 11,
+   "n_dwell": 312,
+   "n_tick": 11,
+   "sig_xy_m": 3.661,
+   "sig_z_m": 0.139,
+   "t_pass": 17.644,
+   "live_refined": {
+    "n": 329,
+    "mad_m": 0.92,
+    "moved_m": 2.21
+   },
+   "z_chain_old": 4.14876425546672
+  },
+  {
+   "gate_id": 2,
+   "x": 11.442187008084156,
+   "y": 27.15711725697462,
+   "z": 2.29,
+   "cross_dir": [
+    0.303,
+    0.953
+   ],
+   "heading_deg": 72.3,
+   "anchor": "pnp_tick",
+   "n_pnp": 11,
+   "n_dwell": 131,
+   "n_tick": 11,
+   "sig_xy_m": 0.219,
+   "sig_z_m": 0.01,
+   "t_pass": 21.074,
+   "live_refined": {
+    "n": 264,
+    "mad_m": 2.44,
+    "moved_m": 4.13
+   },
+   "z_chain_old": 4.035390757865452
+  },
+  {
+   "gate_id": 3,
+   "x": 10.57,
+   "y": 41.14,
+   "z": 1.65,
+   "cross_dir": [
+    -0.339,
+    0.941
+   ],
+   "heading_deg": 109.8,
+   "anchor": "pnp_tick",
+   "n_pnp": 41,
+   "n_dwell": 41,
+   "n_tick": 0,
+   "sig_xy_m": 0.0,
+   "sig_z_m": 0.0,
+   "bridge": "plant",
+   "t_pass": 30.826,
+   "z_chain_old": 2.8
+  },
+  {
+   "gate_id": 4,
+   "x": -2.74,
+   "y": 54.52,
+   "z": 0.28,
+   "cross_dir": [
+    -0.645,
+    0.764
+   ],
+   "heading_deg": 130.2,
+   "anchor": "pnp_tick",
+   "n_pnp": 220,
+   "n_dwell": 220,
+   "n_tick": 0,
+   "sig_xy_m": 0.0,
+   "sig_z_m": 0.0,
+   "bridge": "plant",
+   "t_pass": 39.49,
+   "z_chain_old": 2.08
+  },
+  {
+   "gate_id": 5,
+   "x": -13.32,
+   "y": 69.47,
+   "z": 0.46,
+   "cross_dir": [
+    -0.557,
+    0.831
+   ],
+   "heading_deg": 123.8,
+   "anchor": "pnp_tick",
+   "n_pnp": 155,
+   "n_dwell": 155,
+   "n_tick": 0,
+   "sig_xy_m": 0.0,
+   "sig_z_m": 0.0,
+   "bridge": "plant",
+   "t_pass": 47.164,
+   "z_chain_old": 2.6
+  },
+  {
+   "gate_id": 6,
+   "x": -19.04,
+   "y": 78.84,
+   "z": 7.06,
+   "cross_dir": [
+    -0.292,
+    0.956
+   ],
+   "heading_deg": 107.0,
+   "anchor": "pnp_tick",
+   "n_pnp": 10,
+   "n_dwell": 190,
+   "n_tick": 10,
+   "sig_xy_m": 0.907,
+   "sig_z_m": 0.01,
+   "t_pass": 53.999,
+   "z_chain_old": 7.03
+  },
+  {
+   "gate_id": 7,
+   "x": -18.84,
+   "y": 87.54,
+   "z": 6.76,
+   "cross_dir": [
+    0.417,
+    0.909
+   ],
+   "heading_deg": 65.4,
+   "anchor": "pnp_tick",
+   "n_pnp": 11,
+   "n_dwell": 33,
+   "n_tick": 0,
+   "sig_xy_m": 0.978,
+   "sig_z_m": 0.074,
+   "bridge": "imu",
+   "t_pass": 61.187,
+   "z_chain_old": 6.86
+  },
+  {
+   "gate_id": 8,
+   "x": -13.21,
+   "y": 91.54,
+   "z": 5.78,
+   "cross_dir": [
+    0.816,
+    0.578
+   ],
+   "heading_deg": 35.3,
+   "anchor": "pnp_tick",
+   "n_pnp": 11,
+   "n_dwell": 190,
+   "n_tick": 11,
+   "sig_xy_m": 0.098,
+   "sig_z_m": 0.01,
+   "t_pass": 65.6,
+   "z_chain_old": 6.61
+  },
+  {
+   "gate_id": 9,
+   "x": -10.65,
+   "y": 93.34,
+   "z": 5.42,
+   "cross_dir": [
+    0.61,
+    0.793
+   ],
+   "heading_deg": 52.4,
+   "anchor": "pnp_tick",
+   "n_pnp": 82,
+   "n_dwell": 82,
+   "n_tick": 0,
+   "sig_xy_m": 0.0,
+   "sig_z_m": 0.0,
+   "bridge": "imu",
+   "t_pass": 70.359,
+   "z_chain_old": 14.01
+  },
+  {
+   "gate_id": 10,
+   "x": 2.17,
+   "y": 111.54,
+   "z": 5.2,
+   "cross_dir": [
+    0.244,
+    0.97
+   ],
+   "heading_deg": 75.9,
+   "anchor": "pnp_tick",
+   "n_pnp": 18,
+   "n_dwell": 18,
+   "n_tick": 2,
+   "sig_xy_m": 0.0,
+   "sig_z_m": 0.0,
+   "bridge": "plant",
+   "t_pass": 84.168,
+   "z_chain_old": 11.57
+  },
+  {
+   "gate_id": 11,
+   "x": -2.33,
+   "y": 126.46,
+   "z": 2.23,
+   "cross_dir": [
+    -0.212,
+    0.977
+   ],
+   "heading_deg": 102.2,
+   "anchor": "pnp_tick",
+   "n_pnp": 134,
+   "n_dwell": 134,
+   "n_tick": 2,
+   "sig_xy_m": 0.0,
+   "sig_z_m": 0.0,
+   "bridge": "plant",
+   "t_pass": 92.534,
+   "z_chain_old": 11.18
+  },
+  {
+   "gate_id": 12,
+   "x": -3.52,
+   "y": 137.74,
+   "z": 3.39,
+   "cross_dir": [
+    -0.458,
+    0.889
+   ],
+   "heading_deg": 117.2,
+   "anchor": "pnp_tick",
+   "n_pnp": 132,
+   "n_dwell": 132,
+   "n_tick": 0,
+   "sig_xy_m": 0.0,
+   "sig_z_m": 0.0,
+   "bridge": "plant",
+   "t_pass": 102.267,
+   "z_chain_old": 12.4
+  },
+  {
+   "gate_id": 13,
+   "x": -11.74,
+   "y": 144.74,
+   "z": 3.57,
+   "cross_dir": [
+    -0.42,
+    0.907
+   ],
+   "heading_deg": 114.8,
+   "anchor": "pnp_tick",
+   "n_pnp": 11,
+   "n_dwell": 152,
+   "n_tick": 11,
+   "sig_xy_m": 0.024,
+   "sig_z_m": 0.046,
+   "t_pass": 106.815,
+   "z_chain_old": 12.68
+  },
+  {
+   "gate_id": 14,
+   "x": -12.12,
+   "y": 156.32,
+   "z": 3.86,
+   "cross_dir": [
+    0.361,
+    0.932
+   ],
+   "heading_deg": 68.8,
+   "anchor": "pnp_tick",
+   "n_pnp": 13,
+   "n_dwell": 13,
+   "n_tick": 2,
+   "sig_xy_m": 0.0,
+   "sig_z_m": 0.0,
+   "t_pass": 120.58,
+   "z_chain_old": 20.01
+  },
+  {
+   "gate_id": 15,
+   "x": -3.86,
+   "y": 165.07,
+   "z": 1.99,
+   "cross_dir": [
+    0.437,
+    0.899
+   ],
+   "heading_deg": 64.1,
+   "anchor": "pnp_tick",
+   "n_pnp": 130,
+   "n_dwell": 130,
+   "n_tick": 0,
+   "sig_xy_m": 0.0,
+   "sig_z_m": 0.0,
+   "bridge": "plant",
+   "t_pass": 126.457,
+   "z_chain_old": 18.96
+  },
+  {
+   "gate_id": 16,
+   "x": 0.79,
+   "y": 182.89,
+   "z": 2.0,
+   "cross_dir": [
+    0.253,
+    0.968
+   ],
+   "heading_deg": 75.4,
+   "anchor": "pnp_tick",
+   "n_pnp": 134,
+   "n_dwell": 134,
+   "n_tick": 0,
+   "sig_xy_m": 0.0,
+   "sig_z_m": 0.0,
+   "bridge": "plant",
+   "t_pass": 134.408,
+   "z_chain_old": 18.95
+  }
+ ],
+ "range_source": "pinhole_dist",
+ "note": "tick-anchored pinhole+bearing chain; opening-only; legs = tick-window sightings and/or dwell vectors back-propagated to tick via track \u0394v; tick\u2192first-sighting gap bridged with survey-creep plant (bridge=csv) when gate k+1 not yet visible; PnP range discarded (1.37x long); el via offset_to_bearing (single de-tilt); \u03c3_xy from MAD",
+ "live_refine": {
+  "base": "course_map_pnp_tick_C2_REBUILD.json",
+  "sessions": [
+   "session_20260820_223031"
+  ],
+  "gates_refined": 2
+ },
+ "z_fix": "z from MSCKF tick-crossing altitudes (chain z = el-bias compounding, +2..+16 m high)",
+ "installed_as_PQ": "C2_LIVE2: chain XY + live-sighting g1/g2 + VIO tick z. Installed as resolver top slot so no pilot can fall through to ACCEPTED (2x-long DR map)."
+}
