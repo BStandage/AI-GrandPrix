@@ -6,18 +6,18 @@ Follow it top to bottom; every step says what you should see before moving on.
 **The mental model, in one paragraph:** there are two repos side by side.
 `AI-GrandPrix` (this one) owns the course map, the planner, the follower, and
 the config. `elodin-sim-aigp` is the simulator (it runs in WSL with a real
-Betaflight flight controller in the loop). You tune exactly ONE file —
-`config/vehicle.toml` — and run exactly one command — `race.py` — which plans
+Betaflight flight controller in the loop). You tune exactly ONE file -
+`config/vehicle.toml` - and run exactly one command - `race.py` - which plans
 a racing line, flies it headless, and prints lap times and gates from the
 sim's run record. That's the whole loop.
 
 ```
-config/vehicle.toml ──> planner ──> out/plans/plan_XXX.json (+ .png to eyeball)
-                                            │
-                                            ▼
-                              follower (RACE_SOLVER=raceline.follower)
-                                            │
-        race report + archive <── elodin sim + Betaflight SITL (WSL)
+config/vehicle.toml --> planner --> out/plans/plan_XXX.json (+ .png to eyeball)
+                                            |
+                                            v
+                              follower (RACE_SOLVER=solvers.follower)
+                                            |
+        race report + archive <-- elodin sim + Betaflight SITL (WSL)
 ```
 
 ---
@@ -25,7 +25,7 @@ config/vehicle.toml ──> planner ──> out/plans/plan_XXX.json (+ .png to e
 ## 0. Prerequisites
 
 Never touched a drone or heard of Betaflight? Read
-`docs/WHAT_IS_BETAFLIGHT.md` first (10 minutes) — it explains what the
+`docs/WHAT_IS_BETAFLIGHT.md` first (10 minutes) - it explains what the
 flight controller does, why sticks are rates not angles, and what hardware
 the September race actually uses.
 
@@ -48,7 +48,7 @@ Two environments are involved:
 | Side | Used for | Needs |
 |---|---|---|
 | Windows Python 3.11+ | tests, planning, the PNG render | `numpy`, `matplotlib` |
-| WSL (Ubuntu) | actually flying | full sim setup — follow `docs/ELODIN_SIM_SETUP.md` once |
+| WSL (Ubuntu) | actually flying | full sim setup - follow `docs/ELODIN_SIM_SETUP.md` once |
 
 Quick check that the WSL side is ready (run from Windows):
 
@@ -78,9 +78,9 @@ score, this test fails before you waste a sim run.
 
 ---
 
-## 2. Make a plan — no sim required
+## 2. Make a plan - no sim required
 
-Easiest (works with zero Windows Python setup — it runs in the WSL env):
+Easiest (works with zero Windows Python setup - it runs in the WSL env):
 
 ```
 race.cmd --plan-only          (from a terminal in AI-GrandPrix)
@@ -98,7 +98,7 @@ something like:
 
 ```
 PLAN  24 events, 249 m path, config 3cee2540
-      predicts total 88.2 s (lap0 41.4s  lap1 44.9s) — model prediction, unverified; baseline 225.3 s
+      predicts total 88.2 s (lap0 41.4s  lap1 44.9s) - model prediction, unverified; baseline 225.3 s
 CHECK speed-profile minimum: 0.30 m/s at s=72.8 m (nearest event: g7, -3.6 m along-path)
       ...per-event crossing speeds...
 FILES plan -> out/plans/plan_004.json
@@ -111,12 +111,12 @@ Three things to internalize here:
   tracker record (and at the September race, only real flight) counts.
 - **The CHECK line is your plan sanity gate.** It reports the slowest point
   on the speed profile and where it sits. A near-zero minimum at the **g7
-  switchback is expected** — the course genuinely reverses direction there.
+  switchback is expected** - the course genuinely reverses direction there.
   A near-zero minimum anywhere ELSE means the planner produced a kinked
   path: fix the plan (planner params), do not fly it and then tune the
   follower around the kink.
 - **Open the PNG.** `out/plans/plan_XXX.png` shows the course top-down with
-  the path colored by planned speed, the v_min marked with a red ×, and the
+  the path colored by planned speed, the v_min marked with a red x, and the
   full v(s) profile underneath. Thirty seconds of eyeballing catches what
   numbers hide.
 
@@ -138,23 +138,23 @@ uv run python ../AI-GrandPrix/race.py
 ```
 
 (Want to WATCH the flight instead of racing headless? The sim repo's
-`run_race.cmd raceline.follower` starts the sim with your newest plan and
-opens the Elodin editor viewport. That's for eyeballs — lap times you
+`run_race.cmd solvers.follower` starts the sim with your newest plan and
+opens the Elodin editor viewport. That's for eyeballs - lap times you
 quote should come from headless `race.cmd` runs.)
 
 What happens, in order:
 
 1. A fresh plan is built and reported (same as step 2).
 2. The sim launches headless: `uv run elodin run sim/main.py` with
-   `RACE_SOLVER=raceline.follower` and the plan path in `AIGP_TRAJ`.
-   Runtime is sized automatically from the predicted time (~0.8× realtime,
-   so expect roughly 4–6 minutes).
+   `RACE_SOLVER=solvers.follower` and the plan path in `AIGP_TRAJ`.
+   Runtime is sized automatically from the predicted time (~0.8x realtime,
+   so expect roughly 4-6 minutes).
 3. While flying you'll see two kinds of lines:
-   - `[GATE] lap 0 g3 (event 3) at t=12.41s ...` — the tracker scoring a
+   - `[GATE] lap 0 g3 (event 3) at t=12.41s ...` - the tracker scoring a
      crossing. Count these; you want 24.
-   - `[RL] t= 12.0 s= 34.5 p=(...) v=2.87 xtrack=0.21 ...` — the follower's
+   - `[RL] t= 12.0 s= 34.5 p=(...) v=2.87 xtrack=0.21 ...` - the follower's
      1 Hz heartbeat. `xtrack` is cross-track error to the plan; happy is
-     ≲0.3 m cruising.
+     <=0.3 m cruising.
 4. When the sim ends, race.py finds the new `race_result_XXX.json` and
    prints the report:
 
@@ -172,11 +172,11 @@ FILES archived -> out/races/race_000
 Read it as:
 
 - **`24/24 COMPLETE` is the only line that matters first.** The tracker is
-  ordered — one missed gate blocks all scoring after it, so `17/24` usually
+  ordered - one missed gate blocks all scoring after it, so `17/24` usually
   means one bad corner, not seven.
 - **`dt-vs-plan`** is per-crossing time versus the plan, aligned at the
   first gate (so takeoff time doesn't pollute it). The three worst are
-  flagged — that's where the follower is losing time to tracking, or the
+  flagged - that's where the follower is losing time to tracking, or the
   plan is optimistic.
 - **Everything is archived** to `out/races/race_XXX/`: the plan, the PNG,
   the result JSON, and the exact `vehicle.toml` that produced it. Any
@@ -194,12 +194,12 @@ race.cmd --keep-db                        # keep the sim's flight DB for debuggi
 
 ## 4. Your first tune
 
-The workflow is always: **edit `config/vehicle.toml` → `race.py` → compare
+The workflow is always: **edit `config/vehicle.toml` -> `race.py` -> compare
 against the last archive.** Nothing else is a tuning surface; if you find
 yourself wanting to edit planner or follower code to go faster, the number
-you want is probably missing from the toml — raise that instead.
+you want is probably missing from the toml - raise that instead.
 
-**Working alongside others**: `config/vehicle.toml` is the team baseline —
+**Working alongside others**: `config/vehicle.toml` is the team baseline -
 don't churn it with experiments. Copy it and iterate on your own file:
 
 ```
@@ -220,11 +220,11 @@ anything else.**
 
 The levers, in the order they usually pay off:
 
-1. `v_gate_mps` / `gate_window_m` — speed carried through crossings
-2. `max_tilt_deg` — corner speed and follower authority together
-3. `a_accel_max` / `a_brake_max` — straight-line ramps
-4. `v_max_mps` — matters only once straights stop being accel-limited
-5. `[follower] lookahead_m`, `kp_pos` — only if `xtrack` grows or gates
+1. `v_gate_mps` / `gate_window_m` - speed carried through crossings
+2. `max_tilt_deg` - corner speed and follower authority together
+3. `a_accel_max` / `a_brake_max` - straight-line ramps
+4. `v_max_mps` - matters only once straights stop being accel-limited
+5. `[follower] lookahead_m`, `kp_pos` - only if `xtrack` grows or gates
    get clipped; fix tracking, then go back to speed levers
 
 The loader is strict: a typo'd key fails loudly instead of silently doing
@@ -236,7 +236,7 @@ nothing, so edit boldly.
 
 - **Every parameter is global.** The schema cannot express a per-gate
   value, and nobody adds one. "g4 keeps clipping so nudge g4" is the banned
-  move — the fix must improve the *rule* (standoff logic, gains, limits)
+  move - the fix must improve the *rule* (standoff logic, gains, limits)
   for every gate at once. The September qualifier is an unseen course with
   ~15 min/day of practice; per-gate anything teaches us nothing.
 - **Language discipline:** planner numbers are "the model predicts,
@@ -251,12 +251,12 @@ nothing, so edit boldly.
 
 | Symptom | Likely cause / fix |
 |---|---|
-| `raceline.follower needs AIGP_TRAJ=...` | You launched the sim directly without a plan. Use `race.py`, or set `AIGP_TRAJ` yourself. |
+| `solvers.follower needs AIGP_TRAJ=...` | You launched the sim directly without a plan. Use `race.py`, or set `AIGP_TRAJ` yourself. |
 | `elodin sim repo not found at ...` | Repos aren't siblings. Set `AIGP_SIM_REPO=/path/to/elodin-sim-aigp`. |
-| `ConfigError: ... unknown or missing` | Typo or deleted key in vehicle.toml — the message names it. |
-| Sim starts but drone never lifts | Betaflight eeprom/build issue — `docs/ELODIN_SIM_SETUP.md`, rebuild + `configure_betaflight.py`. |
+| `ConfigError: ... unknown or missing` | Typo or deleted key in vehicle.toml - the message names it. |
+| Sim starts but drone never lifts | Betaflight eeprom/build issue - `docs/ELODIN_SIM_SETUP.md`, rebuild + `configure_betaflight.py`. |
 | `INCOMPLETE: N/24` | Find the first missing `[GATE]` line; watch `xtrack` just before it. Plan issue (CHECK line / PNG kink) vs tracking issue (xtrack blows up) tells you which layer to look at. |
-| Render skipped | matplotlib missing in that env — harmless; plan JSON is unaffected. |
+| Render skipped | matplotlib missing in that env - harmless; plan JSON is unaffected. |
 | Windows-side `ModuleNotFoundError: numpy` | `pip install numpy matplotlib`, or just do everything from the WSL uv env. |
 
 Deeper design reference (planner math, follower layers, file formats):
