@@ -513,7 +513,7 @@ def _ace_envelope_phases():
         ph.append({"group": "lean", "seg": f"roll{sign * 45:+d}",
                    "roll": math.radians(sign * 45), "pitch": 0.0, "yaw": 0.0,
                    "thrust": None, "dur": 4.0})
-    # DIAGONAL probe (Brian's "fly sideways" question): is the 45-deg clamp PER-AXIS (square
+    # DIAGONAL probe : is the 45-deg clamp PER-AXIS (square
     # envelope - pitch45+roll45 = 54.7 deg total tilt, g*sqrt2 = 13.9 m/s^2, terminal ~24) or
     # on TOTAL tilt (circular - no gain)? Sign-interleaved out-and-back; the 60/60 pair also
     # shows the clamp's shape when both axes exceed it.

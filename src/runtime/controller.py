@@ -1,33 +1,22 @@
-"""
-Top-level control loop: pick a flight mode each tick, run it, print a status readout.
+"""Top-level control loop: select a pilot each tick and print a status readout.
 
-Modes (set CONTROL_MODE):
-  "ace"          - map-based racer: fly the solved trajectory, vision anchors [pilots.ace_pilot]
-  "sprint"       - steady + bang/counter-bang transits (the speed ladder)     [pilots.sprint_pilot]
-  "steady"       - THE flight-ready pilot: slow attitude-setpoint visual servo [pilots.steady_pilot]
-  "vision"       - fly from the CAMERA alone, no ground truth (Round-1 goal)  [pilots.vision_pilot]
-  "trajectory"   - follow a racing line through the known gates (fast oracle) [pilots.oracle_pilot]
-  "keyboard"     - manual rate-mode flight for data collection               [pilots.dev_modes]
-  "characterize" - fly a scripted profile and log the physics envelope       [pilots.dev_modes]
+Physical Qualifier (unknown course):
+  "steady" - DEFAULT. Pure vision; maps / races the real layout.
+  "ace" / "giga" - open-loop tape only AFTER a trusted map exists (VQ2 archive
+                   tapes will not match PQ geometry).
 
-(The retired "pursuit" pilot lives in archive/pursuit_pilot.py and is no longer wired in.)
+Other modes stay importable for archaeology.
 """
 
 import math
-import time
 
 from common.dynamics import CONTROL_HZ, send_arm, send_sim_reset
 from common.gate_geometry import active_gate_relative
-from pilots.dev_modes import char_phase_at, update_characterize_control, update_keyboard_rate_control
-from pilots.ace_pilot import update_ace_control
-from pilots.oracle_pilot import update_trajectory_control
-from pilots.phase1_pilot.phase1_pilot import update_phase1_control
-from pilots.sprint_pilot import update_sprint_control
-from pilots.steady_pilot import update_steady_control
-from pilots.vision_pilot import update_vision_control
 
-CONTROL_MODE = "ace"
-GATE_READOUT_PERIOD_S = 1   # print a status line this often
+CONTROL_MODE = "vml"
+GATE_READOUT_PERIOD_S = 1
+
+_PQ_MODES = ("steady", "ace", "giga", "cl", "fair", "vins", "vml", "probe")
 
 
 class Controller:
@@ -36,30 +25,56 @@ class Controller:
         self.data = data
         self.system_boot_ms = system_boot_ms
         self.tick = 0
-        data["_control_mode"] = CONTROL_MODE   # so the vision data collector records which pilot flew
+        data["_control_mode"] = CONTROL_MODE
+        if CONTROL_MODE not in _PQ_MODES:
+            print(
+                f"[controller] WARNING: CONTROL_MODE={CONTROL_MODE!r} is not a PQ "
+                f"day-to-day mode {_PQ_MODES}",
+                flush=True,
+            )
 
     def update(self):
-        if CONTROL_MODE == "vision":
+        if CONTROL_MODE == "vins":
+            from pilots.vins_pilot import update_vins_control
+            update_vins_control(self.sim_conn, self.system_boot_ms, self.data)
+        elif CONTROL_MODE == "vml":
+            from pilots.vml_pilot import update_vml_control
+            update_vml_control(self.sim_conn, self.system_boot_ms, self.data)
+        elif CONTROL_MODE == "probe":
+            from pilots.vml_pilot import update_probe_control
+            update_probe_control(self.sim_conn, self.system_boot_ms, self.data)
+        elif CONTROL_MODE == "fair":
+            from pilots.fair_pilot import update_fair_control
+            update_fair_control(self.sim_conn, self.system_boot_ms, self.data)
+        elif CONTROL_MODE == "cl":
+            from pilots.cl_pilot.cl_pilot import update_cl_control
+            update_cl_control(self.sim_conn, self.system_boot_ms, self.data)
+        elif CONTROL_MODE == "ace":
+            from pilots.ace_pilot import update_ace_control
+            update_ace_control(self.sim_conn, self.system_boot_ms, self.data)
+        elif CONTROL_MODE == "giga":
+            from pilots.giga_pilot import update_giga_control
+            update_giga_control(self.sim_conn, self.system_boot_ms, self.data)
+        elif CONTROL_MODE == "steady":
+            from pilots.steady_pilot import update_steady_control
+            update_steady_control(self.sim_conn, self.system_boot_ms, self.data)
+        elif CONTROL_MODE == "vision":
+            from pilots.vision_pilot import update_vision_control
             update_vision_control(self.sim_conn, self.system_boot_ms, self.data)
         elif CONTROL_MODE == "trajectory":
+            from pilots.oracle_pilot import update_trajectory_control
             update_trajectory_control(self.sim_conn, self.system_boot_ms, self.data)
         elif CONTROL_MODE == "phase1":
+            from pilots.phase1_pilot.phase1_pilot import update_phase1_control
             update_phase1_control(self.sim_conn, self.system_boot_ms, self.data)
-        elif CONTROL_MODE == "steady":
-            update_steady_control(self.sim_conn, self.system_boot_ms, self.data)
         elif CONTROL_MODE == "sprint":
+            from pilots.sprint_pilot import update_sprint_control
             update_sprint_control(self.sim_conn, self.system_boot_ms, self.data)
-        elif CONTROL_MODE == "ace":
-            update_ace_control(self.sim_conn, self.system_boot_ms, self.data)
-        elif CONTROL_MODE == "keyboard":
-            update_keyboard_rate_control(self.sim_conn, self.system_boot_ms, self.data)
-        elif CONTROL_MODE == "characterize":
-            update_characterize_control(self.sim_conn, self.system_boot_ms, self.data)
         else:
             raise ValueError(f"unknown CONTROL_MODE: {CONTROL_MODE!r}")
 
         self._readout()
-        time.sleep(1.0 / CONTROL_HZ)
+        # Pace in main.py (deadline scheduler).
 
     def _readout(self):
         self.tick += 1
@@ -67,53 +82,9 @@ class Controller:
             return
 
         odo = self.data.get("odometry") or self.data.get("local_position_ned") or {}
-        vz = odo.get("vz")   # NED: + is downward
+        vz = odo.get("vz")
         z = odo.get("z")
         climb_str = f"{-vz:+.2f}" if vz is not None else " n/a"
-
-        if CONTROL_MODE == "characterize":
-            t = time.time() - self.data.get("char_t0", time.time())
-            label, _ = char_phase_at(t)
-            vx, vy = odo.get("vx", 0.0), odo.get("vy", 0.0)
-            print(
-                f"char[{label}] t={t:5.1f}s  climb={climb_str}m/s  "
-                f"speed_h={math.hypot(vx, vy):5.2f}m/s  alt={-(z or 0.0):+6.2f}m",
-                flush=True,
-            )
-            return
-
-        if CONTROL_MODE == "keyboard":
-            thr = self.data.get("manual_thrust", 0.0)
-            print(f"manual: thr={thr:.3f}  climb={climb_str}m/s  alt={-(z or 0.0):+6.2f}m", flush=True)
-            return
-
-        if CONTROL_MODE == "vision":
-            thr = self.data.get("oracle_thrust", 0.0)
-            regime = self.data.get("vision_regime", "?")
-            dbg = self.data.get("vis_dbg")
-            tgt = self.data.get("vision_target")
-            seen = f"gate offx={dbg[0]:+.2f} offy={dbg[1]:+.2f} dist~{dbg[2]:4.1f}m dclimb={dbg[3]:+.1f}" \
-                if dbg else ("acquiring" if tgt is None else "?")
-            # ground-truth nearest gate shown ONLY as a reference check (the pilot does not use it)
-            rel = active_gate_relative(self.data)
-            gtchk = f" | GTchk g{rel['gate_id']} d={rel['distance']:4.1f}m" if rel else ""
-            print(f"vis[{regime}] {seen} climb={climb_str} alt={-(z or 0.0):+6.1f}m thr={thr:.3f}{gtchk}",
-                  flush=True)
-            return
-
-        if CONTROL_MODE == "trajectory":
-            thr = self.data.get("oracle_thrust", 0.0)
-            regime = self.data.get("traj_regime", "?")
-            rel = active_gate_relative(self.data)   # for reference: nearest real gate
-            gatestr = f"gate {rel['gate_id']} dist={rel['distance']:4.1f}m" if rel else "no gate"
-            print(
-                f"traj[{regime}] xtrack={self.data.get('traj_xtrack', 0.0):4.1f}m "
-                f"yaw={self.data.get('traj_yawrate', 0.0):+4.1f} "
-                f"v={self.data.get('traj_vcur', 0.0):4.1f}/{self.data.get('traj_vtgt', 0.0):3.1f}m/s "
-                f"climb={climb_str} alt={-(z or 0.0):+6.1f}m | {gatestr} thr={thr:.3f}",
-                flush=True,
-            )
-            return
 
         if CONTROL_MODE == "steady":
             regime = self.data.get("steady_regime", "?")
@@ -133,13 +104,53 @@ class Controller:
             )
             return
 
-        if CONTROL_MODE == "ace":
-            # tape replay: the dbg CSV carries the full state - console shows gate ticks only
+        if CONTROL_MODE in ("vml", "probe"):
+            key = "vml_regime" if CONTROL_MODE == "vml" else "probe_regime"
+            print(f"{CONTROL_MODE}[{self.data.get(key, '?')}] climb={climb_str} "
+                  f"alt={-(z or 0.0):+6.1f}m", flush=True)
+            return
+
+        if CONTROL_MODE in ("fair", "cl"):
+            key = "fair_regime" if CONTROL_MODE == "fair" else "cl_regime"
+            print(f"{CONTROL_MODE}[{self.data.get(key, '?')}] climb={climb_str} "
+                  f"alt={-(z or 0.0):+6.1f}m", flush=True)
+            return
+
+        if CONTROL_MODE in ("ace", "giga"):
             rs = self.data.get("race_status") or {}
             gi = rs.get("active_gate_index")
             if gi is not None and gi != self.data.get("_readout_last_gate"):
                 self.data["_readout_last_gate"] = gi
-                print(f"ace: race_gate -> {gi}  [{self.data.get('ace_regime', '?')}]", flush=True)
+                key = "ace_regime" if CONTROL_MODE == "ace" else "giga_regime"
+                print(f"{CONTROL_MODE}: race_gate -> {gi}  [{self.data.get(key, '?')}]",
+                      flush=True)
+            return
+
+        if CONTROL_MODE == "vision":
+            thr = self.data.get("oracle_thrust", 0.0)
+            regime = self.data.get("vision_regime", "?")
+            dbg = self.data.get("vis_dbg")
+            tgt = self.data.get("vision_target")
+            seen = f"gate offx={dbg[0]:+.2f} offy={dbg[1]:+.2f} dist~{dbg[2]:4.1f}m dclimb={dbg[3]:+.1f}" \
+                if dbg else ("acquiring" if tgt is None else "?")
+            rel = active_gate_relative(self.data)
+            gtchk = f" | GTchk g{rel['gate_id']} d={rel['distance']:4.1f}m" if rel else ""
+            print(f"vis[{regime}] {seen} climb={climb_str} alt={-(z or 0.0):+6.1f}m thr={thr:.3f}{gtchk}",
+                  flush=True)
+            return
+
+        if CONTROL_MODE == "trajectory":
+            thr = self.data.get("oracle_thrust", 0.0)
+            regime = self.data.get("traj_regime", "?")
+            rel = active_gate_relative(self.data)
+            gatestr = f"gate {rel['gate_id']} dist={rel['distance']:4.1f}m" if rel else "no gate"
+            print(
+                f"traj[{regime}] xtrack={self.data.get('traj_xtrack', 0.0):4.1f}m "
+                f"yaw={self.data.get('traj_yawrate', 0.0):+4.1f} "
+                f"v={self.data.get('traj_vcur', 0.0):4.1f}/{self.data.get('traj_vtgt', 0.0):3.1f}m/s "
+                f"climb={climb_str} alt={-(z or 0.0):+6.1f}m | {gatestr} thr={thr:.3f}",
+                flush=True,
+            )
             return
 
         if CONTROL_MODE == "sprint":
@@ -160,7 +171,7 @@ class Controller:
         if CONTROL_MODE == "phase1":
             thr = self.data.get("oracle_thrust", 0.0)
             regime = self.data.get("traj_regime", "?")
-            rel = active_gate_relative(self.data)   # for reference: nearest real gate
+            rel = active_gate_relative(self.data)
             gatestr = f"gate {rel['gate_id']} dist={rel['distance']:4.1f}m" if rel else "no gate"
             print(
                 f"phase1[{regime}] xtrack={self.data.get('traj_xtrack', 0.0):4.1f}m "

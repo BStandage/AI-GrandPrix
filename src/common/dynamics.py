@@ -81,6 +81,20 @@ def thrust_for_climb(climb):
     return HOVER_THRUST
 
 
+def climb_rate_for_thrust(thr):
+    """Steady level climb rate (m/s, up+) for a collective; interpolates THRUST_CLIMB_TABLE."""
+    pts = THRUST_CLIMB_TABLE
+    thr = float(thr)
+    if thr <= pts[0][0]:
+        return pts[0][1]
+    if thr >= pts[-1][0]:
+        return pts[-1][1]
+    for (t0, c0), (t1, c1) in zip(pts, pts[1:]):
+        if t0 <= thr <= t1:
+            return c0 + (c1 - c0) * (thr - t0) / max(t1 - t0, 1e-9)
+    return 0.0
+
+
 def lean_for_speed(v):
     """Forward lean (rad) that holds a given steady forward speed (m/s). Inverts SPEED_LEAN_TABLE."""
     pts = SPEED_LEAN_TABLE
@@ -138,6 +152,32 @@ def send_attitude_setpoint(mavlink_conn, system_boot_ms, roll, pitch, yaw, thrus
         mask,
         _euler_to_quat(roll, pitch, yaw),
         0.0, 0.0, 0.0,   # body rates ignored
+        thrust,
+    )
+
+
+def send_attitude_rp_yawrate(mavlink_conn, system_boot_ms, roll, pitch, yaw_rate,
+                             thrust, yaw_att=None):
+    """Hold roll/pitch by absolute attitude; yaw by body rate.
+
+    yaw_att: absolute yaw placed in the quaternion. REQUIRED for this sim —
+    leaving it at 0 commands absolute yaw=0, which from spawn π is a ~90° left
+    yank (fair flights 221320/221415). Pass the hold heading explicitly.
+    """
+    if yaw_att is None:
+        raise TypeError(
+            "send_attitude_rp_yawrate requires yaw_att=... (absolute yaw in the "
+            "quat). Defaulting to 0.0 yaws the airframe toward 0.")
+    now_ms = int(time.time() * 1000)
+    mask = (mavutil.mavlink.ATTITUDE_TARGET_TYPEMASK_BODY_ROLL_RATE_IGNORE
+            | mavutil.mavlink.ATTITUDE_TARGET_TYPEMASK_BODY_PITCH_RATE_IGNORE)
+    mavlink_conn.mav.set_attitude_target_send(
+        now_ms - system_boot_ms,
+        mavlink_conn.target_system,
+        mavlink_conn.target_component,
+        mask,
+        _euler_to_quat(roll, pitch, float(yaw_att)),
+        0.0, 0.0, float(yaw_rate),
         thrust,
     )
 

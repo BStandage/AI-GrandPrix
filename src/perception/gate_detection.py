@@ -42,6 +42,8 @@ class GateDetection:
     area_frac: float = 0.0             # area as a fraction of the frame
     has_opening: bool = False          # true if the actual hole-to-fly-through was located
     bbox: Optional[Tuple] = None       # (x, y, w, h) of the aim target (opening, else ring)
+    ring_bbox: Optional[Tuple] = None  # outer orange ring box (stable; offsets use its center)
+    opening_bbox: Optional[Tuple] = None  # hole-to-fly-through box (None if not found)
     center: Optional[Tuple] = None     # (cx, cy) pixel center of the aim target
     corners: Optional[np.ndarray] = None   # ordered ring corners (TL,TR,BR,BL) for solvePnP
     gate_id: Optional[int] = None      # ground-truth id, when a synthetic source knows it (sim only)
@@ -95,15 +97,19 @@ def mask_to_detections(mask, img_shape, min_area_frac=MIN_GATE_AREA_FRAC):
         hcs, _ = cv2.findContours(hole, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         big = max(hcs, key=cv2.contourArea, default=None)
 
+        ring_bbox = (rx, ry, rw, rh)
         if big is not None and cv2.contourArea(big) > 0.10 * ring_area:
-            x, y, bw, bh = cv2.boundingRect(big)   # aim at the opening
+            opening_bbox = cv2.boundingRect(big)   # hole to fly through
             has_opening = True
+            x, y, bw, bh = opening_bbox
         else:
-            x, y, bw, bh = rx, ry, rw, rh           # fallback: whole ring
+            opening_bbox = None
             has_opening = False
+            x, y, bw, bh = ring_bbox
 
-        # aim at the OUTER RING center. The ring's bounding box is geometrically stable even at an
-        # angle or partly occluded, whereas the inner hole bbox distorts and drifts in those views.
+        # Flight offsets aim at the OUTER RING center (stable under angle/occlusion).
+        # Map elevation must use opening_bbox when present — ring vs opening is ~1 m
+        # vertically (atan(1/3)≈18°) and that was the false "+17° tilt" on z.
         cx, cy = rx + rw / 2.0, ry + rh / 2.0
         dets.append(GateDetection(
             offset_x=(cx - w / 2.0) / (w / 2.0),
@@ -115,6 +121,8 @@ def mask_to_detections(mask, img_shape, min_area_frac=MIN_GATE_AREA_FRAC):
             area_frac=ring_area / float(h * w),
             has_opening=has_opening,
             bbox=(x, y, bw, bh),
+            ring_bbox=ring_bbox,
+            opening_bbox=opening_bbox,
             center=(cx, cy),
             corners=ring_corners(c),
         ))
