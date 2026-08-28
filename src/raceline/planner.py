@@ -112,6 +112,21 @@ def build_anchors(course, cfg: VehicleConfig):
         # this entry anchor are closer than the base standoff they fight each
         # other and the spline S-wiggles - merge them into their midpoint.
         # The stacked pair is unaffected (its post/pre are 2.7 m apart in z).
+        # Reversal junction: the incoming leg otherwise crosses this gate's
+        # PLANE just outside the opening - through the frame post (measured:
+        # the g7 hairpin clipped the post at every standoff length). Route it
+        # around the OUTER frame: a clearance anchor on the arrival side,
+        # 1.2 m beyond the frame edge, slightly before the gate plane.
+        # Fully derived from geometry; works at any reversal on any course.
+        if k > 0 and pre_d[k] > p.anchor_standoff_m:
+            bar = np.array([-math.sin(c.heading_rad),
+                            math.cos(c.heading_rad), 0.0])
+            side = math.copysign(1.0, float(np.dot(bar, anchors[-1] - ctr)))
+            clr = (ctr + bar * side * (2.7 / 2.0 + 1.2) - n * 0.5
+                   + np.array([0.0, 0.0, 0.0]))
+            clr[2] = anchors[-1][2]
+            if np.linalg.norm(clr - anchors[-1]) > _DEDUP_M:
+                anchors.append(clr)
         gap = float(np.linalg.norm(pre - anchors[-1]))
         if k > 0 and gap < p.anchor_standoff_m:
             anchors[-1] = 0.5 * (anchors[-1] + pre)
@@ -373,11 +388,25 @@ def plan(cfg: VehicleConfig, course=None) -> Plan:
         "laps": course.laps,
         "crossings_per_lap": len(course.crossings),
         "path_length_m": round(float(sg[-1]), 2),
+        "frame_violations": frame_violations(P, course),
     }
     return Plan(s=sg, pos=P, vel=vel, acc=acc, t=t, v=v, v_lim=v_lim,
                 tangent=T, kappa=kappa, dpsi_ds=dpsi_ds,
                 dkappa_ds=dkappa_ds, binding=binding, events=events,
                 meta=meta)
+
+
+def frame_violations(P: np.ndarray, course) -> int:
+    """Samples of the path that touch any gate's physical frame (the sim
+    referee now crashes the run on contact; a plan must be contact-clean)."""
+    pq = course_bridge.pq_course()
+    n = 0
+    for pos in P:
+        for g in course.gates:
+            if pq.gate_frame_hit(g, pos):
+                n += 1
+                break
+    return n
 
 
 # ---------------------------------------------------------------------------
@@ -442,6 +471,8 @@ def report(p: Plan, baseline_s: Optional[float] = 225.3) -> str:
     imin = idx[np.argmin(p.v[idx])]
     s_min, v_min = float(p.s[imin]), float(p.v[imin])
     near = min(p.events, key=lambda e: abs(e["s"] - s_min))
+    lines.append(f"CHECK frame contacts: {p.meta.get('frame_violations', '?')} samples "
+                 "(MUST be 0 - the referee crashes the run on contact)")
     lines.append(f"CHECK speed-profile minimum: {v_min:.2f} m/s at "
                  f"s={s_min:.1f} m (nearest event: {near['label']}, "
                  f"{s_min - near['s']:+.1f} m along-path)")

@@ -101,7 +101,9 @@ def _race_time(cfg: VehicleConfig, course, offsets,
                                   for i in range(oc.total_events))])
     *_, t, _, _ = planner._speed_profile(P, sg, cfg, centers)
     s_last = float(s_dense[adi[center_idx[-1]]])
-    return float(np.interp(s_last, sg, t))
+    # a frame contact crashes the real run: price it far above any time gain
+    return (float(np.interp(s_last, sg, t))
+            + 50.0 * planner.frame_violations(P, oc))
 
 
 def optimize(cfg: VehicleConfig, course=None, maxfev: int = _MAXFEV,
@@ -219,10 +221,12 @@ def _race_time_free(cfg, course, offsets, free_pts, dense_ds):
                         for e in (oc.event(i)
                                   for i in range(oc.total_events))])
     *_, t, _, _ = planner._speed_profile(P, sg, cfg, centers)
-    return float(np.interp(float(s_dense[adi[center_idx[-1]]]), sg, t))
+    return (float(np.interp(float(s_dense[adi[center_idx[-1]]]), sg, t))
+            + 50.0 * planner.frame_violations(P, oc))
 
 
-def optimize_free(cfg, course=None, rounds: int = 2, verbose: bool = True):
+def optimize_free(cfg, course=None, rounds: int = 2, verbose: bool = True,
+                  seed_noise=None):
     """Two-block coordinate descent: apex offsets globally (Powell), then a
     per-leg sweep moving each free point (3 vars each, Powell), repeated.
     Free points let the line invent loops, spirals, and wide entries the
@@ -236,6 +240,11 @@ def optimize_free(cfg, course=None, rounds: int = 2, verbose: bool = True):
 
     u = np.zeros(n)
     fp = _leg_midpoints(course, cfg, u)
+    if seed_noise is not None:
+        rng, spread = seed_noise
+        if spread > 0:
+            fp = fp + rng.normal(0.0, spread, fp.shape)
+            fp[:, 2] = np.clip(fp[:, 2], 0.9, 5.5)
     best = _race_time_free(cfg, course, u, fp, _OPT_DENSE_DS)
     if verbose:
         print(f"OPT2  start {best:.2f} s (free-point line, coarse)")
@@ -322,11 +331,37 @@ def _plan_from_anchors(cfg, course, offsets, anchors):
         "params": cfg.raw, "laps": course.laps,
         "crossings_per_lap": len(course.crossings),
         "path_length_m": round(total, 2),
+        "frame_violations": planner.frame_violations(P, oc),
     }
     return planner.Plan(s=sg, pos=P, vel=vel, acc=acc, t=t, v=v,
                         v_lim=v_lim, tangent=T, kappa=kappa,
                         dpsi_ds=dpsi_ds, dkappa_ds=dkappa_ds,
                         binding=binding, events=events, meta=meta)
+
+
+def optimize_multistart(cfg, course=None, starts: int = 6, rounds: int = 2,
+                        spread_m: float = 2.0):
+    """Force the search out of its local minimum: run optimize_free from
+    `starts` randomized free-point seeds (midpoints + noise), keep the best
+    VALIDATED result. Deterministic per seed index, embarrassingly simple.
+    """
+    if course is None:
+        course = course_bridge.load_course(laps=cfg.planner.laps)
+    best = None
+    for k in range(starts):
+        rng = np.random.default_rng(1000 + k)
+        try:
+            u, fp, plan = optimize_free(cfg, course, rounds=rounds,
+                                        verbose=False,
+                                        seed_noise=(rng, spread_m if k else 0.0))
+            t = plan.events[-1]["t"]
+            print(f"START {k}: {t:.2f} s "
+                  f"(contacts {plan.meta['frame_violations']})")
+            if best is None or t < best[2].events[-1]["t"]:
+                best = (u, fp, plan)
+        except RuntimeError as e:
+            print(f"START {k}: rejected ({e})")
+    return best
 
 
 def main(argv=None):

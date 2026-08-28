@@ -50,14 +50,14 @@ a_accel_max      = 4.0   # thrust-backed (TWR ~3 measured)
 a_brake_max      = 5.0
 
 [planner]
-laps = 2                  # per run; official PQ scoring is 2, lower for quick tests
+laps = 1                  # dev iteration: one lap is the same information in half
 anchor_standoff_m      = 2.0   # pre/post anchor along each crossing normal
 anchor_standoff_turn_m = 3.5   # larger standoff on BOTH sides of a junction
 turn_angle_deg         = 100.0 # whose consecutive crossing headings differ by
                                # more than this (global rule - decouples the
                                # g10 U-turn radius from gate approach alignment)
 sample_ds_m   = 0.25           # uniform arc-length resolution of the plan
-a_lat_margin  = 0.8            # fraction of g*tan(max_tilt) the plan may use
+a_lat_margin  = 0.7            # 0.8 left no transient reserve: braking balloons hit frames
 takeoff_alt_m = 1.35           # first anchor above the spawn point
 v_floor_mps   = 0.3            # numerical floor for the profile/timestamps
 

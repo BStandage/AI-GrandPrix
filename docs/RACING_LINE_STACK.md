@@ -111,3 +111,6 @@ Sim-only conveniences that do NOT carry: ground truth (obviously),
 determinism (one survey flight, then it has to work - RESTRICTIONS.md),
 and lockstep timing (the real loop is free-running; command-rate limits
 come from the FC link).
+
+Optimizer evolution (multi-start, topology enumeration, full optimal
+control): `docs/OPTIMIZER_ROADMAP.md`.

@@ -45,6 +45,17 @@ def resolve_path(pathstr):
 
 def make_plan(cfg, out_path=None):
     p = planner_mod.plan(cfg)
+    if p.meta.get("frame_violations", 0):
+        # a plan that touches gate frames crashes the run (referee rule) -
+        # repair it through the optimizer, which prices contacts at 50 s each
+        print(f"PLAN  {p.meta['frame_violations']} frame-contact samples - "
+              "repairing via the line optimizer")
+        from raceline import line_opt
+        _, p = line_opt.optimize(cfg, maxfev=2500, verbose=True)
+        if p.meta.get("frame_violations", 0):
+            print("ERROR plan still touches a gate frame after repair - "
+                  "not flying it")
+            raise SystemExit(4)
     print(planner_mod.report(p, baseline_s=BASELINE_S))
     out = Path(out_path) if out_path else planner_mod.next_numbered(
         str(REPO / "out" / "plans" / "plan_XXX.json"))
@@ -104,12 +115,10 @@ def _run_sim_once(cmd, sim_repo, env, deadline) -> int:
             m = _re.search(r"\((\d+) responses", line)
             warmed = bool(m and int(m.group(1)) >= 50)
         if "cannot achieve real-time" in line and "99." in line:
-            stalled += 1
-            if not warmed and stalled > 20:
-                proc.kill()
+            stalled += 1          # TOTAL count: status lines interleave with
+            if not warmed and stalled > 20:   # stall lines, so a consecutive
+                proc.kill()                   # counter never fired (measured)
                 return 9          # bridge never answered: retryable
-        else:
-            stalled = 0
         if time.time() - t0 > deadline:
             print(f"\nSIM   note: killed after {deadline:.0f} s deadline "
                   "(results are on disk)")
@@ -126,6 +135,9 @@ def newest_result(sim_repo: Path, known: set) -> Path | None:
 def print_report(rec: dict, plan_events):
     total = rec.get("total_time_s")
     n, ntot = rec["gates_passed"], rec["events_total"]
+    for c in rec.get("gate_contacts", []):
+        print(f"\nCRASH hit {c['gate']} frame at t={c['t']:.2f} s "
+              f"pos={c['pos']} - RUN INVALID")
     if rec["complete"]:
         delta = total - BASELINE_S
         print(f"\nRACE  {n}/{ntot} COMPLETE   total {total:.2f} s  "

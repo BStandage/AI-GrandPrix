@@ -37,6 +37,7 @@ _SCHEMA = {
                 "v_floor_mps": float},
     "optimizer": {"apex_max_m": float},
     "follower": {"kp_pos": float, "kd_pos": float, "lookahead_m": float,
+                 "lookahead_t": float,
                  "ka_att": float, "stick_clamp": int,
                  "kp_z": float, "kd_z": float, "ki_z": float,
                  "kyaw": float, "yaw_clamp": int, "yaw_lookahead_m": float,
