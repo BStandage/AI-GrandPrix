@@ -62,7 +62,7 @@ def make_plan(cfg, out_path=None):
 def run_sim(sim_repo: Path, plan_path: Path, cfg, sim_time_s: float) -> int:
     env = dict(os.environ)
     env.update(
-        RACE_SOLVER="raceline.follower",
+        RACE_SOLVER="solvers.follower",
         AIGP_TRAJ=str(plan_path.resolve()),
         AIGP_VEHICLE_TOML=str(cfg.path.resolve()),
         AIGP_SIM_TIME=f"{sim_time_s:.0f}",
@@ -70,8 +70,19 @@ def run_sim(sim_repo: Path, plan_path: Path, cfg, sim_time_s: float) -> int:
     cmd = ["uv", "run", "elodin", "run", "sim/main.py"]
     print(f"\nSIM   {' '.join(cmd)}  (cwd={sim_repo}, "
           f"sim_time={sim_time_s:.0f} s, ~0.8x realtime)")
-    proc = subprocess.run(cmd, cwd=sim_repo, env=env)
-    return proc.returncode
+    # `elodin run` reliably HANGS after "Simulation stopped" on this build;
+    # results are already on disk by then, so a hard deadline is safe.
+    deadline = sim_time_s * 2.0 + 120.0
+    try:
+        proc = subprocess.run(cmd, cwd=sim_repo, env=env, timeout=deadline)
+        rc = proc.returncode
+    except subprocess.TimeoutExpired:
+        print(f"\nSIM   note: killed after {deadline:.0f} s deadline "
+              "(elodin run does not exit on its own; results are on disk)")
+        rc = 0
+    for pat in ("elodin run", "render-server", "betaflight_SITL"):
+        subprocess.run(["pkill", "-f", pat], capture_output=True)
+    return rc
 
 
 def newest_result(sim_repo: Path, known: set) -> Path | None:
@@ -152,12 +163,12 @@ def main():
         if plan_dict.get("config_sha1") != cfg.sha1:
             print("NOTE  plan was built with a different vehicle.toml "
                   f"({plan_dict.get('config_sha1', '?')[:8]} != "
-                  f"{cfg.sha1[:8]}) — follower gains come from the CURRENT "
+                  f"{cfg.sha1[:8]}) - follower gains come from the CURRENT "
                   "config, geometry/speeds from the plan")
         plan_events = plan_dict["events"]
         predicted = plan_dict["predicted"]["total_s"]
         print(f"PLAN  reusing {plan_path} "
-              f"(predicts {predicted:.1f} s — model prediction, unverified)")
+              f"(predicts {predicted:.1f} s - model prediction, unverified)")
     else:
         p, plan_path = make_plan(cfg)
         plan_events = p.events

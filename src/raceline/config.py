@@ -1,4 +1,4 @@
-"""Strict loader for config/vehicle.toml — the stack's single tuning surface.
+"""Strict loader for config/vehicle.toml - the stack's single tuning surface.
 
 Strict both ways: an unknown key (typo) and a missing key both fail loudly,
 so an intern's edit can't silently do nothing. Access is attribute-style:
@@ -60,7 +60,7 @@ class VehicleConfig:
             setattr(self, section, SimpleNamespace(**{k: raw[section][k]
                                                       for k in keys}))
 
-    # Derived quantities — defined ONCE here so planner and follower agree.
+    # Derived quantities - defined ONCE here so planner and follower agree.
     def tilt_rad(self) -> float:
         return math.radians(self.limits.max_tilt_deg)
 

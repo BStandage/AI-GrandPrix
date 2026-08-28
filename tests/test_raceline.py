@@ -1,5 +1,5 @@
 """Racing-line stack: config strictness, planner geometry/limits, and the
-plan-validity oracle — replaying the plan through the sim's RaceTracker."""
+plan-validity oracle - replaying the plan through the sim's RaceTracker."""
 import math
 import os
 import tempfile

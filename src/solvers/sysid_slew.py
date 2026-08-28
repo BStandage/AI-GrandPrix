@@ -6,11 +6,11 @@ amplitudes in both directions, logging state every tick. The analyzer
 turns the log into a recommended `a_lat_rate_max` for vehicle.toml.
 
 Fly it (in the sim):
-    RACE_SOLVER=raceline.sysid_slew AIGP_SIM_TIME=80 \
+    RACE_SOLVER=solvers.sysid_slew AIGP_SIM_TIME=80 \
         uv run elodin run sim/main.py
 
 Analyze:
-    python -m raceline.sysid_slew --analyze out/sysid/slew_000.csv
+    python -m solvers.sysid_slew --analyze out/sysid/slew_000.csv
 
 Three amplitudes matter: slew is amplitude-dependent (stick clamps, rate
 limits, prop spin-up), and day 1 gives no second chances to discover that.
@@ -79,7 +79,7 @@ def print_analysis(res: dict) -> None:
               f"{r['rate_peak']:9.1f}")
     print(f"recommended a_lat_rate_max = {res['recommended_a_lat_rate_max']:.1f}"
           f"  ({res['margin']:.0%} of the slowest full-amplitude step)")
-    print("(measured on THIS plant/config only — sim numbers do not "
+    print("(measured on THIS plant/config only - sim numbers do not "
           "transfer to hardware)")
 
 
@@ -90,7 +90,10 @@ def print_analysis(res: dict) -> None:
 T_DISARMED_END = 0.50
 T_ARM_IDLE_END = 0.75
 HOVER = np.array([0.0, 0.0, 1.5])
-STEP_S = 1.2          # step hold
+STEP_S = 0.6          # step hold - SHORT on purpose: the real training
+                      # cage is 5 x 5 m, so day 1 only allows short-burst
+                      # steps; the rehearsal flies the same protocol. The
+                      # slew peak lands in the first ~0.2 s regardless.
 RECOVER_S = 5.0       # max recover time between steps
 AMP_FRACS = (1 / 3, 2 / 3, 1.0)
 
@@ -180,7 +183,10 @@ def autopilot(update):
         roll, pitch, _ = attitude_sticks(cfg, est, a_cmd)
         yaw_stick = _state["yaw"].stick(est, _state["yaw0"])
 
-    _rows.append(f"{t:.4f},{_state['phase']},{a_cmd[1]:.3f},"
+    # log with the phase that PRODUCED this command (a transition this tick
+    # already renamed _state['phase'] - using it here shifted every step's
+    # boundary row, found in the first sim rehearsal)
+    _rows.append(f"{t:.4f},{phase},{a_cmd[1]:.3f},"
                  f"{est.p[0]:.4f},{est.p[1]:.4f},{est.p[2]:.4f},"
                  f"{est.v[0]:.4f},{est.v[1]:.4f},{est.v[2]:.4f}\n")
     return RCCommand(arm=1800, throttle=throttle, roll=roll, pitch=pitch,

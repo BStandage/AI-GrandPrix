@@ -1,5 +1,5 @@
 """Speed-colored plan render: top-down course + path colored by planned
-speed, plus the v(s) profile with its pointwise ceiling. Eyeball tool only —
+speed, plus the v(s) profile with its pointwise ceiling. Eyeball tool only -
 the planner never depends on it.
 """
 
@@ -70,7 +70,7 @@ def render(p, out_path, course=None):
     ax.set_aspect("equal")
     ax.autoscale()
     ax.margins(0.05)
-    ax.set_title(f"racing-line plan — {p.meta['path_length_m']:.0f} m, "
+    ax.set_title(f"racing-line plan - {p.meta['path_length_m']:.0f} m, "
                  f"predicts {p.total_s:.1f} s (model prediction, unverified)")
     ax.set_xlabel("x (m)")
     ax.set_ylabel("y (m)")
