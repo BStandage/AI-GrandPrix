@@ -1,0 +1,73 @@
+# config/vehicle.toml — THE tuning surface for the racing-line stack.
+#
+# Planner (raceline.planner) and follower (raceline.follower) read ONLY this
+# file. No vehicle number is hardcoded anywhere else. Every parameter is
+# GLOBAL: there is no way to express a per-gate value here, by design
+# (RESTRICTIONS.md).
+#
+# Seeds: hover_pwm is measured on the elodin SITL plant; everything else is a
+# conservative starting point for the first 24/24 confirmation flight. Tune by
+# editing this file and re-running race.py — nothing else.
+
+[meta]
+name    = "elodin-sitl-quad"        # becomes "neros-..." when day-1 sysid lands
+updated = "2026-08-28"
+
+[vehicle]                 # physical truth — sysid replaces this section wholesale
+mass_kg   = 0.9           # seeded from sim/config.py
+drag_lin  = 0.0           # N per (m/s) — unmeasured, 0 until a sim sweep exists
+drag_quad = 0.0           # N per (m/s)^2
+
+[thrust]
+hover_pwm = 1240          # measured steady-state hover RC on the SITL plant
+pwm_min   = 1000
+pwm_max   = 1600
+# Thrust curve, pwm -> vertical accel (m/s^2). PLACEHOLDER 3-point
+# linearization around hover; replace with the FAQ thrust/accel data or a
+# measured sweep. Not consumed by the v1 planner (it uses the a_accel/a_brake
+# scalars below) — the slot exists for exactly that swap.
+curve_pwm = [1100, 1240, 1450]
+curve_acc = [ 6.5,  9.81, 14.0]
+
+[limits]                  # ceilings shared by planner AND follower
+max_tilt_deg     = 22.0   # lateral accel budget = g*tan(this)
+max_yaw_rate_rps = 1.0    # nose-follows-tangent ceiling; enters v_lim directly.
+                          # Must stay consistent with follower.yaw_clamp
+                          # (~0.31 rad/s per 60 PWM measured => 200 PWM ~ 1.0)
+a_lat_rate_max   = 25.0   # m/s^3 — attitude-slew ceiling: how fast lateral
+                          # accel can CHANGE (v <= (rate/|dkappa/ds|)^(1/3)).
+                          # The binding constraint on heavy low-pitch builds;
+                          # pin with a roll/pitch step-response measurement.
+v_max_mps        = 6.0    # global straight-line cap
+v_gate_mps       = 3.0    # cap within gate_window_m of ANY crossing center —
+gate_window_m    = 2.0    # one uniform rule, never special-cased per gate
+vz_up_max        = 2.5    # m/s climb cap (planner slope limit)
+vz_down_max      = 2.0    # m/s descent cap
+a_accel_max      = 3.0    # longitudinal accel budget (v1 scalar; later derived
+a_brake_max      = 3.5    # from the thrust curve)
+
+[planner]
+anchor_standoff_m      = 2.0   # pre/post anchor along each crossing normal
+anchor_standoff_turn_m = 3.5   # larger standoff on BOTH sides of a junction
+turn_angle_deg         = 100.0 # whose consecutive crossing headings differ by
+                               # more than this (global rule — decouples the
+                               # g10 U-turn radius from gate approach alignment)
+sample_ds_m   = 0.25           # uniform arc-length resolution of the plan
+a_lat_margin  = 0.8            # fraction of g*tan(max_tilt) the plan may use
+takeoff_alt_m = 1.35           # first anchor above the spawn point
+v_floor_mps   = 0.3            # numerical floor for the profile/timestamps
+
+[follower]
+kp_pos      = 1.2       # position error -> accel
+kd_pos      = 2.1       # velocity error (vs plan) -> accel
+lookahead_m = 3.5       # arc-length carrot distance
+ka_att      = 120.0     # tilt-vector error (rad) -> stick PWM (proven loop)
+stick_clamp = 45        # roll/pitch stick authority around 1500 (proven)
+kp_z        = 140.0     # altitude loop (proven), plus plan vz feedforward
+kd_z        = 45.0
+ki_z        = 8.0
+kyaw        = 200.0     # yaw error (rad) -> stick PWM
+yaw_clamp   = 200       # ~1.0 rad/s at the measured 0.31 rad/s per 60 PWM
+yaw_lookahead_m = 3.0   # aim the nose at the tangent this far ahead
+takeoff_pwm = 1330
+min_alt_translation_m = 1.0

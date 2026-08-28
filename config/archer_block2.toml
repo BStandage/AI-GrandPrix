@@ -1,0 +1,85 @@
+# config/archer_block2.toml — the SEPTEMBER drone (8" Archer Block 2).
+#
+# EVERY NUMBER MARKED "ESTIMATE" IS AN INITIALIZATION, NOT TRUTH — wide
+# bands, from prop/motor-class reasoning (2026-08-28 analysis). Replace with
+# day-1 measurements in this priority order:
+#   1. All-up weight + hover throttle (scale + one hover) -> mass_kg,
+#      hover_pwm, the thrust curve's anchor point.
+#   2. Roll/pitch full-stick step response -> a_lat_rate_max (attitude slew
+#      is THE binding constraint on this heavy, low-pitch build; 8x4.1 is
+#      pitch ratio 0.51 = efficiency prop, not a racing prop).
+#   3. Betaflight CLI `diff all` -> rates, PIDs, filters, angle limit.
+#      SAVE THE STOCK DIFF before any retune.
+#   4. Throttle sweep in the training cage -> curve_pwm/curve_acc
+#      (thrust ~ RPM^2 — expect convex, not linear).
+# Items 2 and 4 need no course: do them in the training cage.
+#
+# Background: Block 2 is modular (5"/8"/10" configs) — there is no published
+# spec for "the race unit"; motors/ESCs/battery/AUW are TBD from Neros.
+# TWR plausibly 3:1-4.5:1 (long-range band, not 8:1+ racing band): tilt
+# authority is cheap (45 deg needs only 1.41x hover), ROTATION is slow.
+
+[meta]
+name    = "archer-block2-8in-ESTIMATES"
+updated = "2026-08-28"
+
+[vehicle]
+mass_kg   = 2.2     # ESTIMATE: 8" Archer + Orin NX + carrier + camera + 6S
+                    # pack; range 2.0-2.5. MEASURE day 1 (scale).
+drag_lin  = 0.0     # unknown; fit from cage flights
+drag_quad = 0.0
+
+[thrust]
+hover_pwm = 1450    # ESTIMATE ONLY (~28% of max thrust at TWR ~3.6, but the
+                    # PWM->thrust mapping is unknown). MEASURE day 1 — will be
+                    # much higher than a 5" racer's stick position.
+pwm_min   = 1000
+pwm_max   = 2000
+# ESTIMATE from 8" prop on 2806.5-class @ 6S, ~2000 g static thrust/motor.
+# thrust ~ RPM^2, so the curve is convex — 3 points is the floor, sweep more.
+curve_pwm = [1150, 1450, 1800]
+curve_acc = [ 5.0,  9.81, 30.0]
+
+[limits]
+max_tilt_deg     = 40.0  # thrust supports it easily at TWR ~3.5; NOT the
+                         # binding constraint on this airframe
+max_yaw_rate_rps = 1.0   # unknown; conservative
+a_lat_rate_max   = 8.0   # ESTIMATE, WIDE BAND — THE number that matters.
+                         # Unloaded 8" slew math suggests 30-50 m/s^3; after
+                         # BF filtering, PID limits, and prop spin-up lag,
+                         # 4-6x lower is plausible. 8 = deliberately
+                         # conservative for a first flight. Any "profile
+                         # ruled by accel-slew" finding from THIS number is
+                         # a finding about the guess, not the aircraft.
+                         # Pin with measurement #2 above.
+v_max_mps        = 8.0   # pitch speed ~25 m/s available; course never needs it
+v_gate_mps       = 3.0
+gate_window_m    = 2.0
+vz_up_max        = 2.5
+vz_down_max      = 2.0
+a_accel_max      = 4.0   # ESTIMATE; thrust curve will refine
+a_brake_max      = 4.0
+
+[planner]
+anchor_standoff_m      = 2.0
+anchor_standoff_turn_m = 3.5
+turn_angle_deg         = 100.0
+sample_ds_m   = 0.25
+a_lat_margin  = 0.8
+takeoff_alt_m = 1.35
+v_floor_mps   = 0.3
+
+[follower]              # SIM-TUNED gains — placeholders for hardware. The
+kp_pos      = 1.2       # real-drone control stack reuses the Tracker; the
+kd_pos      = 2.1       # RC backend + these gains get retuned on the real
+lookahead_m = 3.5       # plant (cage first).
+ka_att      = 120.0
+stick_clamp = 45
+kp_z        = 140.0
+kd_z        = 45.0
+ki_z        = 8.0
+kyaw        = 200.0
+yaw_clamp   = 200
+yaw_lookahead_m = 3.0
+takeoff_pwm = 1550      # ESTIMATE: just above estimated hover
+min_alt_translation_m = 1.0
