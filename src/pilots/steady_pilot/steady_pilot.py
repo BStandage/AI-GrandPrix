@@ -35,13 +35,40 @@ from common.dynamics import (CONTROL_HZ, MAX_THRUST, MIN_THRUST, clamp,
 from common.paths import DATASETS_DIR
 from pilots.steady_pilot.config import *   # STEADY_* params
 
+# ---- SURVEY MODE (mapping flights only; STEADY_SURVEY=1) -------------------
+# Hold + pulses for the mapper. Tracking thrust = race SERVO with cruise_up=0
+# and oy_bias=0. SEEK after a pass uses vision memory (next_doy / seen2) to
+# descend when the next gate is below the FoV — that is NOT a thrust bias.
+STEADY_SURVEY = os.environ.get("STEADY_SURVEY", "0") == "1"
+STEADY_SURVEY_HOLD_TICKS = int(5.0 * CONTROL_HZ)        # 5 s spawn hold
+STEADY_SURVEY_PULSE_TICKS = int(6.0 * CONTROL_HZ)       # doublet every 6 s
+_SURVEY_BRAKE_TICKS = int(0.5 * CONTROL_HZ)
+_SURVEY_SURGE_TICKS = int(1.0 * CONTROL_HZ)
+STEADY_SURVEY_SEEK_WINDOW_X = 3.0
+# Post-pass altitude from remembered next_doy. Enough to put the next gate in
+# the FoV — NOT a floor dump (run 174950: DOY_M=10 → −8.5 then climbed into
+# the top of g2). Blind drop must not dig past the bake.
+STEADY_SURVEY_DOY_M = 7.0
+STEADY_SURVEY_MAX_DROP = 5.5
+STEADY_SURVEY_DIVE = 1.0             # m/s when memory says LOWER
+STEADY_SURVEY_SEEK_SINK = 0.7        # m/s blind progressive drop
+STEADY_SURVEY_SEEK_GRACE_S = 1.0
+STEADY_SURVEY_SEEK_DROP_RATE = 1.0   # m of search-alt per blind second
+STEADY_SURVEY_SEEK_DROP_MAX = 8.0
+print(f"[steady] SURVEY MODE {'ON — zero-oy track + memory SEEK + pulses' if STEADY_SURVEY else 'off (race pilot)'}",
+      flush=True)
+
 
 _DBG_W = _DBG_F = None
 _DBG_N = 0
 # EVERY control tick (~90 Hz): what was measured, what the law decided, what was sent.
 _DBG_HDR = ["t", "frame", "fresh", "gates_passed", "n_dets", "area", "aim_ox", "aim_oy", "oy_tgt",
             "yaw_deg", "pitch_deg", "roll_cmd_deg", "ox_rate", "commit", "stale", "vz_est", "alt_est",
-            "roll_meas_deg", "pitch_meas_deg", "trim", "thr", "next_head_deg", "seek_dir", "next_doy"]
+            "roll_meas_deg", "pitch_meas_deg", "trim", "thr", "next_head_deg", "seek_dir", "next_doy",
+            # mapper columns (Stage 0, restored 2026-08-14 after a session
+            # collision reverted them — gate_graph REQUIRES these):
+            "sim_time_ns", "has_opening", "raw_ox", "raw_oy", "distance_m",
+            "yaw_meas_deg", "droll_deg", "dpitch_deg", "race_gate", "lookaround"]
 
 
 def _dbg_log(row):
@@ -88,6 +115,14 @@ def _imu_attitude(data):
                 pitch = a * pitch_g + (1 - a) * pitch_a
             else:
                 roll, pitch = roll_g, pitch_g
+            # measured yaw: integrated zgyro, seeded at spawn facing.
+            # SIGN IS EMPIRICAL, NOT THEORETICAL: run 175259 proved -zgyro
+            # anti-correlates with commanded yaw (sim tracks cmd at gain 1),
+            # which mirrored the whole map. +zgyro matches the command.
+            # LOGGING ONLY — gate_graph/ImuTraverse read yaw_meas_deg (and
+            # self-check the sign against yaw_deg as belt-and-braces).
+            data["_sp_yaw_meas"] = data.get("_sp_yaw_meas", STEADY_YAW_SPAWN) \
+                + imu.get("zgyro", 0.0) * dt
     data["_sp_est_roll"], data["_sp_est_pitch"], data["_sp_att_us"] = roll, pitch, t_us
     return roll, pitch
 
@@ -139,6 +174,11 @@ def _seconds_to_go(data):
     return (start - now) / 1000.0
 
 
+def _ang_err(target, current):
+    """Shortest signed angle error target-current in (-pi, pi]."""
+    return (target - current + math.pi) % (2.0 * math.pi) - math.pi
+
+
 def _reset(data):
     data["_sp_off"] = (0.0, 0.0)
     data["_sp_off_smooth"] = None
@@ -173,9 +213,11 @@ def _reset(data):
     data["_sp_next_area_mem"] = 0.0    # its size when sighted
     data["_sp_next_us"] = None
     data["_sp_next_area"] = 0.0        # decaying area bar - biggest credible sighting wins
+    data["_sp_mem_armed"] = False      # after a pass until we lock the remembered next gate
     data["_sp_pass_us"] = None         # when the last pass counted (starts the SEEK window)
     data["_sp_pass_head"] = 0.0
     data["_sp_pass_alt"] = 0.0         # alt_est when the last pass counted (= the gate line)
+    data["_sp_seek_alt"] = None        # baked at pass from next_doy — survives junk reacquire wipe
     data["_sp_seek_dir"] = 1.0         # which way SEEK rotates (signed; from the memory)
     data["_sp_lock_frames"] = 0        # consecutive frames on the SAME lock (maturity gate)
     data["_sp_slew_us"] = None
@@ -211,6 +253,34 @@ def _acquire(cands):
     range have one; the station-sign decoys never do (one stole two whole flights)."""
     op = [d for d in cands if d.has_opening]
     return max(op or cands, key=lambda d: d.area)
+
+
+def _bearing_err_to_mem(d, data):
+    """Absolute heading error between a detection and remembered next_head."""
+    nh = data.get("_sp_next_head")
+    if nh is None:
+        return None
+    head = data.get("_sp_heading", 0.0)
+    b = head - math.atan(d.offset_x * HALF_TAN_X)
+    return abs(_ang_err(nh, b))
+
+
+def _acquire_postpass(cands, data):
+    """Post-pass acquire: prefer memory cone, FAIL-OPEN to biggest.
+
+    Memory steers SEEK yaw; it must NOT veto locks. Cone-veto regressions
+    (220147/135943): g1 always in view, acquire returned None → SEEK forever
+    → land. Prefer cone when it has anyone; otherwise lock something.
+    """
+    if not cands:
+        return None
+    nh = data.get("_sp_next_head")
+    if nh is not None:
+        near = [d for d in cands
+                if (_bearing_err_to_mem(d, data) or 99.0) <= STEADY_SEEK_CONE]
+        if near:
+            return _acquire(near)
+    return _acquire(cands)
 
 
 def _select_target(gates, data):
@@ -257,26 +327,21 @@ def _select_target(gates, data):
     prev = data.get("_sp_track_off")
     if prev is None:
         data["_sp_track_miss"] = 0
-        cands = _sane(usable() or gates)   # never go blind on a frozen bearing - fall back to ALL
+        cands = _sane(usable() or gates)
         if not cands:
             return None
-        # Acquisition is FAIL-OPEN: always lock the best available candidate (biggest, preferring a
-        # located opening). The memory-consistent refusal layer (bearing cone + sighting checks) was
-        # REMOVED after three rounds of regressions: when its remembered inputs were even slightly
-        # off it refused to lock ANYTHING - flying blind past gate 2 - which is strictly worse than
-        # occasionally locking the wrong gate. The seek memory still steers the SWEEP direction;
-        # it no longer gets veto power over locks.
-        return _acquire(cands)
+        return _acquire_postpass(cands, data) if in_pp else _acquire(cands)
     px, py = prev
     cands = usable() or gates
     g = min(cands, key=lambda d: (d.offset_x - px) ** 2 + (d.offset_y - py) ** 2)
     if math.hypot(g.offset_x - px, g.offset_y - py) <= STEADY_TRACK_RADIUS:
         data["_sp_track_miss"] = 0
-        # YOUNG-LOCK PREEMPTION (post-pass window only, fail-open): the corner sweep meets gates in
-        # the wrong order - the far next-next gate enters frame first and gets locked; the TRUE next
-        # gate is ~half its distance, so ~4x bigger the moment the sweep reaches it. A much-bigger
-        # candidate steals the lock; nothing is ever refused.
         if in_pp:
+            # Dump only a true far speck (214731 area~0.003); never veto a real gate.
+            if g.area_frac < STEADY_POSTPASS_MIN_LOCK:
+                data["_sp_track_off"] = None
+                data["_sp_off_smooth"] = None
+                return _acquire_postpass(_sane(cands), data)
             best = _acquire(_sane(cands))
             if best is not g and best.area_frac >= STEADY_PREEMPT_RATIO * max(g.area_frac, 1e-6):
                 return best
@@ -285,7 +350,7 @@ def _select_target(gates, data):
     data["_sp_track_miss"] = miss
     if miss >= STEADY_TRACK_MAX_MISS:
         data["_sp_track_miss"] = 0
-        return _acquire(cands)
+        return _acquire_postpass(cands, data) if in_pp else _acquire(cands)
     return None
 
 
@@ -298,6 +363,19 @@ def update_steady_control(mavlink_conn, system_boot_ms, data):
         _idle(mavlink_conn, system_boot_ms, data,
               f"WAIT-GO {t_go:.1f}s" if (t_go and t_go > 0) else "IDLE")
         return
+
+    # SURVEY spawn hold: full bypass — the pilot's pipeline does not run at
+    # all while held, so no state can wind up or stale-track. Setting
+    # _sp_live False makes the pilot's OWN fresh-go init fire at release.
+    if STEADY_SURVEY:
+        hi = data.get("_sp_hold_i", 0) + 1
+        data["_sp_hold_i"] = hi
+        if hi <= STEADY_SURVEY_HOLD_TICKS:
+            data["_sp_live"] = False
+            data["steady_regime"] = "SURVEY-HOLD"
+            send_attitude_setpoint(mavlink_conn, system_boot_ms,
+                                   0.0, 0.0, STEADY_YAW_SPAWN, 0.05)
+            return
 
     if not data.get("_sp_live"):
         _reset(data)
@@ -318,7 +396,34 @@ def update_steady_control(mavlink_conn, system_boot_ms, data):
         if g is None:
             data["_sp_stale"] = data.get("_sp_stale", 0) + 1
         else:
+            # Clear SEEK yaw-memory only after a CONFIRMED lock near the remembered bearing.
+            # Run 142254: first post-pass junk (bearing ≈ pass heading ≈ next_head on a straight
+            # leg) wiped doy=+0.34 before SEEK could descend → blind, level, nothing in frame.
+            # (clear runs after lock_frames update below)
             ax, ay = _aim_offsets(g)
+            data["_sp_det_raw"] = (g.offset_x, g.offset_y,
+                                   int(bool(getattr(g, "has_opening", False))),
+                                   getattr(g, "distance_m", 0.0) or 0.0)
+            if STEADY_SURVEY:
+                # last-seen memory of the TRACKED gate (base pilot has none:
+                # its memory only covers "next gate seen pre-pass"). Bearing,
+                # frame row, altitude, timestamp at every confirmed sighting.
+                _us_seen = (data.get("highres_imu") or {}).get("time_usec")
+                _hd = data.get("_sp_heading", STEADY_YAW_SPAWN)
+                data["_sp_seen"] = (_hd + math.atan(ax * HALF_TAN_X),
+                                    ay, data.get("_sp_alt", 0.0), _us_seen)
+                # AND the best NON-tracked detection = the next gate, visible
+                # through most of the approach (the base bake misses it on
+                # steep legs and SEEK spins blind after the pass)
+                _others = [d for d in gates
+                           if (abs(d.offset_x - g.offset_x)
+                               + abs(d.offset_y - g.offset_y)) > 0.15
+                           and d.area_frac >= 0.003]
+                if _others:
+                    _o = max(_others, key=lambda d: d.area_frac)
+                    data["_sp_seen2"] = (
+                        _hd + math.atan(_o.offset_x * HALF_TAN_X),
+                        _o.offset_y, data.get("_sp_alt", 0.0), _us_seen)
             sm = data.get("_sp_off_smooth")
             hop = sm is None or math.hypot(ax - sm[0], ay - sm[1]) > STEADY_HOP_DIST
             if hop:
@@ -367,44 +472,70 @@ def update_steady_control(mavlink_conn, system_boot_ms, data):
             # acquired right after the pitched-gate pass sprint-climbed the drone to 3 m in half a
             # second before dying, run 115646).
             data["_sp_lock_frames"] = (data.get("_sp_lock_frames", 0) + 1) if (had_lock and not hop) else 1
+            if data.get("_sp_mem_armed") and data["_sp_lock_frames"] >= STEADY_LOCK_CONFIRM:
+                nh = data.get("_sp_next_head")
+                found = nh is None
+                if not found:
+                    b = (data.get("_sp_heading", 0.0)
+                         - math.atan(g.offset_x * HALF_TAN_X))
+                    found = abs(_ang_err(nh, b)) <= STEADY_SEEK_CONE
+                # Receding just-passed gate is still huge and straight ahead — must NOT count as
+                # "found next" (run 143848: area 0.42 wipe of doy/nh right after g1 → late g2 under).
+                # Also require a real-sized lock before clearing memory — a cone speck must
+                # not retire SEEK (215501/215420 sharp-turn deaths).
+                if (found and g.area_frac < STEADY_COMMIT_AREA
+                        and g.area_frac >= STEADY_POSTPASS_MIN_LOCK):
+                    data["_sp_next_head"] = None
+                    data["_sp_next_doy"] = None
+                    data["_sp_next_area_mem"] = 0.0
+                    data["_sp_next_area"] = 0.0
+                    data["_sp_next_us"] = None
+                    data["_sp_mem_armed"] = False
             # NEXT-GATE MEMORY: note the ABSOLUTE heading of the biggest OTHER detection (excluding
             # the just-passed avoid gate). At a sharp corner the next gate leaves the FoV before the
             # pass finishes - this remembered bearing tells SEEK which way to turn, signed, so left
             # and right corners are the same code. offset_x -> angle via atan(ox * HALF_TAN_X);
             # heading frame is CCW-positive, so a target to the RIGHT is a SMALLER heading.
             av = data.get("_sp_avoid_off")
-            others = [d for d in gates if d is not g and d.area_frac >= STEADY_NEXT_MIN_AREA
+            # Same visibility floor as tracking: a next gate often reads 0.002-0.004 while the
+            # tracked one is bigger (run 141745: 96 fresh n=2 frames, others always empty at 0.004).
+            others = [d for d in gates if d is not g and d.area_frac >= STEADY_MIN_AREA
                       and (av is None or math.hypot(d.offset_x - av[0], d.offset_y - av[1]) > STEADY_AVOID_RADIUS)]
-            # BIGGEST credible sighting wins, not the LATEST: the memory holds a decaying area bar
-            # (~4 s window) a new candidate must beat. Run 123753: gate 4 was seen at the frame edge
-            # (area 0.026, LEFT) during the corner handoff, then a 0.007 right-side speck was seen
-            # one frame later and overwrote the memory - SEEK pirouetted ~180 deg the WRONG way.
+            # BIGGEST credible sighting wins, not the LATEST: size bar blocks weak speck flicker
+            # from overwriting a real bearing. Openings bypass the bar so a real next gate can
+            # refresh an early junk lock (run 141745: t=0.3 doy=-0.358 froze until pass, then
+            # STEADY_NEXT_MEM_S wiped it → SEEK flew straight with no descent).
             bar = data.get("_sp_next_area", 0.0) * 0.99
             data["_sp_next_area"] = bar
             # RECORDING HYGIENE - the memory only accepts sightings from CLEAN frames:
-            #  * not within 1.5 s AFTER a pass (receding-gate fragments - run 124505's wrong-way
-            #    orbit), and
-            #  * not while the tracked gate is NEAR (area >= align range): at point-blank the
-            #    current gate splits into huge pillar fragments that pose as "others" and poisoned
-            #    the memory with a 0.3-area straight-ahead "next gate" - whose remembered size then
-            #    vetoed every real candidate after the pass (run 130xxx: never tracked gate 2).
+            #  * not within 1.5 s AFTER a pass (receding-gate fragments), and
+            #  * not once COMMIT-near (pillar fragments). Keep noting through ALIGN so a
+            #    lower/higher next gate still visible in the FoV can be remembered for SEEK.
             _pus = data.get("_sp_pass_us")
             _nus = (data.get("highres_imu") or {}).get("time_usec")
             settled = (_pus is None or _nus is None
                        or (_nus - _pus) * 1e-6 > STEADY_NEXT_HOLDOFF)
-            settled = settled and g.area_frac < STEADY_ALIGN_AREA
+            settled = settled and g.area_frac < STEADY_COMMIT_AREA
+            # Wait for a confirmed lock: launch frame-0 junk wrote doy=-0.358 (run 141745)
+            # and poisoned SEEK for the whole first leg.
+            settled = settled and data.get("_sp_lock_frames", 0) >= STEADY_LOCK_CONFIRM
             if others and settled:
-                nd = max(others, key=lambda d: d.area)
-                if nd.area_frac >= bar:
-                    data["_sp_next_head"] = (data.get("_sp_heading", 0.0)
-                                             - math.atan(nd.offset_x * HALF_TAN_X))
-                    # the SIGHTING TRACK: bearing + elevation RELATIVE to the tracked gate (survives
-                    # whatever our attitude/altitude do during the pass) + size
-                    data["_sp_next_doy"] = nd.offset_y - g.offset_y
-                    data["_sp_next_area_mem"] = nd.area_frac
-                    data["_sp_next_us"] = (data.get("highres_imu") or {}).get("time_usec")
-                    data["_sp_next_area"] = nd.area_frac
-
+                op = [d for d in others if getattr(d, "has_opening", False)]
+                # Near ALIGN: openings only — pillars pose as "others" without a hole.
+                if g.area_frac >= STEADY_ALIGN_AREA and not op:
+                    nd = None
+                else:
+                    nd = max(op or others, key=lambda d: d.area)
+                if nd is not None:
+                    is_open = getattr(nd, "has_opening", False)
+                    if is_open or nd.area_frac >= bar:
+                        data["_sp_next_head"] = (data.get("_sp_heading", 0.0)
+                                                 - math.atan(nd.offset_x * HALF_TAN_X))
+                        # SIGHTING TRACK: bearing + elevation vs tracked gate (+doy = next LOWER).
+                        data["_sp_next_doy"] = nd.offset_y - g.offset_y
+                        data["_sp_next_area_mem"] = nd.area_frac
+                        data["_sp_next_us"] = (data.get("highres_imu") or {}).get("time_usec")
+                        data["_sp_next_area"] = nd.area_frac
     area = data.get("_sp_area", 0.0)
     offx, offy = data.get("_sp_off", (0.0, 0.0))
 
@@ -418,7 +549,8 @@ def update_steady_control(mavlink_conn, system_boot_ms, data):
     # Vertical readiness (run 122735: committed mid-climb at aim_oy -0.36 / vz +2.97 and sagged
     # into the bottom bar). Blocked-vertical routes through the SERVO branch, whose row servo +
     # climb-first pitch already do exactly the right thing: finish the climb, then commit.
-    row_tgt = math.tan(UPTILT_RAD - data.get("_sp_pitch_cmd", 0.0)) / HALF_TAN_Y + STEADY_OFFY_BIAS
+    row_tgt = math.tan(UPTILT_RAD - data.get("_sp_pitch_cmd", 0.0)) / HALF_TAN_Y + (
+        0.0 if STEADY_SURVEY else STEADY_OFFY_BIAS)
     aligned_y = abs(offy - row_tgt) <= STEADY_COMMIT_ROW
     # COMMIT LATCHES. Alignment (both axes) is an ENTRY condition only - at point-blank range the
     # aim balloons away from the far-field row target BY GEOMETRY, and re-checking it every tick
@@ -452,18 +584,39 @@ def update_steady_control(mavlink_conn, system_boot_ms, data):
         data["_sp_avoid_off"] = data.get("_sp_track_off")
         data["_sp_track_off"] = None
         data["_sp_off_smooth"] = None
-        # Start the SEEK window: stamp the pass, and pick the rotation direction from the next-gate
-        # memory (fresh -> signed bearing; stale -> its sign is still the best guess; none -> CCW).
+        # Start SEEK: keep fresh next-gate memory; wipe if stale. Bake altitude NOW from
+        # next_doy so a junk reacquire cannot erase the anticipated descent (run 142254).
         _us_p = (data.get("highres_imu") or {}).get("time_usec")
         head_now = data.get("_sp_heading", 0.0)
         data["_sp_pass_us"] = _us_p
         data["_sp_pass_head"] = head_now
-        data["_sp_pass_alt"] = data.get("_sp_alt", 0.0)   # we just flew THROUGH a gate: this IS the
-                                                          # gate line, drift and all - SEEK's reference
+        pass_alt = data.get("_sp_alt", 0.0)
+        data["_sp_pass_alt"] = pass_alt
+        data["_sp_lock_frames"] = 0
+        data["_sp_mem_armed"] = True
+        # Only wipe memory when BOTH stamps exist and the sighting is stale.
+        # Missing IMU time_usec used to null a live next_head at the pass tick
+        # (215501: nh=+74° one frame before g1 pass → blank → no sharp-turn SEEK).
+        nus = data.get("_sp_next_us")
+        if (nus is not None and _us_p is not None
+                and (_us_p - nus) * 1e-6 > STEADY_NEXT_MEM_S):
+            data["_sp_next_head"] = None
+            data["_sp_next_doy"] = None
+            data["_sp_next_area_mem"] = 0.0
+        doy = data.get("_sp_next_doy")
+        if doy is not None and abs(float(doy)) > 0.15:
+            _doy_m = STEADY_SURVEY_DOY_M if STEADY_SURVEY else STEADY_SEEK_DOY_M
+            _max_drop = STEADY_SURVEY_MAX_DROP if STEADY_SURVEY else STEADY_SEEK_MAX_DROP
+            signed = -_doy_m * clamp(
+                float(doy), -STEADY_SEEK_DOY_CAP, STEADY_SEEK_DOY_CAP)
+            data["_sp_seek_alt"] = pass_alt + clamp(
+                signed, -_max_drop, STEADY_SEEK_MAX_CLIMB_M)
+        else:
+            data["_sp_seek_alt"] = pass_alt
         nh = data.get("_sp_next_head")
-        if nh is not None and abs(nh - head_now) > 0.05:
-            data["_sp_seek_dir"] = 1.0 if nh > head_now else -1.0
-        data["_sp_next_area"] = 0.0   # fresh memory window for the gate AFTER the one just acquired
+        if nh is not None and abs(_ang_err(nh, head_now)) > 0.05:
+            data["_sp_seek_dir"] = 1.0 if _ang_err(nh, head_now) > 0.0 else -1.0
+        data["_sp_next_area"] = 0.0
 
     # 3) CONTROL - three regimes: HOLD (blind), COMMIT (through the gate), SERVO (normal).
     t_us_now = (data.get("highres_imu") or {}).get("time_usec")
@@ -479,25 +632,80 @@ def update_steady_control(mavlink_conn, system_boot_ms, data):
     trim = data.get("_sp_thr_trim", 0.0)
     oy_tgt = 0.0
     if not gates or stale:
-        # HOLD: hover (with the learned trim), level. Within the post-pass window this is SEEK:
-        # rotate toward/past the remembered next-gate heading until vision acquires - the FoV
-        # catches a gate up to 45 deg before the nose reaches it, and the servo branch takes over
-        # the moment a detection lands. Clear the avoid zone once well into the turn (the passed
-        # gate cannot still be in view, and its stale frame-position must not veto the new gate).
+        # SEEK (main behavior): rotate in seek_dir until vision acquires.
+        # next_head only picks the SIGNED turn direction at pass — do NOT stop
+        # at nh. Approach-vantage nh is short of the true post-pass bearing at
+        # sharp corners (g3); stop-at-nh under-turns. FoV catches the gate
+        # before the nose finishes; servo takes over on lock.
         des_pitch = 0.0
         des_roll = 0.0
         v_tgt = 0.0
         p_us_pass = data.get("_sp_pass_us")
+        _seek_window = STEADY_SEEK_S * (STEADY_SURVEY_SEEK_WINDOW_X
+                                        if STEADY_SURVEY else 1.0)
         if (p_us_pass is not None and t_us_now is not None
-                and (t_us_now - p_us_pass) * 1e-6 < STEADY_SEEK_S):
+                and (t_us_now - p_us_pass) * 1e-6 < _seek_window):
+            nh = data.get("_sp_next_head")
+            _grace = STEADY_SURVEY_SEEK_GRACE_S if STEADY_SURVEY else 999.0
+            _seen = data.get("_sp_seen") if STEADY_SURVEY else None
+            _seen2 = data.get("_sp_seen2") if STEADY_SURVEY else None
+            _mem = None
+            if (_seen is not None and _seen[3] is not None
+                    and _seen[3] > p_us_pass):
+                _mem = _seen
+            elif (_seen2 is not None and _seen2[3] is not None
+                    and (t_us_now - _seen2[3]) * 1e-6 < 20.0):
+                # next-gate sighting from the approach — use instead of blind spin
+                _mem = _seen2
+            if _mem is not None:
+                nh = _mem[0]
+                # Retarget seek_dir from survey sighting if it disagrees.
+                err_m = _ang_err(nh, heading)
+                if abs(err_m) > 0.05:
+                    data["_sp_seek_dir"] = 1.0 if err_m > 0.0 else -1.0
+                if STEADY_SURVEY and _mem[1] > 0.35:
+                    _grace = 1.0
             heading += data.get("_sp_seek_dir", 1.0) * STEADY_SEEK_RATE * dt
             data["_sp_heading"] = heading
-            if abs(heading - data.get("_sp_pass_head", heading)) > 0.5:
+            if abs(_ang_err(heading, data.get("_sp_pass_head", heading))) > 0.5:
                 data["_sp_avoid_off"] = None
-            # Sink back to the gate line while seeking: from above it, the NEAR next gate sits below
-            # the camera's 9-deg down-limit and a FAR one steals the lock (the run-115646 miss).
-            if data.get("_sp_alt", 0.0) > data.get("_sp_pass_alt", 0.0) + STEADY_SEEK_ALT_TOL:
-                v_tgt = -STEADY_SEEK_SINK
+            des_pitch = STEADY_SEEK_PITCH
+            pass_alt = data.get("_sp_pass_alt", 0.0)
+            alt_tgt = data.get("_sp_seek_alt")
+            if alt_tgt is None:
+                alt_tgt = pass_alt
+            _doy_now = data.get("_sp_next_doy")
+            # Memory says next is LOWER → descend now (holding pass alt keeps
+            # g2 under the FoV). Race still looks first.
+            _known_low = (STEADY_SURVEY and alt_tgt < pass_alt - 0.3) or (
+                STEADY_SURVEY and _doy_now is not None and float(_doy_now) > 0.15)
+            # Blind drop ONLY when there is no doy bake. With a bake, that is
+            # the floor — digging past it (run 174950) puts us under g2 and the
+            # zero-oy climb eats the top bar.
+            _survey_drop = False
+            if (STEADY_SURVEY and not _known_low
+                    and p_us_pass is not None and t_us_now is not None):
+                _t_ref = p_us_pass
+                _base_alt = pass_alt
+                if _mem is not None and _mem[3] is not None and _mem[3] > _t_ref:
+                    _t_ref = _mem[3]
+                    _base_alt = _mem[2]
+                _blind_s = (t_us_now - _t_ref) * 1e-6
+                if _blind_s > _grace:
+                    _d = min(STEADY_SURVEY_SEEK_DROP_RATE * (_blind_s - _grace),
+                             STEADY_SURVEY_SEEK_DROP_MAX)
+                    if _base_alt - _d < alt_tgt:
+                        alt_tgt = _base_alt - _d
+                        _survey_drop = True
+            alt_now = data.get("_sp_alt", 0.0)
+            if alt_now > alt_tgt + STEADY_SEEK_ALT_TOL:
+                if STEADY_SURVEY and (_known_low or _survey_drop):
+                    v_tgt = -(STEADY_SURVEY_DIVE if _known_low
+                              else STEADY_SURVEY_SEEK_SINK)
+                else:
+                    v_tgt = -STEADY_SEEK_SINK
+            elif alt_now < alt_tgt - STEADY_SEEK_ALT_TOL:
+                v_tgt = STEADY_SEEK_CLIMB
         thrust = STEADY_HOVER + trim - STEADY_KD_VZ_COMMIT * (vz_est - v_tgt)
     elif commit:
         # COMMIT: the aim point balloons this close - stop chasing it. Freeze the heading, wings
@@ -537,38 +745,30 @@ def update_steady_control(mavlink_conn, system_boot_ms, data):
         roll_cap = STEADY_ROLL_BLIND if data.get("_sp_ox_blind") else STEADY_ROLL_MAX
         des_roll = clamp(STEADY_KP_LAT * offx + STEADY_KD_LAT * data.get("_sp_ox_rate", 0.0),
                          -roll_cap, roll_cap)
-        # THRUST: hold the aim point on the fly-at-gate-height row. A gate at drone height sits
-        # tan(uptilt - pitch) below the optical axis - uptilt is spec, pitch is OUR OWN command
-        # (the sim holds it at gain 1.0), so the row needs no attitude estimate at all.
-        # The INTEGRAL TRIM learns the true hover thrust (it drifts: 0.299 sysid, 0.26 in run
-        # 092333) - without it the P-loop parks in equilibrium ABOVE the row by err = droop/KP.
-        # CRUISE HIGH on long transits, descend late: hold a FAR gate lower in frame (= fly ~1 m
-        # above the gate line), fading to the normal row by approach range. The detector cannot see
-        # the floor-parked obstacles (fighters, stands) - run 121021 sagged onto a fighter's wing
-        # mid-transit - but nothing on this course is above the transit line. Fly over the unseen.
-        cruise_up = STEADY_CRUISE_UP * clamp(1.0 - area / STEADY_CRUISE_FADE_AREA, 0.0, 1.0)
-        oy_tgt = math.tan(UPTILT_RAD - pitch_prev) / HALF_TAN_Y + STEADY_OFFY_BIAS + cruise_up
+        # THRUST: geometric row. Survey = zero bias/cruise. Race gains. Nothing else.
+        if STEADY_SURVEY:
+            cruise_up = 0.0
+            oy_bias = 0.0
+        else:
+            cruise_up = STEADY_CRUISE_UP * clamp(
+                1.0 - area / STEADY_CRUISE_FADE_AREA, 0.0, 1.0)
+            oy_bias = STEADY_OFFY_BIAS
+        oy_tgt = (math.tan(UPTILT_RAD - pitch_prev) / HALF_TAN_Y
+                  + oy_bias + cruise_up)
         err = oy_tgt - offy
         if data.get("_sp_lock_frames", 0) < STEADY_LOCK_CONFIRM:
-            # UNCONFIRMED lock: no vertical authority. A junk blob acquired right after a pass
-            # demanded a huge row correction and sprint-climbed the drone to 3 m in the half-second
-            # before it died (run 115646). Hold altitude until the target survives a few frames.
             thrust = STEADY_HOVER + trim - STEADY_KD_VZ_COMMIT * vz_est
         else:
-            # Trim learns ONLY near vertical equilibrium: a persistent row error while climbing or
-            # descending is approach GEOMETRY, not hover bias - the ungated trim wound down to
-            # -0.048 during the gate-3 approach and dragged a sink through the commit (run 094047).
             if abs(vz_est) < STEADY_TRIM_VZ_GATE:
                 trim = clamp(trim + STEADY_KI_VERT * err * dt, -STEADY_TRIM_MAX, STEADY_TRIM_MAX)
                 data["_sp_thr_trim"] = trim
-            # Post-pass GENTLE-DESCENT window: a wrong mid-corner lock must not spend altitude
-            # before preemption corrects it (the descent-for-the-wrong-gate at the tilted corner).
             dn, up = STEADY_THRUST_DN, STEADY_THRUST_UP
             _pp = data.get("_sp_pass_us")
-            if (_pp is not None and t_us_now is not None
+            if (not STEADY_SURVEY and _pp is not None and t_us_now is not None
                     and (t_us_now - _pp) * 1e-6 < STEADY_POSTPASS_GENTLE_S):
                 dn, up = STEADY_POSTPASS_DN, STEADY_POSTPASS_UP
-            thrust = clamp(STEADY_HOVER + trim + STEADY_KP_VERT * err - STEADY_KD_VZ * vz_est,
+            _cmd = STEADY_KP_VERT * err - STEADY_KD_VZ * vz_est
+            thrust = clamp(STEADY_HOVER + trim + _cmd,
                            STEADY_HOVER + trim - dn, STEADY_HOVER + trim + up)
         # PITCH: creep forward, faded while off-aim (turn first, then close). In ALIGN (near but
         # off-axis) it BRAKES - a gentle backlean - because zeroing the command doesn't stop the
@@ -599,6 +799,21 @@ def update_steady_control(mavlink_conn, system_boot_ms, data):
         if not climb_hold:
             data["_sp_climb_rng"] = None
     thrust = clamp(thrust, MIN_THRUST, MAX_THRUST)
+
+    # SURVEY excitation doublet: ADDITIVE perturbation on top of whatever the
+    # pilot wants (never replaces it — overriding des_pitch defeated the
+    # aim-fade and flew over gates). Only while actively tracking, far from
+    # the gate. The preintegrator reads MEASURED attitude, so the pulse only
+    # needs to exist, not to be exact.
+    if (STEADY_SURVEY and gates and not stale and not commit
+            and not align_mode
+            and 0.004 <= area < STEADY_CRUISE_FADE_AREA):
+        data["_sp_pulse_i"] = data.get("_sp_pulse_i", 0) + 1
+        _ph = data["_sp_pulse_i"] % STEADY_SURVEY_PULSE_TICKS
+        if _ph < _SURVEY_BRAKE_TICKS:
+            des_pitch -= 0.5 * STEADY_PITCH_FWD
+        elif _ph < _SURVEY_SURGE_TICKS:
+            des_pitch += 0.8 * STEADY_PITCH_FWD
 
     # Slew pitch and roll so every correction eases in and eases back out (and the row target moves
     # smoothly with the pitch).
@@ -643,4 +858,15 @@ def update_steady_control(mavlink_conn, system_boot_ms, data):
               f"{data.get('_sp_thr_trim', 0.0):+.3f}", f"{thrust:.3f}",
               ("" if data.get("_sp_next_head") is None else f"{math.degrees(data['_sp_next_head']):+.1f}"),
               f"{data.get('_sp_seek_dir', 1.0):+.0f}",
-              ("" if data.get("_sp_next_doy") is None else f"{data['_sp_next_doy']:+.3f}")])
+              ("" if data.get("_sp_next_doy") is None else f"{data['_sp_next_doy']:+.3f}"),
+              # mapper columns (gate_graph requires these)
+              str((data.get("vision_frame") or {}).get("sim_time_ns") or ""),
+              (data.get("_sp_det_raw") or (0, 0, 0, 0))[2],
+              f"{(data.get('_sp_det_raw') or (0, 0, 0, 0))[0]:+.4f}",
+              f"{(data.get('_sp_det_raw') or (0, 0, 0, 0))[1]:+.4f}",
+              f"{(data.get('_sp_det_raw') or (0, 0, 0, 0))[3]:.2f}",
+              f"{math.degrees(data.get('_sp_yaw_meas', STEADY_YAW_SPAWN)):+.1f}",
+              f"{math.degrees(roll_cmd - m_roll):+.2f}",
+              f"{math.degrees(pitch_cmd - m_pitch):+.2f}",
+              (data.get("race_status") or {}).get("active_gate_index", 0),
+              0])

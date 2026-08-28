@@ -17,13 +17,14 @@ import os
 import socket
 import struct
 import threading
+import time
 
 import cv2
 import numpy as np
 
 from common.race import race_is_live
 from perception.detectors import active_detector
-from perception.vision_pose import shadow_compare
+from perception.vision_pose import shadow_compare, gate_corners, pnp_pose_body
 from perception.vision_data_collector import VisionDataCollector, COLLECT_VISION_DATA
 
 SHADOW_CSV_HEADER = ["frame_id", "sim_time_ns", "gate_id",
@@ -168,13 +169,8 @@ class VisionRX:
         sim_time_ns is the frame's server timestamp. Keeping it with the frame lets perception be
         aligned against telemetry (pose, etc.) for offline labeling.
         """
-        # make the latest frame available to other components (e.g. the controller)
-        self.data["latest_frame"] = img
-        self.data["latest_frame_id"] = frame_id
-
-        # Detect gates from the camera (no ground truth needed). Store the nearest gate as the target
-        # and the full list for look-ahead. offset_x in [-1, 1] is the gate's horizontal bearing in
-        # the image (+ = right), the signal a vision controller turns on to centre the gate.
+        # Detect gates, then publish ONE atomic vision snapshot so pilots never
+        # see a new frame_id with stale dets (or vice versa).
         try:
             gates = self.detector.process(img)
         except Exception as e:           # a broken detector must not take down the vision thread
@@ -183,8 +179,34 @@ class VisionRX:
                 print(f"[detector] {type(self.detector).__name__} error (suppressed further): {e!r}",
                       flush=True)
             gates = []
+        snap = {
+            "frame_id": frame_id,
+            "sim_time_ns": sim_time_ns,
+            "dets": gates,
+            "recv_ns": time.time_ns(),
+        }
+        self.data["vision_frame"] = snap
+        self.data["latest_frame"] = img
+        self.data["latest_frame_id"] = frame_id
+        self.data["latest_sim_time_ns"] = sim_time_ns
         self.data["vision_gates"] = gates
         self.data["vision_target"] = gates[0] if gates else None
+
+        # Gate-relative corner PnP (the S2-validated measurement) for the vml
+        # pilot: body-frame (fwd, right, down) of the largest ring's center.
+        # One atomic snapshot; consumers check frame_id freshness themselves.
+        try:
+            c4 = gate_corners(img)
+            if c4 is not None:
+                gh, gw = img.shape[:2]
+                pose = pnp_pose_body(c4, gw, gh)
+                if pose is not None and 0.5 < pose[0] < 45.0:  # 25 m cut was a course-2-ism
+                    self.data["gate_pnp"] = {
+                        "frame_id": frame_id, "sim_time_ns": sim_time_ns,
+                        "recv_ns": time.time_ns(),
+                        "fwd": pose[0], "right": pose[1], "down": pose[2]}
+        except Exception:
+            pass
 
         # Comprehensive data collection: one rich record per frame (perception, ground truth, and
         # control intent), for offline diagnosis of why the vision pilot misses gates.

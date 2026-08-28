@@ -8,7 +8,7 @@ Prints, for the newest real flight:
   2. camera innovations table (final-approach, the measuring tape for corrections)
   3. first-contact fix (IMU spike -> time + planned-position world fix)
 No modifications are made. Corrections are sized from section 2, one damped step
-per flight, and Brian's eyes veto. Adjectives never size corrections.
+per flight, and notes's eyes veto. Adjectives never size corrections.
 """
 import csv
 import glob

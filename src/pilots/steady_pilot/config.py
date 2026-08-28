@@ -38,13 +38,13 @@ STEADY_KD_VZ_COMMIT = 0.10 # stronger vz-arrest INSIDE the commit window: the ro
                         #   and any leftover climb/sink coasts straight into a gate bar (run 101632
                         #   bumped gate 1's TOP arriving from below with residual climb). This term
                         #   nulls the vertical drift while the aim is frozen.
-STEADY_COMMIT_UP_OFFY = 0.25 # commit escape clause for the TILTED gate: if the hole climbs beyond this
+STEADY_COMMIT_UP_OFFY = 0.15 # was 0.25: under-gate (oy negative) must climb sooner mid-commit
+                          #   (run 143848: oy went -0.71 through g2 while escape waited on 0.25)
                         #   far ABOVE image centre during the coast, follow it up. A straight-gate
                         #   commit never breaches this (aim settles near 0 by the pass, every logged
                         #   run); the forward-tilted gate's hole marched +0.15 -> -0.61 while the
                         #   frozen-level coast clipped its BOTTOM bar (run 122217, t=68.7).
-STEADY_KP_COMMIT_UP = 0.08 # thrust per unit of aim-above-deadband during commit (climb-only, damped by
-                        #   the vz-arrest; ~+0.03 max - a nudge up onto the tilted passage line)
+STEADY_KP_COMMIT_UP = 0.12 # was 0.08: stronger climb when under the hole mid-commit (run 143848)
 STEADY_COMMIT_SIDE_OFFX = 0.30 # LATERAL twin of the commit escape clause: if the aim escapes sideways
                         #   beyond this mid-coast, nudge the roll after it. Run 130224 coasted the
                         #   latched commit wings-level while the aim walked to -0.41 and scraped the
@@ -86,6 +86,8 @@ STEADY_YAW_SPAWN = 1.694     # the SPAWN FACING in the sim's yaw frame (rad, ~+9
                           #   is fine - vision steers it out while the gate is in the FoV.
                           #   (hover_pilot has this same latent bug - it seeds heading at 0, AND its
                           #   "+yaw = right" config note is falsified by these flights.)
+                          #   DO NOT set to π: fair flights 220655–222046 commanded 180 while the
+                          #   airframe spawn is +97 → measured yaw ran +90° (left). Restored 1.694.
 STEADY_KP_YAW       = -0.10  # heading nudge per unit of offset_x, per camera frame. NEGATIVE: the
                           #   setpoint frame is CCW-POSITIVE (proven by the two yaw-calibration
                           #   flights above), so a gate to the RIGHT (offset_x > 0) needs the
@@ -145,63 +147,42 @@ STEADY_YAW_MAX_OFF  = 0.95   # anti-windup: stop turning once the aim point is A
                           #   (~0.9) and must still get pulled toward centre, not ignored.
 
 # =============================================================================================
-# SEEK - sharp corners. At a ~90 deg turn the next gate leaves the FoV before the pass finishes
-# (gate 3 -> 4 goes hard LEFT; later gates go RIGHT). While approaching gate N the pilot NOTES the
-# absolute heading of the biggest OTHER detection (gate N+1) - perception-derived memory, works for
-# either direction. Post-pass and blind, SEEK holds station and ROTATES toward/past that heading
-# until vision acquires; the FoV catches the gate up to 45 deg before the nose does. Stale or absent
-# memory -> same rotation, default direction: a slow pirouette scan costs seconds we have.
+# SEEK - sharp corners. While approaching gate N, vision NOTES the biggest OTHER detection
+# (gate N+1): absolute heading + elevation vs the tracked gate (+doy = next LOWER in frame).
+# At pass: bake seek_alt from doy. Memory picks seek_dir ONLY — SEEK keeps
+# rotating that way until vision locks (main). Stop-at-nh under-turns g3.
 # =============================================================================================
-STEADY_NEXT_MIN_AREA = 0.004 # candidate floor for "that's the next gate, note its bearing"
+STEADY_NEXT_MIN_AREA = 0.002 # was 0.004: blocked real next-gate specks (track floor is 0.002)
 STEADY_NEXT_HOLDOFF  = 1.5   # NO memory writes for this long after a pass: those frames are full of
                           #   the receding gate's fragments sliding off-frame past the single-blob
                           #   avoid zone. Run 124505: 0.19 s after pass 9, a fragment on the RIGHT
                           #   overwrote a correct LEFT memory (+69.8 -> -15.5) and the tilted-gate
                           #   corner turned into a 300-degree wrong-way orbit. The pre-pass memory
                           #   rides through the holdoff and still points the right way.
-STEADY_NEXT_MEM_S    = 6.0   # memory freshness at pass time - older sightings only pick the direction
-STEADY_SEEK_S        = 12.0  # post-pass window in which blind = SEEK (rotate), not plain HOLD
-STEADY_SEEK_RATE     = 0.5   # SEEK rotation rate (rad/s ~= 29 deg/s) - a deliberate pan, FoV does the
-                          #   finding; vision interrupts the sweep the moment a gate shows
-# The next-gate memory is a SIGHTING TRACK, not a bearing: WHERE (absolute heading), HOW HIGH
-# (vertical offset RELATIVE to the then-tracked gate - attitude/altitude invariant, Brian's
-# formulation: "it was at the same offset as the one we were tracking"), and HOW BIG. During the
-# post-pass window, acquisition must satisfy ALL THREE or the candidate is refused and the sweep
-# keeps turning. This corner (post-slanted) is the acid test: elevated exit, course doubling back,
-# cross-floor gates littering the cone - bearing alone kept accepting the wrong one.
-STEADY_SEEK_CONE     = 0.45  # bearing tolerance (rad ~= 26 deg) around the remembered heading
-STEADY_SEEK_OY_TOL   = 0.40  # vertical tolerance: candidate offset_y vs (current row target + the
-                          #   remembered relative elevation). Rejects the down-low cross-floor gate
-                          #   that a bearing-only cone accepted.
-STEADY_SEEK_AREA_RATIO = 0.25 # candidate must be at least this fraction of the remembered size - we
-                          #   are CLOSER now than when it was sighted; a distant speck is not it.
-STEADY_PREEMPT_RATIO = 1.6   # YOUNG-LOCK PREEMPTION (post-pass window only, fail-open): a candidate
-                          #   this many times BIGGER than the current lock steals it. The corner
-                          #   sweep meets gates in the wrong order - the far N+2 enters frame before
-                          #   the close true-next N+1 and got locked first (descending for it); N+1
-                          #   is ~half the distance, so ~4x bigger the moment it appears. Switch,
-                          #   never refuse. Straight handoffs unaffected (their lock IS the biggest).
-STEADY_POSTPASS_GENTLE_S = 4.0 # for this long after a pass, descent authority is capped - a wrong
-                          #   mid-corner lock cannot spend much altitude before preemption fixes it
-STEADY_POSTPASS_DN   = 0.05  # the capped below-hover thrust band during that window (~0.5 m/s descent)
-STEADY_POSTPASS_UP   = 0.06  # ...and the capped ABOVE-hover band: a surviving junk lock fired FULL
-                          #   climb (thr 0.45) at the gate plane 0.2 s after a pass and popped the
-                          #   drone into the INSIDE of the top bar on exit (run 164646, t=53.0)
-STEADY_JUNK_OY       = -0.5  # post-pass sanity: a candidate higher in frame than this (~50 deg above
-                          #   the horizon) cannot be a course gate - it is the just-passed gate's
-                          #   own top bar or ceiling junk. Excluded from acquisition/preemption
-                          #   during the post-pass window only; fail-open if it would empty the list.
-STEADY_SEEK_SINK     = 0.4   # during SEEK, sink at this rate (m/s) back toward PASS altitude when more
-                          #   than STEADY_SEEK_ALT_TOL above it. The pass just happened THROUGH a gate,
-                          #   so altitude-at-pass is a trustworthy gate-line reference even with
-                          #   integrator drift. Run 115646: a junk post-pass lock climbed it to 3 m,
-                          #   SEEK held 3 m faithfully, and from there the NEAR next gate is below
-                          #   the camera's 9-deg down-limit - it locked a FAR gate and flew over the
-                          #   one it should have taken.
-STEADY_SEEK_ALT_TOL  = 0.4   # dead-band (m) above pass altitude before the SEEK sink engages
-STEADY_LOCK_CONFIRM  = 4     # a fresh lock gets NO vertical authority until it survives this many
-                          #   consecutive frames - the junk blob that caused the 3 m climb lived for
-                          #   ~2. Real gates confirm in 4 frames (~0.13 s) and lose nothing.
+STEADY_NEXT_MEM_S    = 15.0  # was 6: long approaches (g0 ~12s) wiped a still-valid last sighting
+                             #   at pass (run 141745) → SEEK with empty memory = straight/no descent.
+STEADY_SEEK_S        = 12.0
+STEADY_SEEK_RATE     = 0.5
+STEADY_SEEK_HOLD     = 0.12  # unused by race SEEK (continuous rotate); kept for any callers
+STEADY_SEEK_CONE     = 0.45
+STEADY_SEEK_OY_TOL   = 0.40
+STEADY_SEEK_AREA_RATIO = 0.25
+STEADY_PREEMPT_RATIO = 1.6
+# Dump only a true far speck post-pass (214731 ~0.003). Not a lock veto.
+STEADY_POSTPASS_MIN_LOCK = 0.008
+STEADY_POSTPASS_GENTLE_S = 4.0
+STEADY_POSTPASS_DN   = 0.05
+STEADY_POSTPASS_UP   = 0.06
+STEADY_JUNK_OY       = -0.5
+STEADY_SEEK_SINK     = 0.5
+STEADY_SEEK_CLIMB    = 0.4
+STEADY_SEEK_ALT_TOL  = 0.3
+STEADY_SEEK_DOY_M    = 5.0   # was 8: doy=+0.46 baked a ~3.7 m dump; caught g2 low and went under
+STEADY_SEEK_DOY_CAP  = 1.0
+STEADY_SEEK_MAX_DROP = 3.5   # was 6: anticipation gets next gate into FoV, vision centers the hole
+STEADY_SEEK_MAX_CLIMB_M = 4.0
+STEADY_SEEK_PITCH    = 0.05
+STEADY_LOCK_CONFIRM  = 4
 
 # =============================================================================================
 # PITCH - a small constant forward creep, faded while off-aim. ~0.05 rad => ~1 m/s.
