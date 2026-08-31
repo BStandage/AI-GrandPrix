@@ -1,16 +1,22 @@
-# Elodin PQ sim — full setup guide (Windows + WSL)
+# Elodin PQ sim - full setup guide (Windows + WSL)
 
 How to go from a bare Windows machine to watching a drone fly the extracted
 PQ course in the Elodin simulator. Every step here was actually executed on
 Brian's machine on 2026-08-27; the **Gotchas** notes are real failures we
-hit and their fixes — read them before asking for help.
+hit and their fixes - read them before asking for help.
+
+**Check first whether you need this at all**: the Docker path
+(`run_race_docker.cmd` in the sim repo, or `docker compose up --build`)
+gives you the identical sim with none of the steps below, on any OS. This
+native WSL setup is for people iterating on the sim itself or who want
+headless runs without Docker overhead.
 
 Two repos are involved:
 
 | repo | role |
 |---|---|
 | `AI-GrandPrix` (this one) | course map (`data/course_map.json`), map loader (`src/common/course_map.py`), extraction tooling |
-| [`elodin-sys/ai-grand-prix`](https://github.com/elodin-sys/ai-grand-prix) | the simulator: Elodin physics + Betaflight SITL + solver hook |
+| [`elodin-sim-aigp`](https://github.com/BStandage/elodin-sim-aigp) | the simulator (our fork of elodin-sys/ai-grand-prix): Elodin physics + Betaflight SITL + solver hook |
 
 The sim repo imports this repo's loader at startup (`sim/pq_course.py` puts
 `AI-GrandPrix/src` on `sys.path`), so they must live side by side.
@@ -43,7 +49,7 @@ wsl uname -r
 > wsl --shutdown
 > ```
 
-Set a Linux username/password when Ubuntu first opens — you'll need the
+Set a Linux username/password when Ubuntu first opens - you'll need the
 password for `sudo`.
 
 ## 2. Linux packages
@@ -55,7 +61,7 @@ sudo apt update && sudo apt install -y build-essential libasound2t64 git-lfs cur
 ```
 
 > **Gotcha:** if `apt install` throws `404 Not Found` errors, your package
-> index is stale — run `sudo apt update` first (it's in the line above for
+> index is stale - run `sudo apt update` first (it's in the line above for
 > exactly that reason).
 >
 > `libasound2t64` looks unrelated but is required: the Elodin CLI links
@@ -80,7 +86,7 @@ git clone https://github.com/elodin-sys/ai-grand-prix elodin-sim
 
 > **Gotcha:** the sim repo's natural name `ai-grand-prix` differs from
 > `AI-GrandPrix` only by case. Windows folders are case-insensitive by
-> default, so the two would collide — clone the sim as `elodin-sim` (any
+> default, so the two would collide - clone the sim as `elodin-sim` (any
 > distinct name works; the cross-repo path resolution looks for a sibling
 > named exactly `AI-GrandPrix`, or set env `AIGP_REPO` to point at it).
 
@@ -130,7 +136,7 @@ What you should see, in order:
 
 `RACE_SOLVER` selects the autopilot module. `solver.pq_waypoints` flies the
 extracted course's waypoints (2 laps incl. the double-gate out-and-back).
-`solver.baseline` is the upstream demo (targets the OLD 3-gate course — it
+`solver.baseline` is the upstream demo (targets the OLD 3-gate course - it
 will not score gates on the PQ course). A module living in
 `AI-GrandPrix/src` (e.g. `pilots.my_pilot`) is also selectable because the
 sim puts that tree on `sys.path`.
@@ -150,9 +156,9 @@ Expand-Archive $env:TEMP\elodin.zip -DestinationPath $dst -Force
 
 Then, to watch a run:
 
-1. **WSL terminal** — start the sim:
+1. **WSL terminal** - start the sim:
    `RACE_SOLVER=solver.pq_waypoints uv run -- elodin run sim/main.py`
-2. **PowerShell** — connect the editor:
+2. **PowerShell** - connect the editor:
    `& "$env:LOCALAPPDATA\Programs\elodin\elodin.exe" editor 127.0.0.1:2240`
 
 You get the 3D viewport (gates, cones, drone, chase cam), the drone's FPV
@@ -164,12 +170,12 @@ camera feed, and live telemetry graphs.
 >
 > **Gotcha (Windows 10 only):** the editor crashes at startup with
 > `panicked at ...ui/theme.rs ... "The system cannot find the file specified"`
-> because it hard-codes `C:\Windows\Fonts\SegoeIcons.ttf` — a Windows 11
+> because it hard-codes `C:\Windows\Fonts\SegoeIcons.ttf` - a Windows 11
 > font. Fix: download Microsoft's free Segoe Fluent Icons pack from
 > `https://aka.ms/SegoeFluentIcons`, extract, and (as admin):
 > `Copy-Item ".\Segoe Fluent Icons.ttf" "C:\Windows\Fonts\SegoeIcons.ttf"`
 >
-> Run the editor **from the sim repo directory** — it resolves its assets
+> Run the editor **from the sim repo directory** - it resolves its assets
 > (`gate.glb` etc.) relative to the working directory.
 
 ## 10. Tests
@@ -186,12 +192,12 @@ uv run python scripts/render_pq_course.py  # out/course_layout.png top-down rend
 `sim/pq_course.py` loads `AI-GrandPrix/data/course_map.json` through
 `common.course_map` (the only allowed map parser), applies the named
 `MapToSim` transform (rotation 0, translation puts the drone spawn 3 m
-before gate g0), and builds the 12-crossings-per-lap × 2-lap sequence —
+before gate g0), and builds the 12-crossings-per-lap x 2-lap sequence -
 the stacked gate g10 is two crossings (top opening 4.05 m southbound,
 bottom 1.35 m northbound) disambiguated by altitude. `sim/main.py` runs
 Elodin physics and Betaflight SITL in lockstep at 1 kHz; each tick the
-selected solver gets a `SensorUpdate` (IMU, baro, mag, 640×360 FPV frames,
+selected solver gets a `SensorUpdate` (IMU, baro, mag, 640x360 FPV frames,
 race state) and returns an `RCCommand`. `RaceTracker` scores ordered
 crossings host-side and writes `race_result_XXX.json`. Nothing anywhere
-hardcodes gate positions — swap in official coordinates by replacing the
+hardcodes gate positions - swap in official coordinates by replacing the
 map JSON.

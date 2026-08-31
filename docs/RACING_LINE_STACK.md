@@ -26,13 +26,20 @@ the render). Sim env setup: `docs/ELODIN_SIM_SETUP.md`.
 ## The rules (RESTRICTIONS.md is authority)
 
 - **All tuning is GLOBAL.** vehicle.toml cannot express a per-gate value,
-  and no one adds one. The uniform crossing-speed rule
-  (`v_gate_mps` within `gate_window_m` of ANY crossing) stays uniform.
+  and no one adds one. The crossing-speed rule (`v_gate_mps` within
+  `gate_window_m` of a crossing, applied only where the line bends there)
+  is one rule for every gate. Line shape beyond the toml is LEARNED by
+  the optimizer (`line_opt --free`), never hand-set per gate.
+- **The collision referee**: touching any gate frame freezes scoring and
+  invalidates the run, regardless of gates already ticked. Plans with
+  frame contacts are refused before flight (the CHECK line).
 - Predicted times from the planner are **model predictions, unverified**.
   The sim tracker's `race_result` is the run record; only real flight
   proves anything.
-- Baseline to beat: the stop-and-center reference pilot, **24/24 in
-  225.3 s** (2026-08-27).
+- Reference points: the stop-and-center pilot, 24/24 in 225.3 s over 2
+  laps (2026-08-27); the current stack, 12/12 in 40.33 s single-lap with
+  zero contacts (2026-08-29). Race length = `[planner] laps` (dev
+  default 1).
 
 ## What lives where
 
@@ -40,7 +47,9 @@ the render). Sim env setup: `docs/ELODIN_SIM_SETUP.md`.
 |---|---|
 | Tuning surface | `config/vehicle.toml` (strict loader: typos fail loudly) |
 | Planner | `src/raceline/planner.py` |
-| Follower (solver) | `src/raceline/follower.py`, `RACE_SOLVER=solvers.follower` |
+| Follower (solver) | `src/solvers/follower.py`, `RACE_SOLVER=solvers.follower` |
+| Line optimizer | `src/raceline/line_opt.py` (`--free` = learned crossing poses) |
+| RC backend (shared loops) | `src/raceline/rc_backend.py` |
 | One-command loop | `race.py` |
 | Course bridge | `src/raceline/course.py` (imports the sim repo's `sim.pq_course`) |
 | Tests | `tests/test_raceline.py` (`python -m unittest test_raceline` from `tests/`) |
@@ -48,34 +57,51 @@ the render). Sim env setup: `docs/ELODIN_SIM_SETUP.md`.
 
 ## How the plan is built
 
-Anchors per crossing (`center +- standoff*normal`) with a two-value standoff:
-the base value normally, the larger `anchor_standoff_turn_m` on both sides
-of any junction whose actual TRAVEL turns more than `turn_angle_deg`
-(covers the g10 out-and-back and the g7 switchback with one rule).
-Centripetal Catmull-Rom through the anchors, then a speed profile:
-pointwise ceiling from tilt (`g*tan(max_tilt)*a_lat_margin` vs curvature),
-yaw rate (`max_yaw_rate_rps` vs heading rate), climb/descent slope, and the
-uniform crossing window - then forward/backward friction-circle passes for
-accel/brake. Timestamps and feedforward accel fall out.
+Takeoff is part of the line: a launch anchor just off the deck and a
+diagonal blend to cruise, so the profile accelerates from the first
+meter. Then anchors per crossing (`center +- standoff*normal`) with a
+two-value standoff: the base value normally, the larger
+`anchor_standoff_turn_m` on both sides of any junction whose actual
+TRAVEL turns more than `turn_angle_deg` (covers the g10 out-and-back and
+the g7 switchback with one rule). The path is a STRAIGHT segment through
+every opening (pre -> center -> post is linear - the hole is never
+curved) with centripetal Catmull-Rom between gates. The base planner
+crosses along each gate's normal; `line_opt --free` may LEARN the
+crossing pose instead (offset in the opening, heading within
+`pose_angle_max_deg` of the normal, standoff scales), found by search
+against predicted time with contacts priced at 50 s. The speed profile:
+pointwise ceiling from tilt (`g*tan(max_tilt)*a_lat_margin` vs
+curvature), attitude slew (`a_lat_rate_max` vs curvature change), yaw
+rate, climb/descent slope, and the crossing window where the line bends
+- then forward/backward friction-circle passes for accel/brake.
+Timestamps and feedforward accel fall out.
 
 Every plan run prints the CHECK line: the speed-profile minimum and where
 it sits. A near-zero minimum somewhere unexpected means a bad plan -
-fix the plan, don't tune the follower around it. (The known-real minimum
-is the g7 switchback: the course genuinely reverses there.)
+fix the plan, don't tune the follower around it. (The known-real minimums are the g7
+switchback and the g10 stack: the course genuinely reverses there.)
 
 ## How the follower flies it
 
-Arc-length carrot: nearest path sample -> target `lookahead_m` ahead ->
-`a = a_ff + kp_pos*deltap + kd_pos*deltav`, clamped to the tilt circle; altitude
-loop with the plan's vz as feedforward; nose points along the path tangent
-`yaw_lookahead_m` ahead. State comes through `StateSource` - ground truth
+Progress along the line is INTEGRATED (velocity projected on the path
+tangent, refined by a local nearest search - a plain global nearest
+search cuts corners), then an arc-length carrot `lookahead_m` ahead:
+`a = a_ff + kp_pos*deltap + kd_pos*deltav` with the velocity-error term
+capped (`v_err_max`) so rejoining the line slow never demands a lunge.
+The RC backend is thrust-vector control in ACRO: attitude points the
+accel vector (tilt-error P plus `kw_att` body-rate damping; sticks are
+RATE commands), throttle supplies the vector's magnitude at the achieved
+tilt off the measured thrust curve, capped at hover-minus when riding
+high. The nose follows the path tangent `yaw_lookahead_m` ahead but goes
+NEUTRAL inside gate windows (a railed yaw demand steals motor authority
+at the crossing). State comes through `StateSource` - ground truth
 today; the estimator milestone swaps in a new source and touches nothing
 else.
 
 ## Tuning levers, in the order to try them
 
 1. `v_gate_mps` / `gate_window_m` - crossing speed dominates lap time
-   (24 crossings).
+   (a dozen windows per lap; straight-through gates already sprint).
 2. `max_tilt_deg` (raises corner speed AND follower authority together) -
    but check the plan report's "profile ruled by" line first: on a heavy
    airframe `a_lat_rate_max` (attitude slew) binds before tilt does, and
@@ -86,7 +112,8 @@ else.
    debug print) grows before gates get missed.
 
 After every change: `race.py`, read gates + total + the worst dt-vs-plan
-events. If gates drop below 24/24, revert the last change first.
+events. If gates drop or a [CRASH] appears, revert the last change
+first.
 
 ## From sim to the real drone
 
