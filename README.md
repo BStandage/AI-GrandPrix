@@ -5,6 +5,7 @@
 >
 > | You want to... | Go to |
 > |---|---|
+> | Just WATCH a flight, zero setup | Docker Desktop + `run_race_docker.cmd` in the sim repo (nothing else needed) |
 > | Get set up and fly your first race | `docs/GETTING_STARTED_RACING_LINE.md` |
 > | Understand drones/Betaflight from zero | `docs/WHAT_IS_BETAFLIGHT.md` |
 > | Write or tune a solver | `src/solvers/README.md` |
