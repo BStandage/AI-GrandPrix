@@ -1,5 +1,15 @@
 # Line optimizer roadmap: escaping local minima
 
+UPDATE (2026-08-29): the precondition below is met - the Betaflight tune
+sprint landed and the slew ceiling is measured (48.8 m/s^3 at race
+amplitude, was 5.3). The search space also grew past this doc's status
+quo: `--free` now optimizes LEARNED CROSSING POSES per event (lateral
+offset, heading within pose_angle_max_deg of the gate normal, standoff
+scales) alongside the free points - diagonal crossings and short/long
+run-ins are discovered by search, not hand rules. Items 2 and 3 below
+are unchanged and still the path; the basins they hunt are now worth
+several seconds instead of ~1.
+
 Status quo (2026-08-28): `raceline/line_opt.py --free` is a LOCAL search -
 Powell/coordinate descent from a straight-line initial guess. It provably
 lands in local minima: at the g7 switchback we measured two distinct
