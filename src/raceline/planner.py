@@ -44,8 +44,108 @@ from raceline.config import G, VehicleConfig, load_config, AIGP_REPO
 
 PLAN_VERSION = 1
 PARK_ALT_M = 0.8
+# Share of the brake budget the run-out is allowed to use. The race is already
+# scored past the last gate, so there is no reason to stop at 100% authority -
+# and the profile did exactly that once the last crossing sped up, leaving no
+# margin at all for the real vehicle. Braking with less than full authority
+# back-propagates into a slower, calmer final crossing.
+RUNOUT_BRAKE_FRAC = 0.55
 _DENSE_DS = 0.05      # spline pre-sampling resolution (m)
 _DEDUP_M = 0.15       # drop pre/post anchors this close to their neighbor
+# Largest share of a leg the two standoff anchors sitting on it may consume
+# between them (see standoffs()). This is what keeps a turn WIDE AND GRADUAL
+# rather than a pivot: the anchors bend the spline, and once they eat too
+# much of the leg the spline has to double back to reach them in order.
+# Swept on this course at tilt 30 / v_max 2.8, measuring each leg's path
+# length against its straight-line distance (1.0 = straight, >1.6 = visibly
+# looping):
+#     0.60 -> mean 1.39x, 155.8 m, 122.2 s   (loops before g4, g5, g8)
+#     0.50 -> mean 1.33x, 149.3 m, 119.6 s
+#     0.30 -> mean 1.13x, 130.4 m, 106.9 s   <- smooth, matches a clean line
+#     0.22 -> mean 1.07x but CRASHES at g5 - too little room to line up
+# LOWERED 0.30 -> 0.20 after the drone still overshot g5 in the real sim and
+# had to re-enter. At 0.30 the g4->g5 leg still swung 1.35x its straight-line
+# distance, and that excursion let the plan accelerate to the full gate cap
+# (3.00 m/s) right at the g5 crossing - so any real-world tracking lag turned
+# straight into lateral error at the worst moment. Re-swept at the current
+# config (tilt 30 / kd_pos 2.8 / short lookahead), which tracks far better
+# than when 0.22 crashed earlier:
+#     0.30 -> g4->g5 detour 1.35x, g5 crossed at 3.00 m/s, lap 56.3 s
+#     0.20 -> detour 1.08x, g5 crossed at 2.21 m/s, lap 50.3 s   <- chosen
+#     0.15 -> detour 1.06x, lap 50.1 s (no real gain over 0.20)
+# Tightening the path is strictly better than slowing the gates here: it fixes
+# the excursion AND lowers the crossing speed as a side effect AND is 6 s
+# faster, where lowering v_gate_mps to 2.0 instead cost 5 s and left the
+# excursion untouched.
+# RAISED 0.20 -> 0.36 for the g6->g7 reversal. An earlier sweep of this
+# number found it made NO difference to that corner (radius stuck at
+# 0.13 m from 0.20 all the way to 0.60) - but that was measured while the
+# reversal clearance routing was accidentally disabled. With the routing
+# restored the budget matters again, because it sets how much room g7's
+# entry anchor gets to line up: 0.20 -> 0.43 m corner / 1.04 m/s;
+# 0.28 -> 0.48 / 1.19;  0.36 -> 0.56 / 1.29;  0.45 -> 0.60 / 1.39 but
+# +0.5 s of lap. 0.36 buys a 30% wider corner for 0.1 s.
+# RAISED 0.36 -> 0.45 after the real sim clipped a g9 gate edge. At 0.36 the
+# budget was silently capping g9's standoff anchors (its two neighbouring legs
+# are only ~8.1 m, so the pair got ~1.47 m instead of the 2.0 m configured) and
+# the spline then had to bend THROUGH the hoop: radius at the g9 crossing was
+# only 2.83 m, i.e. 21 deg of bank while threading a 1.5 m wide frame. 0.45
+# restores the full standoff and straightens the crossings that were tightest:
+#   R at gate (m)   g3   g5   g7   g8   g9
+#     0.36         3.5  2.9  4.6  2.1  2.8
+#     0.45         5.4  4.0  8.0  2.7  7.0   <- chosen
+#     0.48         4.6  2.4  4.6  3.9  4.5   (spline starts oscillating again)
+# g6->g7 (what 0.36 was originally chosen to protect) also improves slightly:
+# corner Rmin 0.53 -> 0.61 m, vmin 1.30 -> 1.37 m/s. Cost: +0.5 s of lap.
+LEG_BUDGET_FRAC = 0.45
+# A junction whose ARRIVAL turn exceeds this is a genuine reversal: the
+# incoming leg would otherwise cross the gate plane outside the opening,
+# through the frame post, so build_anchors routes it around the outer
+# frame instead. Kept SEPARATE from turn_angle_deg (which only sizes
+# standoffs, and is now set far lower) and never inferred from the
+# standoff magnitude - the leg-budget scaling can shrink a reversal's
+# standoff below the base value, which silently switched this routing off
+# at g7 and left a 0.13 m cusp there. 100 deg reproduces the behaviour
+# this logic was written and measured against.
+REVERSAL_CLEARANCE_DEG = 100.0
+# Where the reversal clearance anchor sits, relative to the gate centre.
+# LATERAL is along the gate bar, on the arrival side, and must clear the
+# outer frame (half of 2.7 m) with room to spare. BACK is how far upstream
+# of the gate plane it sits, and it is what decides whether the path CURVES
+# into the opening or jogs into it: at the original 0.5 m the spline had to
+# move 2.55 m sideways while advancing only 0.42 m, which is a corner
+# (measured radius 0.47 m, speed collapsing to 1.0 m/s) rather than a turn.
+# Standoff for a STACKED pair (two openings at the same XY, separated in z).
+# Kept SEPARATE from anchor_standoff_turn_m because this is a vertical drop,
+# not a corner. Sharing that number coupled two unrelated problems: shrinking
+# it to tighten g10 was also shrinking g7's entry standoff and undoing that
+# corner's fix. Decoupled, g7 holds at R~0.55 m / 1.30 m/s across this whole
+# sweep. On g10 (swing / over- and under-shoot of the gate altitudes / time):
+#   2.0  -> 2.31 m, 0.16/0.16, 3.32 s   (was sharing anchor_standoff_turn_m)
+#   1.2  -> 1.47 m, 0.11/0.11, 3.02 s
+#   0.5  -> 0.70 m, 0.05/0.05, 2.53 s   <- chosen at the time
+#   0.35 -> 0.53 m, 0.03/0.02, 2.44 s   (better, but close to the edge)
+#   0.2  -> CRASHES at g10-top
+# RAISED 0.5 -> 2.0 to round the TOP->BOTTOM transition. At 0.5 the path had
+# to be back on the gate normal within half a metre of each opening, so the
+# two places where horizontal flight meets the vertical drop were pivots in
+# place: radius 0.27 m, and the drone crawled the transition at 1.05 m/s.
+# Re-swept with the standoff now independent of anchor_standoff_turn_m:
+#   standoff  Rmin   vmin   t10    g10-low crossing
+#     0.5     0.27   1.05   2.54s      0.044
+#     1.5     0.43   1.33   3.13s      0.033
+#     2.0     0.50   1.43   3.31s      0.030   <- chosen
+#     2.5     0.55   1.50   3.52s      0.024   (+0.2 s more for +0.05 m)
+# A sideways BOW on the transition was also tried (0.8-3.0 m). It swung the
+# path out as intended but made everything worse - Rmin no better than 0.34 m
+# and vmin collapsing to 0.32 m/s at every setting - so it was removed.
+# NOTE vz_down_max was also tried here and does NOTHING: the plan saturates
+# at exactly -3.00 m/s, but accel-slew (56%) and tilt/curvature (33%) are
+# what actually cap this leg, so 3.0 -> 6.0 changed not one measured value.
+STACKED_STANDOFF_M = 2.0
+CLEARANCE_LATERAL_M = 2.7 / 2.0 + 1.2
+CLEARANCE_BACK_M = 2.5
+
 
 
 def wrap_pi(a: float) -> float:
@@ -58,7 +158,7 @@ def wrap_pi(a: float) -> float:
 
 def standoffs(centers_xy: List[Tuple[float, float]], headings: List[float],
               base: float, turn: float,
-              thresh_rad: float) -> Tuple[List[float], List[float]]:
+              thresh_rad: float) -> Tuple[List[float], List[float], List[bool]]:
     """Per-event (pre, post) standoff distances under the two-value rule.
 
     The junction turn is measured on the actual TRAVEL, not just the crossing
@@ -68,25 +168,76 @@ def standoffs(centers_xy: List[Tuple[float, float]], headings: List[float],
     standoff even when the two crossing headings are nearly perpendicular.
     A degenerate XY leg (the stacked out-and-back) falls back to comparing
     the crossing headings directly and widens both sides.
+
+    LEG BUDGET: gate k's exit anchor and gate k+1's entry anchor both live on
+    the SAME leg. If they sum to more than the leg is long they cross over
+    each other, and the spline - which must interpolate them in order - has
+    to double back on itself. That renders as a teardrop loop before the
+    gate (the drone over-pivots, flies away from the gate, then comes back)
+    instead of the wide gradual turn the standoff was meant to buy.
+    Measured on this course: a 5.0 m turn standoff on both ends of the 9.9 m
+    g3->g4 leg took that leg from 1.13x to 2.24x its straight-line distance.
+    So cap the PAIR at LEG_BUDGET_FRAC of the leg and scale both ends down
+    together when they don't fit - wide where there is room, never looping
+    where there isn't. Global rule, no per-gate anything.
     """
     n = len(headings)
     pre = [base] * n
     post = [base] * n
+    # True where the arrival at gate k+1 is a genuine REVERSAL (see
+    # REVERSAL_CLEARANCE_DEG). build_anchors uses this to decide whether to
+    # route around the outer frame. It must NOT be inferred from the standoff
+    # magnitude: the leg-budget scaling below can shrink a reversal's standoff
+    # under the base value, which silently disabled that routing.
+    reversal = [False] * n
     for k in range(n - 1):
         dx = centers_xy[k + 1][0] - centers_xy[k][0]
         dy = centers_xy[k + 1][1] - centers_xy[k][1]
-        if math.hypot(dx, dy) < 1.0:
-            big = abs(wrap_pi(headings[k + 1] - headings[k])) > thresh_rad
-            out_big = in_big = big
+        leg_len = math.hypot(dx, dy)
+        if leg_len < 1.0:
+            # Stacked pair: the two openings share an XY position and are
+            # separated in z alone, so this is a vertical transition, not a
+            # horizontal corner. It gets its OWN standoff - the turn standoff
+            # is sized for cornering room on a real leg, and reusing it here
+            # coupled the two problems (tightening g10 was shrinking g7's
+            # entry and undoing its corner fix).
+            turn_in = abs(wrap_pi(headings[k + 1] - headings[k]))
+            out_big = in_big = turn_in > thresh_rad
+            turn_out = turn_in
+            if out_big:
+                post[k] = STACKED_STANDOFF_M
+            if in_big:
+                pre[k + 1] = STACKED_STANDOFF_M
+            reversal[k + 1] = False   # vertical approach: no frame to dodge
+            continue
         else:
             leg = math.atan2(dy, dx)
-            out_big = abs(wrap_pi(leg - headings[k])) > thresh_rad
-            in_big = abs(wrap_pi(headings[k + 1] - leg)) > thresh_rad
+            turn_out = abs(wrap_pi(leg - headings[k]))
+            turn_in = abs(wrap_pi(headings[k + 1] - leg))
+            out_big = turn_out > thresh_rad
+            in_big = turn_in > thresh_rad
         if out_big:
             post[k] = turn
         if in_big:
             pre[k + 1] = turn
-    return pre, post
+        # Only for a real horizontal leg: the clearance routing exists because
+        # an incoming leg would cross the gate plane outside the opening and
+        # clip the frame post. The stacked pair is approached vertically, so
+        # that geometry never arises there - and routing it around the frame
+        # anyway re-inflated its loop from 2.56x to 4.17x (+4.1 s on the lap).
+        reversal[k + 1] = (leg_len >= 1.0
+                           and turn_in > math.radians(REVERSAL_CLEARANCE_DEG))
+        # Fit the pair to the leg. Skipped for a degenerate XY leg (the
+        # stacked pair is separated in z, so its XY length says nothing
+        # about the room available).
+        if leg_len >= 1.0:
+            budget = LEG_BUDGET_FRAC * leg_len
+            total = post[k] + pre[k + 1]
+            if total > budget:
+                scale = budget / total
+                post[k] *= scale
+                pre[k + 1] *= scale
+    return pre, post, reversal
 
 
 def build_anchors(course, cfg: VehicleConfig):
@@ -96,10 +247,11 @@ def build_anchors(course, cfg: VehicleConfig):
     """
     p = cfg.planner
     events = [course.event(i) for i in range(course.total_events)]
-    pre_d, post_d = standoffs([(c.x, c.y) for c in events],
-                              [c.heading_rad for c in events],
-                              p.anchor_standoff_m, p.anchor_standoff_turn_m,
-                              math.radians(p.turn_angle_deg))
+    pre_d, post_d, reversal = standoffs([(c.x, c.y) for c in events],
+                                        [c.heading_rad for c in events],
+                                        p.anchor_standoff_m,
+                                        p.anchor_standoff_turn_m,
+                                        math.radians(p.turn_angle_deg))
 
     anchors: List[np.ndarray] = [np.array([0.0, 0.0, p.takeoff_alt_m])]
     center_idx: List[int] = []
@@ -118,12 +270,20 @@ def build_anchors(course, cfg: VehicleConfig):
         # around the OUTER frame: a clearance anchor on the arrival side,
         # 1.2 m beyond the frame edge, slightly before the gate plane.
         # Fully derived from geometry; works at any reversal on any course.
-        if k > 0 and pre_d[k] > p.anchor_standoff_m:
+        if k > 0 and reversal[k]:
             bar = np.array([-math.sin(c.heading_rad),
                             math.cos(c.heading_rad), 0.0])
             side = math.copysign(1.0, float(np.dot(bar, anchors[-1] - ctr)))
-            clr = (ctr + bar * side * (2.7 / 2.0 + 1.2) - n * 0.5
-                   + np.array([0.0, 0.0, 0.0]))
+            # Route around the OUTER frame on the arrival side. BACK is
+            # what decides whether the path curves into the opening or jogs
+            # into it - swept on the g7 reversal (Rmin / slowest point on the
+            # leg): 0.5 -> 0.33 m, 0.90 m/s; 1.5 -> 0.41 m, 1.00 m/s;
+            # 2.5 -> 0.43 m, 1.04 m/s; 3.5 -> 0.38 m, 0.91 m/s.
+            # An explicit multi-point U-turn arc was also tried here and did
+            # NOT beat this single anchor (Rmin 0.40 m at best, and a longer
+            # path), so the simpler form is kept.
+            clr = (ctr + bar * side * CLEARANCE_LATERAL_M
+                   - n * CLEARANCE_BACK_M)
             clr[2] = anchors[-1][2]
             if np.linalg.norm(clr - anchors[-1]) > _DEDUP_M:
                 anchors.append(clr)
@@ -135,8 +295,16 @@ def build_anchors(course, cfg: VehicleConfig):
         center_idx.append(len(anchors))
         anchors.append(ctr)
         anchors.append(post)   # centers/posts always kept: post defines exit
+    # Run-out: descend from the final post anchor to the park altitude.
+    # Two reshapings were tried here and both reverted: a straight carry-on
+    # along the exit normal, and a quarter-arc bending back toward the start
+    # gate. Neither earned its keep, and the run-out is after the last scored
+    # crossing, so it is left as the simplest thing that works. The reason the
+    # drone no longer lurches at the end is the "run-out" ceiling in
+    # _speed_profile(), which is a SPEED rule, not a geometry one.
     last = anchors[-1]
     anchors.append(np.array([last[0], last[1], PARK_ALT_M]))
+
     return np.array(anchors), center_idx
 
 
@@ -312,6 +480,27 @@ def _speed_profile(P: np.ndarray, s: np.ndarray, cfg: VehicleConfig,
     v_gate[dmin < lim.gate_window_m] = lim.v_gate_mps
     ceilings["gate-window"] = v_gate
 
+    # RUN-OUT: past the FINAL crossing the race is already scored, so there is
+    # nothing to gain by accelerating again - and the time-optimal profile
+    # otherwise does exactly that, sprinting back up to v_max on the open path
+    # before braking hard into the park point (measured: exit the last gate at
+    # 1.30 m/s, climb to 3.5, dip to 0.32 at the corner, push back to 1.91,
+    # then stop - the drone lurching instead of settling). Cap the ceiling at
+    # a braking parabola, v = sqrt(2 * a_brake * distance still to run, so the
+    # limit is one the brake pass can actually follow. A LINEAR taper was used
+    # here first; it works while the last gate is crossed slowly, but once the
+    # crossing sped up to 3.7 m/s a straight line to zero is not a shape any
+    # real deceleration can hold, and the profile broke back up again.
+    i_last = int(np.linalg.norm(P - centers[-1][None, :], axis=1).argmin())
+    runout = np.full(n, np.inf)
+    if i_last < n - 1:
+        v_at_gate = float(np.min(np.vstack(
+            [ceilings[k] for k in ceilings])[:, i_last]))
+        runout[i_last:] = np.minimum(
+            v_at_gate,
+            np.sqrt(2.0 * lim.a_brake_max * np.maximum(s[-1] - s[i_last:], 0.0)))
+    ceilings["run-out"] = runout
+
     names = list(ceilings)
     stack = np.vstack([ceilings[k] for k in names])
     v_lim = stack.min(axis=0)
@@ -319,6 +508,11 @@ def _speed_profile(P: np.ndarray, s: np.ndarray, cfg: VehicleConfig,
     floored = v_lim < cfg.planner.v_floor_mps
     binding[floored] = "v_floor(" + binding[floored] + ")"
     v_lim = np.maximum(v_lim, cfg.planner.v_floor_mps)
+    # ... except on the run-out. The floor exists so the drone never stalls
+    # mid-course, but after the last gate it is exactly wrong: it held the
+    # profile at 0.30 m/s and then cut straight to a dead stop. Re-apply the
+    # taper on top of the floor so the speed decays continuously to zero.
+    v_lim = np.minimum(v_lim, runout)
 
     # Two-pass with friction circle.
     def a_avail(budget: float, vi: float, ki: float) -> float:
@@ -332,8 +526,19 @@ def _speed_profile(P: np.ndarray, s: np.ndarray, cfg: VehicleConfig,
         v[i + 1] = min(v_lim[i + 1], math.sqrt(v[i] * v[i] + 2 * aa * ds))
     v[-1] = 0.0
     for i in range(n - 1, 0, -1):
-        ab = a_avail(lim.a_brake_max, v[i], kappa[i])
+        budget = lim.a_brake_max
+        if i >= i_last:
+            budget *= RUNOUT_BRAKE_FRAC     # settle, do not slam (see above)
+        ab = a_avail(budget, v[i], kappa[i])
         v[i - 1] = min(v[i - 1], math.sqrt(v[i] * v[i] + 2 * ab * ds))
+
+    # Belt and braces on the run-out: whatever the ceilings and the two passes
+    # worked out, speed after the final crossing may only ever fall. A running
+    # minimum can only lower samples, so it can never demand more braking than
+    # the pass above already allowed - it just removes any residual bump left
+    # by a tight corner on the way to the park point.
+    if i_last < n - 1:
+        v[i_last:] = np.minimum.accumulate(v[i_last:])
 
     t = np.zeros(n)
     floor = cfg.planner.v_floor_mps
@@ -375,6 +580,7 @@ def plan(cfg: VehicleConfig, course=None) -> Plan:
             "t": float(np.interp(s_ev, sg, t)),
             "v": float(np.interp(s_ev, sg, v)),
             "x": round(c.x, 3), "y": round(c.y, 3), "z": round(c.z, 3),
+            "heading_rad": round(c.heading_rad, 4),
         })
 
     map_p = course_bridge.map_path()
