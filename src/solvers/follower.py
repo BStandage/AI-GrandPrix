@@ -42,6 +42,30 @@ from raceline.rc_backend import (   # noqa: E402  (the shared proven loops)
 T_DISARMED_END = 0.50
 T_ARM_IDLE_END = 0.75
 
+# RETRY DEBOUNCE: consecutive control ticks the nearest-point search must read
+# "past the gate" before a retry actually fires. At the 1000 Hz PID rate this
+# is ~20 ms - long enough to reject a single noisy tick, short enough to still
+# react fast to a real miss. Needed because the real sim's control-loop timing
+# jitters (measured "cannot achieve real-time" on the SAME run that showed a
+# clean 12/12 in the fixed-dt kinematic replay, sim_lite) - an unlatched,
+# single-tick check can flicker past/not-past the gate boundary under that
+# jitter even when sim_lite (perfectly even dt, no jitter) never sees it,
+# which reads to a pilot as the drone backing off and re-trying the same gate
+# repeatedly instead of flying through once.
+RETRY_CONFIRM_TICKS = 20
+
+# MAX RETRIES PER GATE: if a gate frame is ever physically touched, the
+# referee (pq_course.RaceTracker) sets crashed=True and PERMANENTLY stops
+# crediting any crossing for the rest of the run (a real-world DQ rule) - but
+# it never tells the follower this happened (SensorUpdate/next_gate_index has
+# no crashed flag at all). Left unbounded, the follower keeps treating that
+# same now-uncreditable gate as "next" forever and retries it endlessly -
+# THIS is the infinite back-and-forth. After this many confirmed misses on
+# the SAME gate, stop fighting it: drop the gate cap and let the drone keep
+# flying the rest of the planned path smoothly instead of oscillating in
+# place with no possible payoff.
+MAX_RETRIES_PER_GATE = 3
+
 _TRAJ_PATH = os.environ.get("AIGP_TRAJ")
 if not _TRAJ_PATH:
     raise RuntimeError(
@@ -72,6 +96,12 @@ class Tracker:
         # at the g7 hairpin the search walked onto the lap-2 branch and the
         # drone 'finished' a lap the referee never saw)
         self.event_s = [e["s"] for e in plan["events"]]
+        # Gate center + required crossing heading, straight from the course
+        # geometry (when the plan carries it - older plans without
+        # heading_rad fall back to the smoothed-spline proxy below).
+        self.event_xyz = [(e.get("x"), e.get("y"), e.get("z"))
+                          for e in plan["events"]]
+        self.event_heading = [e.get("heading_rad") for e in plan["events"]]
         ds = np.diff(self.s)
         self._ds = float(np.median(ds))
         # Forward search window. Kept SHORT so the nearest-point search can
@@ -83,6 +113,10 @@ class Tracker:
     def reset(self):
         self.idx = 0
         self.started = False
+        self._miss_streak = 0    # consecutive ticks reading "past the gate"
+        self._retry_gate = -1    # which event the retry counter below is for
+        self._retry_count = 0    # confirmed retries fired for _retry_gate
+        self._abandoned = set()  # gates given up on - cap dropped for these
 
     def _advance(self, p: np.ndarray, next_event: int) -> int:
         """Monotonic nearest-sample search, forward window, CAPPED at the
@@ -115,26 +149,80 @@ class Tracker:
                 a_des = f.kp_pos * err0[:2] - f.kd_pos * est.v[:2]
                 return a_des, float(self.pos[0][2]), 0.0, None, False
 
-        i = self._advance(est.p, next_event)
+        # Once we've given up on a gate (see MAX_RETRIES_PER_GATE below),
+        # stop capping progress at it - fly the rest of the course.
+        capped_event = next_event if next_event not in self._abandoned else -1
+        i = self._advance(est.p, capped_event)
         s_here = float(self.s[i])
 
         # RETRY: past the next unscored gate without credit (a miss) the
         # gate cap would deadlock us against it forever. Re-approach: target
-        # the path 2.5 m BEFORE the opening and cross it again - the ordered
+        # a point 2.5 m BEFORE the opening and cross it again - the ordered
         # referee accepts late crossings, so a near-miss costs seconds, not
         # the race. General rule, no per-gate anything.
-        if 0 <= next_event < len(self.event_s):
+        #
+        # DEBOUNCED: the nearest-point search above is re-run every tick, and
+        # under real control-loop jitter (not present in the fixed-dt sim_lite
+        # replay) it can flicker across the s_ev+0.5 line for a tick or two
+        # without a genuine miss - an unlatched check fires a full "back up
+        # and re-approach" on that single flicker, which is what reads as the
+        # drone repeatedly backing off and re-trying the same gate. Require
+        # the miss to persist for RETRY_CONFIRM_TICKS before acting on it.
+        if 0 <= capped_event < len(self.event_s):
             s_ev = self.event_s[next_event]
-            if s_here > s_ev + 0.5:
-                j = self._at_s(max(0.0, s_ev - 2.5))
-                self.idx = j
-                a_des = (1.5 * f.kp_pos * (self.pos[j][:2] - est.p[:2])
-                         - f.kd_pos * est.v[:2])
-                a_max = self.cfg.a_lat_full()
-                n = float(np.hypot(a_des[0], a_des[1]))
-                if n > a_max:
-                    a_des *= a_max / n
-                return (a_des, float(self.pos[j][2]), 0.0, None, False)
+            past_gate = s_here > s_ev + 0.5
+            self._miss_streak = self._miss_streak + 1 if past_gate else 0
+            if past_gate and self._miss_streak >= RETRY_CONFIRM_TICKS:
+                self._miss_streak = 0
+                if self._retry_gate != next_event:
+                    self._retry_gate, self._retry_count = next_event, 0
+                self._retry_count += 1
+                if self._retry_count > MAX_RETRIES_PER_GATE:
+                    # Confirmed misses on this SAME gate, repeatedly, after
+                    # already re-approaching along its own crossing normal
+                    # each time - further retries won't succeed where these
+                    # didn't (most likely a frame touch already froze scoring
+                    # for the rest of the run, per the RaceTracker rule).
+                    # Give up on it: fall through to normal tracking below
+                    # with the gate cap dropped, instead of oscillating here
+                    # forever with zero chance of credit.
+                    self._abandoned.add(next_event)
+                else:
+                    j = self._at_s(max(0.0, s_ev - 2.5))
+                    self.idx = j
+                    heading = self.event_heading[next_event]
+                    if heading is not None:
+                        # Re-approach ALONG THE GATE'S OWN CROSSING NORMAL,
+                        # not 2.5 m back along the smoothed spline's
+                        # arc-length. On a sharp turn the spline sample there
+                        # can sit on the WRONG leg of the turn (measured: at
+                        # a gate that reverses course, the arc-length retry
+                        # point landed on the inbound leg, well off the
+                        # gate's actual approach line - a straight-line pull
+                        # from there can never thread the opening). A point
+                        # on the gate's own normal is ALWAYS lined up for a
+                        # straight shot through the opening, on any course
+                        # geometry.
+                        gx, gy, gz = self.event_xyz[next_event]
+                        nx, ny = math.cos(heading), math.sin(heading)
+                        tx, ty, tz = gx - 2.5 * nx, gy - 2.5 * ny, gz
+                    else:   # older plan without heading_rad: old proxy
+                        tx, ty, tz = self.pos[j][0], self.pos[j][1], self.pos[j][2]
+                    a_des = (1.5 * f.kp_pos * (np.array([tx, ty]) - est.p[:2])
+                             - f.kd_pos * est.v[:2])
+                    a_max = self.cfg.a_lat_full()
+                    n = float(np.hypot(a_des[0], a_des[1]))
+                    if n > a_max:
+                        a_des *= a_max / n
+                    # Face the re-approach direction instead of freezing the
+                    # nose: a None yaw here left the drone's heading locked
+                    # from whatever it was doing when the miss was detected,
+                    # which on a sharp-turn gate points the camera/frame away
+                    # from the opening on every retry. Aim at the point
+                    # we're actually flying to.
+                    yaw_des = (math.atan2(a_des[1], a_des[0])
+                               if n > 0.05 else None)
+                    return (a_des, float(tz), 0.0, yaw_des, False)
 
         # RECOVERY: far off the line, plan feedforward is poison (it kept a
         # stalled drone hovering at a stable equilibrium 11 m off-course).
