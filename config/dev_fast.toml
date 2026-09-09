@@ -26,8 +26,8 @@ pwm_max   = 2000          # full range; measured ceiling from solvers.sysid_thru
 # linearization around hover; replace with the FAQ thrust/accel data or a
 # measured sweep. Not consumed by the v1 planner (it uses the a_accel/a_brake
 # scalars below) - the slot exists for exactly that swap.
-curve_pwm = [1350, 1500, 1650, 1800, 2000]
-curve_acc = [13.88, 19.32, 23.44, 26.25, 29.21]   # MEASURED, drag-fixed plant (sysid_thrust run 1)
+curve_pwm = [1000, 1240, 1350, 1500, 1650, 1800, 2000]
+curve_acc = [0.0, 9.81, 16.2, 22.7, 31.1, 37.2, 37.5]   # copied from vehicle.toml (thrust_002 peaks); must bracket hover_pwm
 
 [limits]                  # ceilings shared by planner AND follower
 max_tilt_deg     = 35.0   # 12-gate-proven envelope; raise ONE lever at a time
@@ -57,6 +57,7 @@ sample_ds_m   = 0.25           # uniform arc-length resolution of the plan
 a_lat_margin  = 0.7            # 0.8 left no transient reserve: braking balloons hit frames
 takeoff_alt_m = 1.35           # first anchor above the spawn point
 v_floor_mps   = 0.3            # numerical floor for the profile/timestamps
+reversal_climb_m = 0.0   # flat reversals (see vehicle.toml)
 
 [optimizer]               # racing-line optimizer (raceline.line_opt)
 apex_max_m = 0.20         # PHYSICAL budget: opening half 0.75 - drone 0.15 = 0.60;
@@ -68,11 +69,13 @@ kp_pos      = 1.2
 kd_pos      = 2.1
 lookahead_m = 1.5       # arc-length carrot distance
 lookahead_t = 0.8       # seconds of warning; carrot = max(lookahead_m, t*v)
+kw_att      = 25.0    # attitude rate damping (see vehicle.toml)
 ka_att      = 300.0   # was 120: starved the tilt loop (max ~45 PWM); A-B tested 2026-08-28
 stick_clamp = 150     # was 45: clipped the louder commands
-kp_z        = 140.0     # altitude loop (proven), plus plan vz feedforward
-kd_z        = 45.0
-ki_z        = 8.0
+kp_z        = 9.0       # ACCEL UNITS (m/s^2 per m) - see vehicle.toml; the
+                        # loop goes through the [thrust] curve and the tilt
+kd_z        = 4.0       # m/s^2 per m/s
+ki_z        = 0.5       # m/s^2 per m.s
 kyaw        = 200.0     # yaw error (rad) -> stick PWM
 yaw_clamp   = 200       # ~1.0 rad/s at the measured 0.31 rad/s per 60 PWM
 yaw_lookahead_m = 3.0   # aim the nose at the tangent this far ahead

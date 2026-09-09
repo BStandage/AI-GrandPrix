@@ -12,7 +12,7 @@ WHERE THE KNOBS ARE (edit config/vehicle.toml, not code):
     tilt (= accel) cap  [limits] max_tilt_deg      -> cfg.a_lat_full()
     pitch/roll sticks   [follower] stick_clamp, ka_att
     yaw stick           [follower] kyaw, yaw_clamp
-    throttle loop       [follower] kp_z, kd_z, ki_z + [thrust] hover_pwm
+    throttle loop       [follower] kp_z, kd_z, ki_z (m/s^2 units) + [thrust] curve
 The loader is strict: a typo'd key fails loudly. Add new keys to the
 schema in raceline/config.py if your solver needs its own.
 """

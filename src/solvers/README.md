@@ -11,6 +11,8 @@ def autopilot(update: SensorUpdate) -> RCCommand:
 | `_template.py` | Copy me. Arms, hovers in front of g0, every layer labeled. |
 | `follower.py` | THE race solver: flies a planned trajectory (arc-length carrot). Needs `AIGP_TRAJ` - use `race.py`, which handles it. |
 | `sysid_slew.py` | Measurement flight: attitude-slew steps + analyzer. |
+| `sysid_thrust.py` | Measurement flight: raw throttle steps -> `[thrust]` curve + analyzer. |
+| `sysid_alt.py` | Measurement flight: closed-loop altitude steps + tilt pulses (checks `kp_z`/`kd_z`) + analyzer. |
 | `vision_probe.py` | Collects FPV frames of the gates, then runs the HSV detector offline. |
 
 ## Add a solver
