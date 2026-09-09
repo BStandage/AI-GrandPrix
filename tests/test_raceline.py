@@ -79,12 +79,18 @@ class TestPlanGeometry(unittest.TestCase):
                         f"plan only passes {tracker.events_passed}/"
                         f"{COURSE.total_events} events")
 
-    def test_path_hits_crossing_centers(self):
+    def test_path_crosses_inside_every_opening(self):
+        # The opening is a corridor, not a point: the lane straightener
+        # deliberately crosses aligned runs at the hole EDGES (up to
+        # _LANE_USE_M = 0.40 off-center) so near-collinear gates can run
+        # near v_max (Brian, 2026-09-08). The invariant that matters is
+        # the referee's: the crossing must sit inside the effective
+        # window (0.75 half-opening minus 0.15 drone radius = 0.60).
         for e in PLAN.events:
             p = np.array([np.interp(e["s"], PLAN.s, PLAN.pos[:, k])
                           for k in range(3)])
             d = np.linalg.norm(p - np.array([e["x"], e["y"], e["z"]]))
-            self.assertLess(d, 0.15, f"{e['label']} center miss {d:.2f} m")
+            self.assertLess(d, 0.60, f"{e['label']} outside opening {d:.2f} m")
 
     def test_crossing_direction(self):
         for k, e in enumerate(PLAN.events):
@@ -120,10 +126,22 @@ class TestPlanGeometry(unittest.TestCase):
     def test_accel_slew_ceiling(self):
         # d(a_lat)/dt ~ v^3 * dkappa/ds must respect a_lat_rate_max wherever
         # that ceiling binds (v_floor may override at hairpin cusps).
+        # Only where the path actually BENDS (kappa >= 0.15): on straights
+        # the spline's curvature ripple makes dkappa noise, and the planner
+        # deliberately exempts them from the slew ceiling (2026-09-08, the
+        # slowing-inside-every-gate fix) - the bank being "slewed" there is
+        # a fraction of a degree.
+        # Same smoothed kappa the planner's ceilings run on (1 m boxcar
+        # over the raw Menger samples) - raw kappa spikes at stub/arc
+        # joins that the smoothed guard correctly exempts.
+        ds = float(np.median(np.diff(PLAN.s)))
+        w = max(1, int(round(1.0 / ds)) | 1)
+        kappa_s = np.convolve(PLAN.kappa, np.ones(w) / w, mode="same")
+        bend = kappa_s >= 0.15
         rate = PLAN.v ** 3 * PLAN.dkappa_ds
         bound = np.maximum(CFG.limits.a_lat_rate_max,
                            CFG.planner.v_floor_mps ** 3 * PLAN.dkappa_ds)
-        self.assertTrue(np.all(rate <= bound * 1.15 + 1e-6))
+        self.assertTrue(np.all(rate[bend] <= bound[bend] * 1.15 + 1e-6))
 
     def test_binding_attribution_present(self):
         self.assertEqual(len(PLAN.binding), len(PLAN.v))

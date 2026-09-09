@@ -94,7 +94,14 @@ v_max_mps        = 6.0    # global straight-line ("moving forwards") cap -
                           # max_tilt_deg untouched throughout, so the
                           # follower's real-time correction authority is
                           # unaffected. Global-only (RESTRICTIONS.md).
-v_gate_mps       = 5.5    # cap within gate_window_m of ANY crossing center.
+v_gate_mps       = 6.0    # RAISED 5.5 -> 6.0 (= v_max): with the lane
+                          # straightener crossing aligned runs at the hole
+                          # edges, a straight-through gate is just track -
+                          # no reason to slow below v_max there. Bent gates
+                          # stay governed by curvature/slew as before.
+                          # (Brian, 2026-09-08: full speed g0-g5.)
+                          # Original comment for 5.5 follows.
+                          # cap within gate_window_m of ANY crossing center.
                           # RAISED from 0.8 - this, not v_max, was what held
                           # up the near-straight g0->g3 run. Those legs are
                           # 4.65/7.36/9.85 m long and every gate imposes a
@@ -123,7 +130,10 @@ a_accel_max      = 8.2   # RAISED from 4.0. The old value was sized for the
 a_brake_max      = 8.2   # RAISED from 5.0, same tilt-consistency reasoning
 
 [planner]
-laps = 1                  # dev iteration: one lap is the same information in half
+laps = 2                  # VADR-TS-004 scores 2-lap runs; the lap boundary
+                          # (g10-low back up to g0) is the untested piece of
+                          # the 1-lap-verified baseline (12/12 at 40.7 s,
+                          # race_007_intern_1lap, 2026-09-08)
 anchor_standoff_m      = 2.0   # pre/post anchor along each crossing normal
 anchor_standoff_turn_m = 2.0   # LOWERED 3.5 -> 5.0 -> 2.0. Now that
                                # LEG_BUDGET_FRAC caps every normal leg

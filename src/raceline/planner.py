@@ -240,6 +240,110 @@ def standoffs(centers_xy: List[Tuple[float, float]], headings: List[float],
     return pre, post, reversal
 
 
+# Half-width of each opening the LANE may claim when straightening a run
+# of aligned gates: 0.60 referee-effective window (0.75 - 0.15 drone
+# radius) minus measured tracking error on a straightened lane (<= 0.16 m,
+# flight 2026-09-03). The g0-g3 stagger is ~1 m; crossing at the hole
+# EDGES instead of the centers turns the r~1.5-4 m interpolation wiggle
+# into r~15+ m arcs, which is what lets those gates run near v_max
+# (Brian, 2026-09-08: "we can go probably full speed at least g0-g5;
+# we are slowing when crossing every gate").
+_LANE_USE_M = 0.40
+_LANE_ALIGN_RAD = math.radians(25.0)
+
+
+def _lane_points(events) -> List[np.ndarray]:
+    """Crossing points for runs of >=3 heading-aligned gates: fit the
+    best single diagonal through the run and shift each crossing toward
+    it, clamped to +-_LANE_USE_M along its own gate bar. Best-effort by
+    design - where one line cannot stab every hole, a partially
+    straightened lane still multiplies the local bend radius. Gates
+    outside aligned runs keep their exact centers."""
+    pts = [np.array([e.x, e.y, e.z], dtype=float) for e in events]
+    runs = []
+    n = len(events)
+
+    # DISABLED (Brian, 2026-09-08): shifting crossings toward a straight
+    # lane trades the centered ±0.75 margin for straightness, and the
+    # follower's attitude-lag OVERSHOOT on the g1->g2 swing-back then ate
+    # the margin and clipped g2's +0.41 post (flown +0.53 vs planned
+    # +0.06). Megan's centred crossings pass this leg verified 12/12.
+    # Get a COMPLETE 2-lap on the board with proven geometry first;
+    # re-earn g0-g3 speed later WITH a follower that doesn't overshoot
+    # (needs the tune sprint / a lookahead fix, not a planner nudge).
+    # The apex-arc sweep in build_anchors is independent and stays on.
+    return pts, [None] * n
+
+    def _joins(a, b):
+        # aligned headings AND travel along them: the lap-1 g10-low ->
+        # lap-2 g0 leg matches headings (both ~north) but travels ~34
+        # deg off them - a dogleg, not a lane. Grouping it dragged the
+        # lap-2 g0-g3 diagonal 8 m east and crawled lap-2 g0/g1 at
+        # 3.05-3.11 vs lap-1's 5.2 (Brian, 2026-09-08).
+        dx, dy = b.x - a.x, b.y - a.y
+        leg = math.hypot(dx, dy)
+        if leg < 1.5:
+            return False
+        if abs(wrap_pi(b.heading_rad - a.heading_rad)) >= _LANE_ALIGN_RAD:
+            return False
+        travel = math.atan2(dy, dx)
+        return (abs(wrap_pi(travel - a.heading_rad)) < _LANE_ALIGN_RAD
+                and abs(wrap_pi(travel - b.heading_rad)) < _LANE_ALIGN_RAD)
+
+    i = 0
+    while i < n:
+        j = i + 1
+        while j < n and _joins(events[j - 1], events[j]):
+            j += 1
+        if j - i >= 3:
+            ev = events[i:j]
+            # Straightest feasible corridor, not a speed-max diagonal.
+            # Target the CHORD between the run's first and last gate
+            # centers and pull every interior gate as far toward that
+            # straight line as its opening safely allows. This MINIMISES
+            # the weave: the old best-fit-minimax line pushed crossings
+            # to opposite opening edges (g1 flown at -1.03, then a hard
+            # swing east that overshot g2's +0.41 post and crashed;
+            # Brian, 2026-09-08: "g0-g3 is essentially straight, the left
+            # turn after g0 is wrong"). Endpoints are pinned so the chord
+            # is anchored to the real gates the drone must hit.
+            a = np.array([ev[0].x, ev[0].y])
+            b = np.array([ev[-1].x, ev[-1].y])
+            chord = b - a
+            clen = float(np.hypot(chord[0], chord[1]))
+            u = chord / max(clen, 1e-9)
+            v = np.array([-u[1], u[0]])
+            t_lane = np.array([u[0], u[1]])
+            for k, e in enumerate(ev):
+                if i + k == 0 or k == 0 or k == len(ev) - 1:
+                    # launch gate and both run endpoints stay put; they
+                    # define the straight line the interior bows toward
+                    runs.append((i + k, t_lane))
+                    continue
+                rel = np.array([e.x, e.y]) - a
+                lat = float(np.dot(rel, v))          # signed dist to chord
+                along = float(np.dot(rel, u))
+                target_lat = 0.0                      # the chord itself
+                want = target_lat - lat
+                off = max(-_LANE_USE_M, min(_LANE_USE_M, want))
+                xy = a + along * u + (lat + off) * v
+                pts[i + k] = np.array([xy[0], xy[1], e.z])
+                runs.append((i + k, t_lane))
+        i = j
+    # lane_dir[k]: unit XY tangent of the fitted diagonal for gates inside
+    # an aligned run, else None. build_anchors lays THOSE gates' pre/post
+    # anchors along the lane instead of the gate normal - the normal-
+    # aligned triplet was yanking the spline off the diagonal and back at
+    # every crossing, an S-wiggle inside each gate window that the slew
+    # ceiling priced as a dip ("slowing inside every gate for no reason",
+    # Brian, 2026-09-08). The lane runs within _LANE_ALIGN_RAD of each
+    # crossing heading, so crossing direction stays legal.
+    lane_dir = [None] * n
+    for k, t in runs:
+        lane_dir[k] = t
+    return pts, lane_dir
+
+
 def build_anchors(course, cfg: VehicleConfig):
     """Anchor chain: takeoff -> (pre, center, post) per event -> park.
 
@@ -247,19 +351,74 @@ def build_anchors(course, cfg: VehicleConfig):
     """
     p = cfg.planner
     events = [course.event(i) for i in range(course.total_events)]
+    lane, lane_dir = _lane_points(events)
     pre_d, post_d, reversal = standoffs([(c.x, c.y) for c in events],
                                         [c.heading_rad for c in events],
                                         p.anchor_standoff_m,
                                         p.anchor_standoff_turn_m,
                                         math.radians(p.turn_angle_deg))
 
+    # Junction arc parameters (k -> k+1): (radius, turn sign) for bent
+    # non-reversal junctions, else None. Used twice: the apex anchor
+    # mid-leg, and ROTATING each gate's pre/post stub onto the arc - a
+    # straight 2 m stub along the gate heading forces the spline to
+    # re-bend hard right after it (the residual dips after g3 / around
+    # g4; Brian, 2026-09-08: "do we really need to be slowing there?").
+    # The chord of an arc segment of length d deviates from the end
+    # tangent by d/(2r), so tilting the stub by that angle lays it on
+    # the arc. Answer to the question: no - the physics floor for the
+    # r~7 m top arcs is ~5.4 m/s; everything below that was kink.
+    junc: List[Optional[Tuple[float, float]]] = [None] * len(events)
+    for k in range(len(events) - 1):
+        if reversal[k + 1]:
+            continue
+        a2, b2 = lane[k][:2], lane[k + 1][:2]
+        cvec = b2 - a2
+        L = float(np.hypot(cvec[0], cvec[1]))
+        turn = abs(wrap_pi(events[k + 1].heading_rad - events[k].heading_rad))
+        if L <= 3.0 or not (math.radians(25.0) < turn < math.radians(140.0)):
+            continue
+        chord_ang = math.atan2(cvec[1], cvec[0])
+        phi = 0.5 * (abs(wrap_pi(chord_ang - events[k].heading_rad))
+                     + abs(wrap_pi(events[k + 1].heading_rad - chord_ang)))
+        if phi <= math.radians(10.0):
+            continue
+        ta = np.array([math.cos(events[k].heading_rad),
+                       math.sin(events[k].heading_rad)])
+        tb = np.array([math.cos(events[k + 1].heading_rad),
+                       math.sin(events[k + 1].heading_rad)])
+        cross = ta[0] * tb[1] - ta[1] * tb[0]
+        junc[k] = (L / (2.0 * math.sin(phi)), 1.0 if cross > 0 else -1.0)
+
+    def _rot(v: np.ndarray, ang: float) -> np.ndarray:
+        ca, sa = math.cos(ang), math.sin(ang)
+        return np.array([ca * v[0] - sa * v[1],
+                         sa * v[0] + ca * v[1], v[2]])
+
     anchors: List[np.ndarray] = [np.array([0.0, 0.0, p.takeoff_alt_m])]
     center_idx: List[int] = []
     for k, c in enumerate(events):
         n = np.array([math.cos(c.heading_rad), math.sin(c.heading_rad), 0.0])
-        ctr = np.array([c.x, c.y, c.z])
-        pre = ctr - pre_d[k] * n
-        post = ctr + post_d[k] * n
+        ctr = lane[k]
+        # In an aligned run, the approach/exit anchors follow the LANE,
+        # not the gate normal (see _lane_points). Reversal gates keep the
+        # normal - their clearance routing depends on it.
+        if lane_dir[k] is not None and not reversal[k]:
+            n_anchor = np.array([lane_dir[k][0], lane_dir[k][1], 0.0])
+        else:
+            n_anchor = n
+        # Lay each stub ON its junction arc (see junc[] above): the pre
+        # stub of a gate with an incoming arc tilts backward along it,
+        # the post stub of a gate with an outgoing arc tilts forward.
+        pre_dir = post_dir = n_anchor
+        if k > 0 and junc[k - 1] is not None:
+            r_in, s_in = junc[k - 1]
+            pre_dir = _rot(n, -s_in * pre_d[k] / (2.0 * r_in))
+        if junc[k] is not None:
+            r_out, s_out = junc[k]
+            post_dir = _rot(n, s_out * post_d[k] / (2.0 * r_out))
+        pre = ctr - pre_d[k] * pre_dir
+        post = ctr + post_d[k] * post_dir
         # Anchor crowding rule (global): when the previous exit anchor and
         # this entry anchor are closer than the base standoff they fight each
         # other and the spline S-wiggles - merge them into their midpoint.
@@ -270,6 +429,46 @@ def build_anchors(course, cfg: VehicleConfig):
         # around the OUTER frame: a clearance anchor on the arrival side,
         # 1.2 m beyond the frame edge, slightly before the gate plane.
         # Fully derived from geometry; works at any reversal on any course.
+        # TURN APEX (non-reversal bends): the pre/center/post triplets
+        # alone connect bent junctions with near-straight legs and
+        # compress the whole turn into ~2 m at each gate - the g3->g4->
+        # g5 top ran as a polygon at 3.4 m/s where one wide arc fits
+        # (tangent-chord angles at g3->g4: 44.8 vs 43.2 deg, i.e. an
+        # r~7 m circle passes through BOTH gates with the right
+        # headings, worth ~5.4 m/s at the current lateral budget;
+        # Brian, 2026-09-08: "why are the g3-g4 and g4-g5 turns so
+        # straight?"). Add the tangent arc's apex between the two
+        # crossings so the spline bows into the sweep. Pure geometry,
+        # every junction, no per-gate anything.
+        if (k > 0 and not reversal[k]
+                and math.hypot(ctr[0] - anchors[-1][0],
+                               ctr[1] - anchors[-1][1]) > 1.0):
+            prev_e = events[k - 1]
+            a2, b2 = lane[k - 1][:2], ctr[:2]
+            cvec = b2 - a2
+            L = float(np.hypot(cvec[0], cvec[1]))
+            turn = abs(wrap_pi(c.heading_rad - prev_e.heading_rad))
+            if L > 3.0 and math.radians(25.0) < turn < math.radians(140.0):
+                chord_ang = math.atan2(cvec[1], cvec[0])
+                phi_a = wrap_pi(chord_ang - prev_e.heading_rad)
+                phi_b = wrap_pi(c.heading_rad - chord_ang)
+                phi = 0.5 * (abs(phi_a) + abs(phi_b))
+                if phi > math.radians(10.0):
+                    r = L / (2.0 * math.sin(phi))
+                    sag = min(3.0, r * (1.0 - math.cos(phi)))
+                    ta = np.array([math.cos(prev_e.heading_rad),
+                                   math.sin(prev_e.heading_rad)])
+                    tb = np.array([math.cos(c.heading_rad),
+                                   math.sin(c.heading_rad)])
+                    cross = ta[0] * tb[1] - ta[1] * tb[0]
+                    out = (np.array([-cvec[1], cvec[0]]) / L
+                           * (-1.0 if cross < 0 else 1.0) * -1.0)
+                    mid = 0.5 * (a2 + b2)
+                    apex = np.array([mid[0] + out[0] * sag,
+                                     mid[1] + out[1] * sag,
+                                     0.5 * (lane[k - 1][2] + ctr[2])])
+                    if np.linalg.norm(apex - anchors[-1]) > _DEDUP_M:
+                        anchors.append(apex)
         if k > 0 and reversal[k]:
             bar = np.array([-math.sin(c.heading_rad),
                             math.cos(c.heading_rad), 0.0])
@@ -302,8 +501,20 @@ def build_anchors(course, cfg: VehicleConfig):
     # crossing, so it is left as the simplest thing that works. The reason the
     # drone no longer lurches at the end is the "run-out" ceiling in
     # _speed_profile(), which is a SPEED rule, not a geometry one.
+    # Park CLEAR of the final gate's frame, then descend. Parking directly
+    # above the last post put the drone down onto g10-low's frame base
+    # 2.5 s AFTER a clean 24/24 (crash at t=80.4 vs finish 77.9, run
+    # INVALID; Brian, 2026-09-08). Push the park point along the final
+    # gate's exit heading past the frame half-width (2.7/2) plus margin,
+    # so the descent lands in open floor. Post-finish geometry, no scored
+    # crossing affected.
+    last_e = events[-1]
+    exit_n = np.array([math.cos(last_e.heading_rad),
+                       math.sin(last_e.heading_rad), 0.0])
     last = anchors[-1]
-    anchors.append(np.array([last[0], last[1], PARK_ALT_M]))
+    park = last + exit_n * (2.7 / 2.0 + 0.9)
+    park[2] = PARK_ALT_M
+    anchors.append(park)
 
     return np.array(anchors), center_idx
 
@@ -455,8 +666,16 @@ def _speed_profile(P: np.ndarray, s: np.ndarray, cfg: VehicleConfig,
     # without this cap, corner ENTRIES are geometrically fine but physically
     # unreachable, and it presents as tracking error that looks like bad
     # gains.
-    ceilings["accel-slew"] = np.cbrt(
-        lim.a_lat_rate_max / np.maximum(dkappa_ds, 1e-6))
+    slew_v = np.cbrt(lim.a_lat_rate_max / np.maximum(dkappa_ds, 1e-6))
+    # Slew only binds where the path actually BENDS. On a near-straight
+    # lane (kappa < 0.15, r > ~7 m) the spline's millimetric curvature
+    # ripple gives dkappa ~0.1 and this ceiling priced phantom corner
+    # entries at 3.5-4.3 m/s across the straightened g0-g2 lane
+    # ("slowing inside every gate for no reason", Brian 2026-09-08;
+    # same guard existed in the pre-baseline planner for the same
+    # reason). Real corners (kappa >= 0.3 here) are untouched.
+    slew_v[kappa_s < 0.15] = np.inf
+    ceilings["accel-slew"] = slew_v
 
     # Yaw-rate ceiling: the nose tracks the path tangent, dpsi/dt = v*dpsi/ds.
     # Only where the heading is defined (path not near-vertical).
@@ -491,7 +710,15 @@ def _speed_profile(P: np.ndarray, s: np.ndarray, cfg: VehicleConfig,
     # here first; it works while the last gate is crossed slowly, but once the
     # crossing sped up to 3.7 m/s a straight line to zero is not a shape any
     # real deceleration can hold, and the profile broke back up again.
-    i_last = int(np.linalg.norm(P - centers[-1][None, :], axis=1).argmin())
+    # LAST passage near the final center, not the global argmin: with
+    # laps=2 the final crossing (lap-2 g10-low) shares its XYZ with the
+    # lap-1 passage, and argmin picked the lap-1 one - so the run-out
+    # taper plus the may-only-fall accumulate below governed the ENTIRE
+    # second lap (planned lap1 66.6 s vs lap0 32.4 s, flat 1.40 m/s
+    # tail, 2026-09-08). Same bug class as the g7 fold-jump: nearest-by-
+    # distance on a lap-overlapping path. Written/tested at laps=1.
+    _d_last = np.linalg.norm(P - centers[-1][None, :], axis=1)
+    i_last = int(np.flatnonzero(_d_last < float(_d_last.min()) + 0.5)[-1])
     runout = np.full(n, np.inf)
     if i_last < n - 1:
         v_at_gate = float(np.min(np.vstack(
