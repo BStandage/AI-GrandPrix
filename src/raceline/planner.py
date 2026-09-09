@@ -246,8 +246,6 @@ def standoffs(centers_xy: List[Tuple[float, float]], headings: List[float],
 # flight 2026-09-03). The g0-g3 stagger is ~1 m; crossing at the hole
 # EDGES instead of the centers turns the r~1.5-4 m interpolation wiggle
 # into r~15+ m arcs, which is what lets those gates run near v_max
-# (Brian, 2026-09-08: "we can go probably full speed at least g0-g5;
-# we are slowing when crossing every gate").
 _LANE_USE_M = 0.40
 _LANE_ALIGN_RAD = math.radians(25.0)
 
@@ -263,7 +261,7 @@ def _lane_points(events) -> List[np.ndarray]:
     runs = []
     n = len(events)
 
-    # DISABLED (Brian, 2026-09-08): shifting crossings toward a straight
+    # DISABLED: shifting crossings toward a straight
     # lane trades the centered ±0.75 margin for straightness, and the
     # follower's attitude-lag OVERSHOOT on the g1->g2 swing-back then ate
     # the margin and clipped g2's +0.41 post (flown +0.53 vs planned
@@ -279,7 +277,7 @@ def _lane_points(events) -> List[np.ndarray]:
         # lap-2 g0 leg matches headings (both ~north) but travels ~34
         # deg off them - a dogleg, not a lane. Grouping it dragged the
         # lap-2 g0-g3 diagonal 8 m east and crawled lap-2 g0/g1 at
-        # 3.05-3.11 vs lap-1's 5.2 (Brian, 2026-09-08).
+        # 3.05-3.11 vs lap-1's 5.2
         dx, dy = b.x - a.x, b.y - a.y
         leg = math.hypot(dx, dy)
         if leg < 1.5:
@@ -303,9 +301,7 @@ def _lane_points(events) -> List[np.ndarray]:
             # straight line as its opening safely allows. This MINIMISES
             # the weave: the old best-fit-minimax line pushed crossings
             # to opposite opening edges (g1 flown at -1.03, then a hard
-            # swing east that overshot g2's +0.41 post and crashed;
-            # Brian, 2026-09-08: "g0-g3 is essentially straight, the left
-            # turn after g0 is wrong"). Endpoints are pinned so the chord
+            # swing east that overshot g2's +0.41 post and crashed). Endpoints are pinned so the chord
             # is anchored to the real gates the drone must hit.
             a = np.array([ev[0].x, ev[0].y])
             b = np.array([ev[-1].x, ev[-1].y])
@@ -336,7 +332,7 @@ def _lane_points(events) -> List[np.ndarray]:
     # aligned triplet was yanking the spline off the diagonal and back at
     # every crossing, an S-wiggle inside each gate window that the slew
     # ceiling priced as a dip ("slowing inside every gate for no reason",
-    # Brian, 2026-09-08). The lane runs within _LANE_ALIGN_RAD of each
+    # ). The lane runs within _LANE_ALIGN_RAD of each
     # crossing heading, so crossing direction stays legal.
     lane_dir = [None] * n
     for k, t in runs:
@@ -363,7 +359,7 @@ def build_anchors(course, cfg: VehicleConfig):
     # mid-leg, and ROTATING each gate's pre/post stub onto the arc - a
     # straight 2 m stub along the gate heading forces the spline to
     # re-bend hard right after it (the residual dips after g3 / around
-    # g4; Brian, 2026-09-08: "do we really need to be slowing there?").
+    # g4).
     # The chord of an arc segment of length d deviates from the end
     # tangent by d/(2r), so tilting the stub by that angle lays it on
     # the arc. Answer to the question: no - the physics floor for the
@@ -435,9 +431,7 @@ def build_anchors(course, cfg: VehicleConfig):
         # g5 top ran as a polygon at 3.4 m/s where one wide arc fits
         # (tangent-chord angles at g3->g4: 44.8 vs 43.2 deg, i.e. an
         # r~7 m circle passes through BOTH gates with the right
-        # headings, worth ~5.4 m/s at the current lateral budget;
-        # Brian, 2026-09-08: "why are the g3-g4 and g4-g5 turns so
-        # straight?"). Add the tangent arc's apex between the two
+        # headings, worth ~5.4 m/s at the current lateral budget). Add the tangent arc's apex between the two
         # crossings so the spline bows into the sweep. Pure geometry,
         # every junction, no per-gate anything.
         if (k > 0 and not reversal[k]
@@ -504,7 +498,7 @@ def build_anchors(course, cfg: VehicleConfig):
     # Park CLEAR of the final gate's frame, then descend. Parking directly
     # above the last post put the drone down onto g10-low's frame base
     # 2.5 s AFTER a clean 24/24 (crash at t=80.4 vs finish 77.9, run
-    # INVALID; Brian, 2026-09-08). Push the park point along the final
+    # INVALID; ). Push the park point along the final
     # gate's exit heading past the frame half-width (2.7/2) plus margin,
     # so the descent lands in open floor. Post-finish geometry, no scored
     # crossing affected.
@@ -671,7 +665,7 @@ def _speed_profile(P: np.ndarray, s: np.ndarray, cfg: VehicleConfig,
     # lane (kappa < 0.15, r > ~7 m) the spline's millimetric curvature
     # ripple gives dkappa ~0.1 and this ceiling priced phantom corner
     # entries at 3.5-4.3 m/s across the straightened g0-g2 lane
-    # ("slowing inside every gate for no reason", Brian 2026-09-08;
+    # ("slowing inside every gate for no reason", ;
     # same guard existed in the pre-baseline planner for the same
     # reason). Real corners (kappa >= 0.3 here) are untouched.
     slew_v[kappa_s < 0.15] = np.inf

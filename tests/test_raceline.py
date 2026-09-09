@@ -83,7 +83,7 @@ class TestPlanGeometry(unittest.TestCase):
         # The opening is a corridor, not a point: the lane straightener
         # deliberately crosses aligned runs at the hole EDGES (up to
         # _LANE_USE_M = 0.40 off-center) so near-collinear gates can run
-        # near v_max (Brian, 2026-09-08). The invariant that matters is
+        # near v_max The invariant that matters is
         # the referee's: the crossing must sit inside the effective
         # window (0.75 half-opening minus 0.15 drone radius = 0.60).
         for e in PLAN.events:
