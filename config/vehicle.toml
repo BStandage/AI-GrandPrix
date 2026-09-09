@@ -1,10 +1,8 @@
 # config/vehicle.toml - THE tuning surface for the racing-line stack.
-#
 # Planner (raceline.planner) and follower (solvers.follower) read ONLY this
 # file. No vehicle number is hardcoded anywhere else. Every parameter is
 # GLOBAL: there is no way to express a per-gate value here, by design
 # (RESTRICTIONS.md).
-#
 # Seeds: hover_pwm is measured on the elodin SITL plant; everything else is a
 # conservative starting point for the first 24/24 confirmation flight. Tune by
 # editing this file and re-running race.py - nothing else.
@@ -99,7 +97,6 @@ v_gate_mps       = 6.0    # RAISED 5.5 -> 6.0 (= v_max): with the lane
                           # edges, a straight-through gate is just track -
                           # no reason to slow below v_max there. Bent gates
                           # stay governed by curvature/slew as before.
-                          # (Brian, 2026-09-08: full speed g0-g5.)
                           # Original comment for 5.5 follows.
                           # cap within gate_window_m of ANY crossing center.
                           # RAISED from 0.8 - this, not v_max, was what held
