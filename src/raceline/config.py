@@ -14,6 +14,8 @@ import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
+
 G = 9.81
 
 AIGP_REPO = Path(__file__).resolve().parents[2]
@@ -34,11 +36,11 @@ _SCHEMA = {
                 "anchor_standoff_m": float, "anchor_standoff_turn_m": float,
                 "turn_angle_deg": float, "sample_ds_m": float,
                 "a_lat_margin": float, "takeoff_alt_m": float,
-                "v_floor_mps": float},
+                "v_floor_mps": float, "reversal_climb_m": float},
     "optimizer": {"apex_max_m": float},
     "follower": {"kp_pos": float, "kd_pos": float, "lookahead_m": float,
                  "lookahead_t": float,
-                 "ka_att": float, "stick_clamp": int,
+                 "ka_att": float, "kw_att": float, "stick_clamp": int,
                  "kp_z": float, "kd_z": float, "ki_z": float,
                  "kyaw": float, "yaw_clamp": int, "yaw_lookahead_m": float,
                  "takeoff_pwm": int, "min_alt_translation_m": float},
@@ -76,6 +78,14 @@ class VehicleConfig:
         tracking error)."""
         return self.planner.a_lat_margin * self.a_lat_full()
 
+    def pwm_for_thrust(self, thrust_mps2: float) -> float:
+        """Inverse of the measured [thrust] curve: specific thrust (m/s^2 of
+        accel the motors give a LEVEL drone, hover = G) -> throttle PWM.
+        Linear between the measured points, clamped to [pwm_min, pwm_max]."""
+        th = self.thrust
+        pwm = float(np.interp(thrust_mps2, th.curve_acc, th.curve_pwm))
+        return min(max(pwm, float(th.pwm_min)), float(th.pwm_max))
+
 
 def load_config(path=None) -> VehicleConfig:
     path = Path(path) if path is not None else DEFAULT_CONFIG_PATH
@@ -101,8 +111,14 @@ def load_config(path=None) -> VehicleConfig:
     _check(len(t["curve_pwm"]) == len(t["curve_acc"]) >= 2,
            f"{path.name} [thrust]: curve_pwm/curve_acc must be equal-length "
            "lists of >= 2 points")
-    _check(0 < raw["limits"]["max_tilt_deg"] < 60,
-           f"{path.name}: max_tilt_deg out of sane range (0, 60)")
+    _check(all(a < b for a, b in zip(t["curve_acc"], t["curve_acc"][1:]))
+           and all(a < b for a, b in zip(t["curve_pwm"], t["curve_pwm"][1:])),
+           f"{path.name} [thrust]: curve_pwm/curve_acc must be strictly "
+           "increasing (the follower inverts the curve)")
+    _check(t["curve_pwm"][0] <= t["hover_pwm"] <= t["curve_pwm"][-1],
+           f"{path.name} [thrust]: hover_pwm must lie inside curve_pwm")
+    _check(0 < raw["limits"]["max_tilt_deg"] <= 89.5,
+           f"{path.name}: max_tilt_deg out of sane range (0, 89.5]")
     _check(raw["planner"]["sample_ds_m"] > 0.01,
            f"{path.name}: sample_ds_m too small")
 

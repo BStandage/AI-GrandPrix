@@ -282,14 +282,50 @@ _SOURCE = GroundTruthSource()
 _TRACKER = Tracker(PLAN, CFG)
 _ALT = AltitudeLoop(CFG)
 _YAW = YawLoop(CFG)
-_state = {"done_t": None, "dbg_t": 0.0}
+_state = {"done_t": None, "dbg_t": 0.0, "trace": None, "trace_n": 0}
+
+# Per-tick trace, decimated to TRACE_EVERY ticks (~100 Hz at the 1 kHz
+# control rate), flushed every second so a crash still leaves the file.
+# The 1 Hz heartbeat below cannot resolve a 2 s altitude ring; this can.
+TRACE_EVERY = 10
+TRACE_COLS = ("t,s,gate,x,y,z,vx,vy,vz,z_target,vz_ff,ax_des,ay_des,"
+              "cos_tilt,wx,wy,a_z_cmd,thrust_cmd,roll,pitch,throttle,yaw,"
+              "m_mean,m_min,m_max\n")
+
+
+def _motor_stats(update) -> str:
+    """mean,min,max of Betaflight's normalized motor outputs (sim only)."""
+    m = getattr(update, "motors", None)
+    if m is None or len(m) == 0:
+        return "nan,nan,nan"
+    return f"{float(np.mean(m)):.3f},{float(np.min(m)):.3f},{float(np.max(m)):.3f}"
+
+
+def _trace_open():
+    if os.environ.get("AIGP_NO_TRACE"):
+        return None
+    try:
+        from raceline.config import AIGP_REPO
+        from raceline.planner import next_numbered
+        path = next_numbered(str(AIGP_REPO / "out" / "flightlogs"
+                                 / "race_XXX.csv"))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fh = open(path, "w", encoding="utf-8")
+        fh.write(TRACE_COLS)
+        print(f"[RACELINE] trace -> {path}")
+        return fh
+    except OSError as e:          # never let logging ground the pilot
+        print(f"[RACELINE] trace disabled: {e}")
+        return None
 
 
 def reset_state() -> None:
     _TRACKER.reset()
     _ALT.reset()
     _YAW.reset()
-    _state.update(done_t=None, dbg_t=0.0)
+    if _state["trace"] is not None:
+        _state["trace"].close()
+    _state.update(done_t=None, dbg_t=0.0, trace=None, trace_n=0)
 
 
 def autopilot(update: SensorUpdate) -> RCCommand:
@@ -316,15 +352,35 @@ def autopilot(update: SensorUpdate) -> RCCommand:
     if airborne:
         roll, pitch, eb = attitude_sticks(CFG, est, a_des)
         yaw_stick = _YAW.stick(est, yaw_des)
+    cos_tilt = float(est.R[2, 2])
+    _state["trace_n"] += 1
+    if _state["trace_n"] == 1:
+        _state["trace"] = _trace_open()
+    fh = _state["trace"]
+    if fh is not None and _state["trace_n"] % TRACE_EVERY == 0:
+        w = est.omega if est.omega is not None else (0.0, 0.0, 0.0)
+        fh.write(f"{t:.3f},{_TRACKER.s[_TRACKER.idx]:.2f},"
+                 f"{update.next_gate_index},"
+                 f"{est.p[0]:.3f},{est.p[1]:.3f},{est.p[2]:.3f},"
+                 f"{est.v[0]:.3f},{est.v[1]:.3f},{est.v[2]:.3f},"
+                 f"{z_target:.3f},{vz_ff:.3f},{a_des[0]:.2f},{a_des[1]:.2f},"
+                 f"{cos_tilt:.3f},{w[0]:.2f},{w[1]:.2f},"
+                 f"{_ALT.a_cmd:.2f},{_ALT.thrust:.2f},"
+                 f"{roll},{pitch},{throttle},{yaw_stick},"
+                 f"{_motor_stats(update)}\n")
     # heartbeat ALWAYS prints - a crash below 1 m used to go silent for
     # 23 s while the drone skidded 140 m (measured); crashes must narrate
     if t - _state["dbg_t"] >= 1.0:
         _state["dbg_t"] = t
+        if fh is not None:
+            fh.flush()
         i = _TRACKER.idx
+        tilt_deg = math.degrees(math.acos(max(-1.0, min(1.0, cos_tilt))))
         print(f"[RL] t={t:5.1f} s={_TRACKER.s[i]:6.1f} "
               f"p=({est.p[0]:+5.1f},{est.p[1]:+5.1f},{est.p[2]:4.2f}) "
               f"v={np.linalg.norm(est.v):4.2f} "
               f"xtrack={np.linalg.norm(_TRACKER.pos[i] - est.p):4.2f} "
+              f"zt={z_target:4.2f} tilt={tilt_deg:3.0f} az={_ALT.a_cmd:+4.1f} "
               f"air={airborne} stk=({roll},{pitch},{throttle},{yaw_stick})")
 
     return RCCommand(arm=1800, throttle=throttle, roll=roll, pitch=pitch,

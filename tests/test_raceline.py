@@ -51,19 +51,19 @@ class TestStandoffRule(unittest.TestCase):
         # entry heading (planar switchback) -> pre[1] must widen
         xy = [(0.0, 0.0), (-10.0, -2.0)]
         h = [-math.pi / 2, 0.0]     # exit south, enter east
-        pre, post = planner.standoffs(xy, h, 2.0, 3.5, math.radians(100))
+        pre, post, _ = planner.standoffs(xy, h, 2.0, 3.5, math.radians(100))
         self.assertEqual(pre[1], 3.5)
 
     def test_degenerate_leg_uses_heading_comparison(self):
         xy = [(5.0, 5.0), (5.0, 5.0)]           # stacked pair: same XY
         h = [-math.pi / 2, math.pi / 2]
-        pre, post = planner.standoffs(xy, h, 2.0, 3.5, math.radians(100))
+        pre, post, _ = planner.standoffs(xy, h, 2.0, 3.5, math.radians(100))
         self.assertEqual((post[0], pre[1]), (3.5, 3.5))
 
     def test_straight_line_keeps_base(self):
         xy = [(0.0, 0.0), (10.0, 0.0)]
         h = [0.0, 0.0]
-        pre, post = planner.standoffs(xy, h, 2.0, 3.5, math.radians(100))
+        pre, post, _ = planner.standoffs(xy, h, 2.0, 3.5, math.radians(100))
         self.assertEqual((post[0], pre[1]), (2.0, 2.0))
 
 
