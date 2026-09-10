@@ -80,6 +80,7 @@ BRAKE_LOOKAHEAD_T = 0.0    # s of anticipation for a planned brake at terminal s
 BRAKE_LA_SHARE0 = 0.7      # anticipation starts once drag holds this share of the tilt (v > ~8 m/s)
 CARROT_CROSS_ONLY = True   # position term = cross-track offset to the carrot only (see Tracker.step)
 YAW_IDLE_BAND = 150        # PWM below hover_pwm under which no yaw is commanded (see autopilot)
+THRUST_BUDGET_SHARE = 0.9  # share of the motors' total specific thrust the follower may commit; vertical need first, horizontal gets the rest (see autopilot). 0 disables.
 NO_OVERSPEED_PUSH = True   # at/above plan speed, no forward along-track push (see Tracker.step)
 OVERSPEED_SHARE0 = 0.5     # ...but only where drag already holds this share of the tilt (v > ~6.9 m/s); the 3.5 m/s loops keep their pull-through
 PRIORITY_CLAMP = True      # clamp keeps the cross-track component, trims along-track
@@ -436,9 +437,33 @@ def autopilot(update: SensorUpdate) -> RCCommand:
     airborne = est.p[2] >= CFG.follower.min_alt_translation_m
     throttle = _ALT.throttle(update.t, est, z_target, vz_ff, airborne,
                              update.baro_fresh)
+    # THRUST-VECTOR BUDGET, vertical first (Brian, race_044): the motors
+    # make T_MAX of specific thrust in total. The altitude loop states its
+    # vertical need (g + a_cmd); the horizontal gets what is left inside
+    # THRUST_BUDGET_SHARE * T_MAX, and the tilt clamp (75 deg) only bounds
+    # it further. On a level straight that is ~73 deg and 11 m/s; when
+    # altitude needs thrust (climb, stack pull-out, a sagging corner) the
+    # tilt pulls back by itself. At a fixed 75 deg clamp the horizontal
+    # alone took 36.6 of 37.5 and the drone sank 1.44 -> 0.58 m into g5.
+    if airborne and THRUST_BUDGET_SHARE > 0.0:
+        th_z = 9.81 + float(_ALT.a_cmd)
+        t_cap = THRUST_BUDGET_SHARE * float(max(CFG.thrust.curve_acc))
+        h_cap = math.sqrt(max(t_cap * t_cap - th_z * th_z, 0.0))
+        v_h = float(np.hypot(est.v[0], est.v[1]))
+        if v_h > 0.5:
+            u = est.v[:2] / v_h
+            n_ = np.array([-u[1], u[0]])
+            cross = max(-h_cap, min(h_cap, float(np.dot(a_des[:2], n_))))
+            room = math.sqrt(max(h_cap * h_cap - cross * cross, 0.0))
+            along = max(-room, min(room, float(np.dot(a_des[:2], u))))
+            a_des = np.array([*(along * u + cross * n_), *a_des[2:]]) if len(a_des) > 2 else along * u + cross * n_
+        else:
+            nrm = float(np.hypot(a_des[0], a_des[1]))
+            if nrm > h_cap:
+                a_des = a_des * (h_cap / nrm)
     roll = pitch = yaw_stick = 1500
     if airborne:
-        roll, pitch, eb = attitude_sticks(CFG, est, a_des)
+        roll, pitch, eb = attitude_sticks(CFG, est, a_des, float(_ALT.a_cmd))
         yaw_stick = _YAW.stick(est, yaw_des)
         # No yaw demand when the motors cannot deliver it: through the
         # stack the throttle sits at minimum for ~1 s and the yaw loop kept

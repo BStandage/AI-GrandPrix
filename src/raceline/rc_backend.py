@@ -123,13 +123,25 @@ class AltitudeLoop:
         return int(round(clamp(pwm, th.pwm_min, th.pwm_max)))
 
 
-def attitude_sticks(cfg, est: StateEstimate, a_des) -> tuple:
+def attitude_sticks(cfg, est: StateEstimate, a_des, a_z: float = 0.0) -> tuple:
     """World-frame desired accel -> roll/pitch sticks via the tilt-vector
-    error expressed in body frame (the proven acro loop)."""
+    error expressed in body frame (the proven acro loop).
+
+    a_z is the altitude loop's vertical acceleration demand: the thrust
+    vector to point along is (ax, ay, G + a_z). Sized against G alone
+    (race_045) an 18 m/s^2 climb demand plus an 18 m/s^2 horizontal one
+    became a 62 deg tilt, the altitude loop then scaled thrust by
+    1/cos(62) to keep its vertical, and the total ran past the motors
+    into g10-top's frame."""
     f = cfg.follower
     ax, ay = float(a_des[0]), float(a_des[1])
-    n = math.sqrt(ax * ax + ay * ay + G * G)
-    zd = np.array([ax / n, ay / n, G / n])
+    # Floor at half g: with the altitude loop asking for ~free fall the
+    # floor at 0.15 g pointed the thrust axis nearly horizontal (tilt
+    # 85-89 deg through the stack's drop, race_046) and the pull-out
+    # thrust then shoved the drone 0.5-1.0 m sideways into g10-low's post.
+    gz = max(G + float(a_z), 0.5 * G)
+    n = math.sqrt(ax * ax + ay * ay + gz * gz)
+    zd = np.array([ax / n, ay / n, gz / n])
     zb = est.R[:, 2]
     e = np.cross(zb, zd)
     eb = est.R.T @ e

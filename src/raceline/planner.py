@@ -1230,7 +1230,7 @@ def _yaw_profile(T: np.ndarray, s: np.ndarray, s_min: float = 0.0):
     return yaw, hold
 
 
-THRUST_SHARE = 0.85      # share of the max horizontal thrust vector the PLAN may
+THRUST_SHARE = 0.9       # CALIBRATED (race_044): 1.0 left the altitude loop nothing; was 0.85 for the 42 s run. share of the max horizontal thrust vector the PLAN may
                # use (drag + cornering together); the rest is headroom for the
                # altitude loop and attitude corrections (race_035, see
                # _speed_profile). Terminal speed in the plan drops 9.7 -> 9.0.
@@ -1662,7 +1662,7 @@ def _speed_profile(P: np.ndarray, s: np.ndarray, cfg: VehicleConfig,
     return T, kappa, dpsi_ds, dkappa_ds, binding, v_lim, v, t, vel, acc
 
 
-A_LAT_TIGHT = 7.0     # m/s^2 lateral budget in arcs of radius <= R_TIGHT_M
+A_LAT_TIGHT = 36.6    # UNCAPPED (feature/uncapped, 2026-09-10): was 7.0 - ramp off (>= a_lat_full at 75 deg). m/s^2 lateral budget in arcs of radius <= R_TIGHT_M
 R_TIGHT_M = 2.0
 R_FULL_M = 4.0        # full a_lat_planner() budget from this radius up
 ARC_SAMPLE_M = 2.5    # junction-arc anchor spacing (0 = single apex anchor)
