@@ -171,7 +171,7 @@ v_gate_mps       = 20.0   # = v_max: a straight-through gate is just track,
                           # 2.0 -> 69.5 s, 2.5 -> 66.0 s, all 12/12 clean.
                           # 1.6 is the moderate pick; room to go higher.
 gate_window_m    = 2.0    # one uniform rule, never special-cased per gate
-vz_up_max        = 2.5   # race_052: at speed the drone climbs 2.4 m/s with motors pinned; 4.0 planned the climb too late and it took g10-top's bar 0.36 m low (again)
+vz_up_max        = 2.5   # flown clean (race_053); 3.0 and 3.5 fail the calibrated replay at g10-top
                           # 6-7 m/s forward the drone managed 2.0-2.2 m/s with the
                           # motors at 100% (35 m/s^2 commanded) and arrived 0.4 m
                           # low; 8.1 m/s is the hover climb ceiling, not the one at
@@ -232,7 +232,7 @@ turn_angle_deg         = 40.0  # LOWERED from 100.0: at 100, only the g6->g7
                                # distance before the frame, not just less
                                # speed. Global rule, no per-gate anything.
 sample_ds_m   = 0.25           # uniform arc-length resolution of the plan
-a_lat_margin  = 0.9   # CALIBRATED (race_044): at full share the drone ran 0.4-0.5 m wide (tolerance 0.6); 0.9 keeps 0.1 m.
+a_lat_margin  = 1.0   # the flown 32.1 s line (race_061) uses 0.6; 0.9 flew 32.40 (race_062) - not a lever at tilt 89
                                # 0.55 -> 0.75 -> eased to 0.6 while the
                                # attitude gain is retuned for the fast plant
                                # (0.75 corners fed the oscillation).

@@ -43,6 +43,8 @@ def _score(cfg, course, knobs):
     planner.POSE_LAT_OFFSET_M = {g: v for g, v in knobs["lat"].items() if abs(v) > 1e-9}
     planner.POSE_Z_OFFSET_M = {g: v for g, v in knobs["z"].items() if abs(v) > 1e-9}
     planner.POSE_TILT_OVERRIDE_DEG = dict(knobs["tilt"])
+    planner.PRE_STUB_M = dict(knobs.get("pre", {}))
+    planner.POST_STUB_M = dict(knobs.get("post", {}))
     planner.REVERSAL_SWING_R_M = knobs["swing_r"]
     planner.STACK_U_R_M = knobs["stack_r"]
     planner.STACKED_STANDOFF_M = knobs["stack_so"]
@@ -69,6 +71,8 @@ def search(cfg, course, sweeps=3, seed=0, verbose=True, frozen=(), knobs=None):
             "lat": {g: planner.POSE_LAT_OFFSET_M.get(g, 0.0) for g in GATES},
             "z": {g: planner.POSE_Z_OFFSET_M.get(g, 0.0) for g in GATES},
             "tilt": dict(planner.POSE_TILT_OVERRIDE_DEG),
+            "pre": dict(planner.PRE_STUB_M),
+            "post": dict(planner.POST_STUB_M),
             "swing_r": planner.REVERSAL_SWING_R_M,
             "stack_r": planner.STACK_U_R_M,
             "stack_so": planner.STACKED_STANDOFF_M,
@@ -89,6 +93,10 @@ def search(cfg, course, sweeps=3, seed=0, verbose=True, frozen=(), knobs=None):
         axes.append((("z", g), -0.4, 0.4, 0.12))
         if g not in ("g10-top", "g10-low"):
             axes.append((("tilt", g), -TILT_MAX_DEG, TILT_MAX_DEG, 8.0))
+            # straight stub lengths at the crossing (the g4->g5 wobble is
+            # the exit stub meeting the junction arc at a different radius)
+            axes.append((("pre", g), 0.4, 2.5, 0.4))
+            axes.append((("post", g), 0.4, 2.5, 0.4))
     axes.append((("swing_r",), 1.5, 3.5, 0.3))
     if "stack_r" not in frozen:
         axes.append((("stack_r",), 0.7, 1.6, 0.15))
@@ -151,14 +159,18 @@ def main():
                     help="replay the result; freeze the knobs of any gate the "
                          "follower misses (and the one before it) and search again")
     ap.add_argument("--rounds", type=int, default=4)
+    ap.add_argument("--freeze", default="",
+                    help="comma-separated gate labels whose knobs stay at the rule values "
+                         "(the gates the SIM rejected: batch_fly results)")
     args = ap.parse_args()
     cfg = load_config()
     course = cb.load_course(laps=cfg.planner.laps)
     t0 = time.time()
-    frozen = set()
+    frozen = set(g for g in args.freeze.split(",") if g)
     rule = {
         "lat": dict(planner.POSE_LAT_OFFSET_M), "z": dict(planner.POSE_Z_OFFSET_M),
         "tilt": dict(planner.POSE_TILT_OVERRIDE_DEG),
+        "pre": dict(planner.PRE_STUB_M), "post": dict(planner.POST_STUB_M),
     }
     knobs = None
     for rnd in range(args.rounds if args.replay else 1):
@@ -205,7 +217,7 @@ def main():
             to_freeze.add(GATES[idx - 1])
         for g in to_freeze:
             frozen.add(g)
-            for key in ("lat", "z", "tilt"):
+            for key in ("lat", "z", "tilt", "pre", "post"):
                 if g in rule[key]:
                     knobs[key][g] = rule[key][g]
                 else:

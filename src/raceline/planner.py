@@ -158,13 +158,14 @@ DOGLEG_S = True
 DOGLEG_MIN_DEG = 25.0
 DOGLEG_SAG_SCALE = 1.0   # Catmull-Rom overshoots sparse bows; <1 tames it
 POSE_ANGLE_MAX_DEG = 35.0
-POSE_TILT_OVERRIDE_DEG = {'g5': 0.0, 'g6': -25.0, 'g10-top': -30.0}
+POSE_TILT_OVERRIDE_DEG = {'g5': 0.0, 'g6': -25.0, 'g10-top': -30.0, 'g4': 14.0}   # flown 32.1 s knobs
 STACK_LOOP = False   # see build_anchors: g10-top -> g10-low as a banked descending half-loop
 EARLY_CLIMB = True   # see build_anchors: climb right after the previous gate, turn level into the next
-POSE_Z_OFFSET_M = {'g9': +0.45, 'g10-top': -0.25, 'g10-low': +0.20}   # g9 +0.45: start the 2.7 m climb to g10-top BEFORE g9 (race_042 arrived 0.4 m low and clipped the lower bar; race_040 was 0.1 m from it with motors pinned on the climb)   # g10-low: the U arrives diving; replay crossed 0.56 low, aim 0.2 high   # was -0.40 (clipped the lower bar with the U, race_041 lap 2); 0 fails the replay (+0.58 high, its climb model overshoots 0.4-0.6 where flight overshoots ~0.2); -0.25 splits it   # gate label -> crossing height shift (m); g10-top: the climb overshoots 0.4-0.6 m in replay and +0.2 in flight
+CLIMB_RAMP = False   # ON is the straight climb (g9->top 1.47 -> 1.26 s model) - the replay cannot score climbs, so it is a flight test, not a search default; linear height ramp along the leg instead of the step (see build_anchors)
+POSE_Z_OFFSET_M = {'g4': -0.24, 'g8': 0.24, 'g9': 0.45, 'g10-top': 0.0, 'g10-low': 0.4}   # flown 32.1 s knobs; g10-top at 0 (offsets of -0.25..-0.4 took the bar in batch_1)
 POST_STUB_M = {'g6': 1.2}     # gate label -> straight exit length (m); g6: a 2 m stub south then a 90 deg bend west was the dip-and-rise into the g7 loop
-PRE_STUB_M = {}      # gate label -> straight approach length (m); g10-top: the turn from the g9 arc must finish BEFORE the gate (race_026 crossed 0.9 m right of centre)
-POSE_LAT_OFFSET_M = {'g8': -0.30, 'g10-top': +0.20}   # g6 +0.35 REMOVED (race_038: with the swing the g6 exit is straight, the drone no longer cuts inside there; it runs 0.3-0.5 m OUTSIDE like everywhere else and the outside bias put it into g6's left post at x 16.8)   # gate label -> crossing point shift along the bar (+ = left of heading): compensates the follower cutting the inside of a fast apex   # gate label -> crossing tilt in deg (both laps); wins over the bisector rule  # apex THROUGH a gate: the crossing direction may
+PRE_STUB_M = {'g0': 0.5}   # g0: the default 2 m entry stub sat BEHIND the takeoff blend anchor (y 1.0 vs 1.8) and folded the first 3 m of the line (race_061 crossed g0 at 4 m/s, 0.55 s behind the model). gate label -> straight approach length (m); g10-top: the turn from the g9 arc must finish BEFORE the gate (race_026 crossed 0.9 m right of centre)
+POSE_LAT_OFFSET_M = {'g4': -0.5, 'g5': -0.5, 'g6': -0.5, 'g8': -0.34, 'g10-top': 0.2, 'g10-low': -0.19}   # the flown 32.1 s knobs (race_061) are the rule now
                            # tilt toward the bisector of the incoming and
                            # outgoing chords by up to this. The 1.5 m opening
                            # seen at angle a is 1.5cos(a)-0.26sin(a) wide:
@@ -199,7 +200,7 @@ REVERSAL_OVERTOP = False   # vertical U over the reversal gate instead of the ho
 OVERTOP_H_M = 2.5
 OVERTOP_B_M = 1.0
 OVERTOP_STANDOFF_M = 1.5
-REVERSAL_SWING_R_M = 2.0   # feature/rip sweep with the g7 cap off: r1.0 29.14 (frame), 1.5 29.48 (frame), 2.0 29.84 clean (v_min 7.3), 2.5 30.22, 3.0 30.60; overtop 29.61 but a 0.45 m fold at 2.4 m/s
+REVERSAL_SWING_R_M = 1.5   # feature/rip sweep with the g7 cap off: r1.0 29.14 (frame), 1.5 29.48 (frame), 2.0 29.84 clean (v_min 7.3), 2.5 30.22, 3.0 30.60; overtop 29.61 but a 0.45 m fold at 2.4 m/s
 SWING_CROSS_OFFSET_M = 0.0   # crossing bias on a swing: 0.25 toward the far side put the path 0.6 m off-centre at g7's plane (tilted crossing) and touched the frame
 SWING_SAMPLE_M = 1.25        # arc anchor spacing on the swing (2.5 m rippled r 2.9..5.2 on an r 3.5 circle)
 V_REVERSAL_SWING_MPS = 20.0  # cap OFF (feature/rip): the 4 m disc also caught the straight passing beside g7; the arc's curvature sets the crossing speed
@@ -1058,8 +1059,25 @@ def build_anchors(course, cfg: VehicleConfig):
             if STACK_U and math.hypot(a1[0] - a0[0], a1[1] - a0[1]) < 1.0:
                 continue        # the stacked pair's U keeps its own altitudes
             if abs(z_to - z_from) > 1.0:
-                for i in range(center_idx[k - 1] + 2, center_idx[k]):
-                    anchors[i][2] = z_to
+                lo, hi = center_idx[k - 1] + 2, center_idx[k]
+                if CLIMB_RAMP:
+                    lo = center_idx[k - 1] + 1     # the ramp starts AT the gate: the exit stub climbs too
+                if CLIMB_RAMP and hi - lo >= 1:
+                    # STRAIGHT climb (Brian): height ramps linearly with anchor
+                    # distance from the previous gate's exit stub to this
+                    # gate's entry stub. The step version snapped every
+                    # interior anchor to the destination height, so the spline
+                    # ran flat, ramped between two anchors and ran flat again
+                    # (the S-shaped climb into g10-top).
+                    pts = [anchors[lo - 1]] + [anchors[i] for i in range(lo, hi)]
+                    d = np.cumsum([0.0] + [float(np.hypot(pts[j][0] - pts[j - 1][0], pts[j][1] - pts[j - 1][1])) for j in range(1, len(pts))])
+                    # the entry stub (last interior anchor) sits at the gate height
+                    total = d[-1] if d[-1] > 1e-6 else 1.0
+                    for j, i in enumerate(range(lo, hi), start=1):
+                        anchors[i][2] = z_from + (z_to - z_from) * min(1.0, d[j] / total)
+                else:
+                    for i in range(lo, hi):
+                        anchors[i][2] = z_to
     global _LAST_REVERSAL, _LAST_LABELS
     _LAST_REVERSAL = [bool(r) for r in reversal]
     _LAST_LABELS = [c.label for c in events]
@@ -1184,6 +1202,8 @@ class Plan:
             # (older plans without it fall back to the path tangent)
             "yaw": (None if self.yaw is None
                     else np.asarray(self.yaw).round(4).tolist()),
+            "yaw_hold": (None if self.yaw_hold is None
+                         else [int(b) for b in np.asarray(self.yaw_hold)]),
         }
 
 
@@ -1193,7 +1213,7 @@ YAW_HOLD_AFTER_M = 5.0   # keep the nose held this far past the cusp (the
                          # exit gate of the stacked pair and its stub are
                          # flown backwards), then
 YAW_BLEND_M = 5.0        # unwind to the tangent over this arc
-YAW_PREFLIP_M = 3.0      # start the 180 flip this far BEFORE the cusp (pre-yaw)
+YAW_PREFLIP_M = 6.0      # start the 180 flip this far BEFORE the cusp (pre-yaw)
 YAW_CUSP_FLIP = True     # Brian: flip the nose 180 deg AT the cusp instead of
                          # holding it (drift backwards through the fold, then
                          # dive nose-first through the low gate); the follower
@@ -1268,7 +1288,7 @@ def _yaw_profile(T: np.ndarray, s: np.ndarray, s_min: float = 0.0):
     return yaw, hold
 
 
-THRUST_SHARE = 0.9       # CALIBRATED (race_044): 1.0 left the altitude loop nothing; was 0.85 for the 42 s run. share of the max horizontal thrust vector the PLAN may
+THRUST_SHARE = 1.0       # L5 flew 29.65 clean at 1.0 (2026-09-10 batch 6); CALIBRATED (race_044): 1.0 left the altitude loop nothing; was 0.85 for the 42 s run. share of the max horizontal thrust vector the PLAN may
                # use (drag + cornering together); the rest is headroom for the
                # altitude loop and attitude corrections (race_035, see
                # _speed_profile). Terminal speed in the plan drops 9.7 -> 9.0.
@@ -1842,6 +1862,8 @@ def load_plan(path: os.PathLike) -> dict:
     d["pos"] = samples[:, 1:4]
     d["vel"] = samples[:, 4:7]
     d["acc"] = samples[:, 7:10]
+    h = d.get("yaw_hold")
+    d["hold_arr"] = None if h is None else np.asarray(h, dtype=bool)
     y = d.get("yaw")
     d["yaw_arr"] = (np.asarray(y, dtype=float)
                     if y is not None and len(y) == len(samples) else None)

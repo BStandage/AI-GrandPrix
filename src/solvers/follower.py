@@ -39,8 +39,8 @@ from raceline.rc_backend import (   # noqa: E402  (the shared proven loops)
     AltitudeLoop, GroundTruthSource, StateEstimate, YawLoop, attitude_sticks)
 
 # Arming phases, matching the baseline's Betaflight handshake.
-T_DISARMED_END = 0.50
-T_ARM_IDLE_END = 0.75
+T_DISARMED_END = 0.50   # 0.30 tried 2026-09-10: arm request inside Betaflight BOOTGRACE, two starts wedged at "1 responses"
+T_ARM_IDLE_END = 0.75   # 0.50 tried, see above
 
 # RETRY DEBOUNCE: consecutive control ticks the nearest-point search must read
 # "past the gate" before a retry actually fires. At the 1000 Hz PID rate this
@@ -79,8 +79,15 @@ BRAKE_LOOKAHEAD_T = 0.0    # s of anticipation for a planned brake at terminal s
                            # the g3-g4 arc at only 3.5 m/s^2 anyway.
 BRAKE_LA_SHARE0 = 0.7      # anticipation starts once drag holds this share of the tilt (v > ~8 m/s)
 CARROT_CROSS_ONLY = True   # position term = cross-track offset to the carrot only (see Tracker.step)
+ATT_IDLE_SCALE = False     # superseded by THRUST_VECTOR_MODE (race_057: zero demand at idle fell cleanly but drifted 2 m). scale the horizontal demand by the collective below hover (see autopilot)
+THRUST_VECTOR_MODE = True  # throttle = |(a_h, g + a_z)|, tilt = its angle (see autopilot)
+VECTOR_FREEFALL_SHARE = 0.85   # a_z floor: -0.85 g (a quad cannot fall faster than g anyway)
+VECTOR_TILT_MAX_DEG = 60.0     # tilt cap when descending (gz small)
+ACC_LEAD_S_UNUSED = 0    # scale the horizontal demand by the collective below hover (see autopilot)
+ACC_LEAD_S = 0.10          # feedforward acceleration taken this far ahead along the plan (attitude lag compensation, see Tracker.step)
+AZ_FF_GAIN = 0.0           # plan vertical-accel feedforward into the altitude loop: OFF - the calibrated replay fails the clean-flown plan_030 with it on (overshoots the top gate); untested in flight
 YAW_IDLE_BAND = 150        # PWM below hover_pwm under which no yaw is commanded (see autopilot)
-THRUST_BUDGET_SHARE = 0.9  # share of the motors' total specific thrust the follower may commit; vertical need first, horizontal gets the rest (see autopilot). 0 disables.
+THRUST_BUDGET_SHARE = 1.0  # share of the motors' total specific thrust the follower may commit; vertical need first, horizontal gets the rest (see autopilot). 0 disables.
 NO_OVERSPEED_PUSH = True   # at/above plan speed, no forward along-track push (see Tracker.step)
 OVERSPEED_SHARE0 = 0.5     # ...but only where drag already holds this share of the tilt (v > ~6.9 m/s); the 3.5 m/s loops keep their pull-through
 PRIORITY_CLAMP = True      # clamp keeps the cross-track component, trims along-track
@@ -103,6 +110,7 @@ class Tracker:
         # nose heading per sample when the plan carries one (held across
         # the stacked-pair cusp, blended back to the tangent after it)
         self.yaw_arr = plan.get("yaw_arr")
+        self.hold_arr = plan.get("hold_arr")   # True inside a reversal fold (the stack)
         self.n = len(self.s)
         self.cfg = cfg
         # arc position of every crossing event: the tracker may never run
@@ -310,7 +318,19 @@ class Tracker:
         vi = float(np.hypot(v_tgt[0], v_tgt[1]))
         if vb < vi and vi > 1e-6:
             v_tgt = v_tgt * (vb / vi)
-        a_ctrl = (self.acc[i][:2] + f.kp_pos * e_pos
+        # LEAD the feedforward: the attitude answers ~0.1 s late, so the
+        # plan's acceleration is taken ACC_LEAD_S ahead along the path
+        # (race_053: 0.3-0.5 m wide in every fast arc, banking for where
+        # the drone was). The cross-track and speed terms stay at the
+        # nearest point.
+        # ...but not inside a reversal fold: leading there hands the drone
+        # the pull-out push while it is still at the top of the stack, it
+        # holds 20-40 deg of tilt through the drop, the attitude
+        # corrections at idle throttle make lift and it hangs (race_055).
+        in_fold = self.hold_arr is not None and bool(self.hold_arr[i])
+        self.in_fold = in_fold    # the vertical feedforward is applied only here (race_063: on the takeoff climb it overshot g0's top bar)
+        i_ff = self._at_s(s_here + ACC_LEAD_S * v_h) if (ACC_LEAD_S > 0.0 and not in_fold) else i
+        a_ctrl = (self.acc[i_ff][:2] + f.kp_pos * e_pos
                   + f.kd_pos * (v_tgt - est.v[:2]))
         # No forward push once AT plan speed: the carrot's along-track
         # part (kp * lookahead, 3.6 m/s^2 at 9.9 m/s) otherwise drives the
@@ -349,6 +369,7 @@ class Tracker:
 
         z_target = float(self.pos[ic][2])
         vz_ff = float(self.vel[ic][2])
+        self.az_ff = float(self.acc[ic][2]) if self.acc.shape[1] > 2 else 0.0
 
         iy = self._at_s(s_here + f.yaw_lookahead_m)
         if self.yaw_arr is not None:
@@ -436,7 +457,8 @@ def autopilot(update: SensorUpdate) -> RCCommand:
 
     airborne = est.p[2] >= CFG.follower.min_alt_translation_m
     throttle = _ALT.throttle(update.t, est, z_target, vz_ff, airborne,
-                             update.baro_fresh)
+                             update.baro_fresh,
+                             (AZ_FF_GAIN * getattr(_TRACKER, 'az_ff', 0.0)) if getattr(_TRACKER, 'in_fold', False) else 0.0)
     # THRUST-VECTOR BUDGET, vertical first (Brian, race_044): the motors
     # make T_MAX of specific thrust in total. The altitude loop states its
     # vertical need (g + a_cmd); the horizontal gets what is left inside
@@ -461,9 +483,48 @@ def autopilot(update: SensorUpdate) -> RCCommand:
             nrm = float(np.hypot(a_des[0], a_des[1]))
             if nrm > h_cap:
                 a_des = a_des * (h_cap / nrm)
+    # No attitude demand the motors cannot honour (race_056): through the
+    # stack's drop the throttle sits at idle while the follower still asks
+    # 30-60 deg of tilt for the reversal push; the mixer makes lift out of
+    # the roll/pitch corrections (motor mean 0.1-0.4 at throttle 1000) and
+    # the drone falls at half of g. Below hover the horizontal demand
+    # scales with the collective the mixer has; at idle it is zero and the
+    # drone falls at g; the full push returns with the throttle.
+    if airborne and ATT_IDLE_SCALE:
+        span = float(CFG.thrust.hover_pwm - 1000)
+        frac = max(0.0, min(1.0, (float(throttle) - 1000.0) / max(span, 1.0)))
+        if frac < 1.0:
+            a_des = a_des * frac
+    # COHERENT THRUST VECTOR (race_057): the throttle is the magnitude of the
+    # vector the follower wants, (a_h, g + a_z) with a_z clipped at 85% of
+    # free fall, and the tilt is its angle. Through the stack's drop that is
+    # ~10 m/s^2 at ~75 deg: the drone still falls at ~8 m/s^2 AND keeps its
+    # horizontal authority, riding on a real collective instead of idle.
+    # Idle throttle with zero demand fell cleanly but drifted 2 m off the
+    # line with no way to correct (race_057, stack 2.5 s); idle throttle
+    # with a demand made lift out of the corrections (race_056, float).
+    az_eff = float(_ALT.a_cmd)
+    if airborne and THRUST_VECTOR_MODE:
+        az_eff = max(az_eff, -VECTOR_FREEFALL_SHARE * 9.81)
+        gz = 9.81 + az_eff
+        a_h = float(np.hypot(a_des[0], a_des[1]))
+        # tilt cap in descent: a wrong-direction horizontal demand at 80 deg
+        # is a sideways shove at pull-out (races 046, 051)
+        # the cap applies while DESCENDING only (race_059: applied always it
+        # held the straights to 17 m/s^2 of drag and 8 m/s)
+        # ...and only in a REAL descent (vertical thrust below half of hover):
+        # any slightly negative altitude demand on a straight (riding a few
+        # cm high) put the cap on at a reduced gz and held the drag
+        # feedforward to 13 m/s^2 - race_060 lost 1.5 m/s on every straight
+        max_h = gz * math.tan(math.radians(VECTOR_TILT_MAX_DEG)) if gz < 0.5 * 9.81 else float("inf")
+        if a_h > max_h and a_h > 1e-6:
+            a_des = a_des * (max_h / a_h)
+            a_h = max_h
+        t_mag = math.sqrt(a_h * a_h + gz * gz)
+        throttle = int(round(CFG.pwm_for_thrust(t_mag)))
     roll = pitch = yaw_stick = 1500
     if airborne:
-        roll, pitch, eb = attitude_sticks(CFG, est, a_des, float(_ALT.a_cmd))
+        roll, pitch, eb = attitude_sticks(CFG, est, a_des, az_eff)
         yaw_stick = _YAW.stick(est, yaw_des)
         # No yaw demand when the motors cannot deliver it: through the
         # stack the throttle sits at minimum for ~1 s and the yaw loop kept

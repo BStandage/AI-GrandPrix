@@ -34,6 +34,13 @@ def replay(plan_path: str, verbose: bool = False) -> dict:
     from raceline.config import load_config
     from raceline import planner as plan_io, course as course_bridge
     from solvers.follower import Tracker, StateEstimate
+    import solvers.follower as _fol
+    # The replay judges plans with the follower's feedforward LEAD off: the
+    # lead cancels the real attitude lag (race_055: arcs 0.47 -> 0.20 m wide)
+    # but this point-mass plant has no attitude state, and with the lead on
+    # it cuts every arc inside and fails the plan that flew clean. Judging
+    # without the lead keeps the guard on the conservative side.
+    _fol.ACC_LEAD_S = float(os.environ.get("REPLAY_LEAD", "0.0"))
 
     cfg = load_config()
     plan = plan_io.load_plan(plan_path)
