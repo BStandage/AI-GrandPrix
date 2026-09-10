@@ -70,8 +70,15 @@ class VehicleConfig:
         return math.radians(self.limits.max_tilt_deg)
 
     def a_lat_full(self) -> float:
-        """Lateral accel at max tilt (follower clamp)."""
-        return G * math.tan(self.tilt_rad())
+        """Horizontal accel available while holding altitude: g*tan(tilt),
+        bounded by the thrust ceiling (sqrt(T_max^2 - g^2)). With the tilt
+        clamp at 90 the thrust bound is the one that counts (36 m/s^2);
+        an unbounded tan() broke every ratio built on this number."""
+        g = 9.81
+        by_tilt = g * math.tan(min(self.tilt_rad(), math.radians(89.0)))
+        t_max = float(max(self.thrust.curve_acc))
+        by_thrust = math.sqrt(max(t_max * t_max - g * g, 0.0))
+        return min(by_tilt, by_thrust)
 
     def a_lat_planner(self) -> float:
         """Lateral accel the PLAN may use (margin leaves tilt authority for
