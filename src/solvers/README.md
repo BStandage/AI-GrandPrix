@@ -13,6 +13,7 @@ def autopilot(update: SensorUpdate) -> RCCommand:
 | `sysid_slew.py` | Measurement flight: attitude-slew steps + analyzer. |
 | `sysid_thrust.py` | Measurement flight: raw throttle steps -> `[thrust]` curve + analyzer. |
 | `sysid_alt.py` | Measurement flight: closed-loop altitude steps + tilt pulses (checks `kp_z`/`kd_z`) + analyzer. |
+| `sysid_sprint.py` | Measurement flight: constant-tilt straight sprints -> terminal speed + `[vehicle] drag_*` fit + analyzer. |
 | `vision_probe.py` | Collects FPV frames of the gates, then runs the HSV detector offline. |
 
 ## Add a solver

@@ -92,7 +92,11 @@ def print_analysis(res: dict) -> None:
 
 T_DISARMED_END = 0.50
 T_ARM_IDLE_END = 0.75
-HOVER = np.array([0.0, 0.0, 1.5])
+HOVER = np.array([-4.0, -6.0, 1.5])   # CLEAR of the gates: the steps run along
+                                      # y and g0 sits 3 m along y from the
+                                      # spawn; a livelier tune's recovery
+                                      # overshoot reached its top bar (contact
+                                      # at (0.0, 3.3, 2.0), run ended, no CSV)
 STEP_S = 0.6          # step hold - SHORT on purpose: the real training
                       # cage is 5 x 5 m, so day 1 only allows short-burst
                       # steps; the rehearsal flies the same protocol. The
@@ -118,7 +122,7 @@ def _write():
     _state["path"] = path
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
-        f.write("t,phase,a_cmd_y,x,y,z,vx,vy,vz\n")
+        f.write("t,phase,a_cmd_y,x,y,z,vx,vy,vz,roll,pitch,throttle,wx,wy,cos_tilt,e_att\n")
         f.writelines(_rows)
     print(f"[SYSID] {len(_rows)} rows -> {path}")
 
@@ -185,8 +189,10 @@ def autopilot(update):
                                       update.baro_fresh)
     roll = pitch = 1500
     yaw_stick = 1500
+    e_att = 0.0
     if airborne:
-        roll, pitch, _ = attitude_sticks(cfg, est, a_cmd)
+        roll, pitch, eb = attitude_sticks(cfg, est, a_cmd)
+        e_att = float(np.hypot(eb[0], eb[1]))
         yaw_stick = _state["yaw"].stick(est, _state["yaw0"])
 
     # log with the phase that PRODUCED this command (a transition this tick
@@ -194,7 +200,11 @@ def autopilot(update):
     # boundary row, found in the first sim rehearsal)
     _rows.append(f"{t:.4f},{phase},{a_cmd[1]:.3f},"
                  f"{est.p[0]:.4f},{est.p[1]:.4f},{est.p[2]:.4f},"
-                 f"{est.v[0]:.4f},{est.v[1]:.4f},{est.v[2]:.4f}\n")
+                 f"{est.v[0]:.4f},{est.v[1]:.4f},{est.v[2]:.4f},"
+                 f"{roll},{pitch},{int(throttle)},"
+                 f"{float(est.omega[0]) if est.omega is not None else 0.0:.3f},"
+                 f"{float(est.omega[1]) if est.omega is not None else 0.0:.3f},"
+                 f"{est.R[2, 2]:.4f},{e_att:.3f}\n")
     return RCCommand(arm=1800, throttle=throttle, roll=roll, pitch=pitch,
                      yaw=yaw_stick)
 
