@@ -13,8 +13,19 @@ updated = "2026-09-09"
 
 [vehicle]                 # physical truth - sysid replaces this section wholesale
 mass_kg   = 0.9           # seeded from sim/config.py
-drag_lin  = 0.0           # N per (m/s) - unmeasured, 0 until a sim sweep exists
-drag_quad = 0.0           # N per (m/s)^2
+drag_lin  = 0.0           # N per (m/s)
+drag_quad = 0.23          # N per (m/s)^2 - MEASURED by solvers.sysid_sprint
+                          # (out/sysid/sprint_000.csv, 2026-09-09): constant-tilt
+                          # sprints at 30/45/58/68 deg reached terminal speeds
+                          # 4.7/6.2/8.2/9.7 m/s; equivalent loss fits
+                          # a = 0.257*v^2 m/s^2 (pure quadratic, rms 0.6). The
+                          # sim plant IS quadratic drag (physics.py: F=-k|v|v,
+                          # k=0.2 in the default profile) so the model shape
+                          # is exact; 0.23 = 0.9 kg * 0.257. Consequence: the
+                          # airframe cannot exceed ~9.7 m/s at max tilt, and
+                          # coasting level at 8 m/s already decelerates at
+                          # ~17 m/s^2. The physical drone will differ - day-1
+                          # sprint re-measures this.
 
 [thrust]
 hover_pwm = 1240          # measured steady-state hover RC on the SITL plant
@@ -160,7 +171,11 @@ v_gate_mps       = 20.0   # = v_max: a straight-through gate is just track,
                           # 2.0 -> 69.5 s, 2.5 -> 66.0 s, all 12/12 clean.
                           # 1.6 is the moderate pick; room to go higher.
 gate_window_m    = 2.0    # one uniform rule, never special-cased per gate
-vz_up_max        = 4.0    # measured ceiling 8.1 m/s at full throttle; margin for tilt
+vz_up_max        = 2.5    # LOWERED 4.0 -> 2.5 (race_040/042): climbing into g10-top at
+                          # 6-7 m/s forward the drone managed 2.0-2.2 m/s with the
+                          # motors at 100% (35 m/s^2 commanded) and arrived 0.4 m
+                          # low; 8.1 m/s is the hover climb ceiling, not the one at
+                          # racing speed against drag. history: measured ceiling 8.1 m/s at full throttle; margin for tilt
 vz_down_max      = 5.0    # RAISED 3.0 -> 5.0 (2026-09-09). The planner note
                           # that this knob "does nothing" dates from slew 5.3;
                           # at slew 165 it bound 35 pct of the stacked-gate
@@ -260,7 +275,13 @@ apex_max_m = 0.25         # MARGIN LAW: 0.60 effective window (0.75 - 0.15
                           # SUM is what goes over the edge.)
 
 [follower]
-kp_pos      = 1.2       # position error -> accel. NOT raised: 1.8 was tried
+kp_pos      = 4.0       # RAISED 1.2 -> 4.0 (2026-09-09, race_037): with the
+                        # attitude loop at ka 600 / kw 10 (3x faster) the
+                        # drone still sat a constant 0.6-0.8 m OUTSIDE every
+                        # curve (g3-g4 and the whole g4-g5 arc, then g5's
+                        # post) - at 1.2 a 0.7 m error asks for 0.8 m/s^2.
+                        # 4.0 with kd 4.0 is critically damped, ~3x stiffer.
+                        # history: position error -> accel. NOT raised: 1.8 was tried
                         # and crashed at g5 - the proportional term alone
                         # overshoots. Damping (kd_pos) is the lever instead.
 kd_pos      = 4.0       # velocity error (vs plan) -> accel. RAISED
@@ -289,14 +310,33 @@ lookahead_t = 0.3       # seconds of warning; carrot = max(lookahead_m, t*v).
                         # At v_max 2.8 the two terms are ~equal, so the
                         # carrot sits ~0.85 m ahead - tight tracking without
                         # going to a pure pursuit-the-nearest-point rule.
-kw_att      = 25.0    # attitude RATE-damping gain (rad/s of body roll/pitch
+kw_att      = 10.0    # LOWERED 25 -> 10 (2026-09-09, slew_016 with sticks and
+                      # body rates logged): the plant gives ~0.02 rad/s per
+                      # PWM of stick with ~80 ms lag, so this PD loop's time
+                      # constant is (1 + g*kw)/(g*ka): 0.3 s at 250/25 (90%
+                      # in 0.7 s, every step of slew_010-016, race_030-032
+                      # 2-3 m wide of g4), 0.1 s at 600/10. Betaflight PIDs,
+                      # feedforward and the rate map were each changed and
+                      # measured to make no difference - the limit was here.
+                      # attitude RATE-damping gain (rad/s of body roll/pitch
                       # rate -> opposing stick). Damps the fast aerobatic
                       # plant so the proportional attitude loop stops
                       # overshooting/hunting - the proper fix for the pitch
                       # fwd/back oscillation, vs just lowering ka_att into
                       # sluggishness. Raise if still hunting, lower if it
                       # feels heavy. Lets ka_att stay responsive.
-ka_att      = 120.0   # attitude-error -> stick gain. 300 -> 150 -> 60 -> 120:
+ka_att      = 600.0   # RAISED 250 -> 600 (slew_016, see kw_att): 250 -> 120 -> 250 history:
+                      # g3-g4 arc the thrust vector had to swing ~80 deg
+                      # (68 deg forward -> 62 deg sideways); the loop put
+                      # only ~55 PWM on the roll stick (120*sin(err) minus
+                      # kw_att*rate), the body rolled at 90-125 deg/s, the
+                      # cross-track accel built at 16 m/s^3 against the
+                      # planner's 165, and the drone ran 2.6 m wide. Motors
+                      # were NOT saturated (m_max 0.6-0.9). Steady rotation
+                      # rate of this PD loop ~ ka_att*err/kw_att: 250/25
+                      # gives 10 rad/s at a 1 rad error. Verify with
+                      # solvers.sysid_slew before racing on it.
+                      # history: 300 -> 150 -> 60 -> 120:
                       # with rate damping (kw_att) added, ka_att can come
                       # BACK UP for responsiveness without oscillating -
                       # the damping, not a low P, is what kills the hunt.

@@ -161,10 +161,10 @@ POSE_ANGLE_MAX_DEG = 35.0
 POSE_TILT_OVERRIDE_DEG = {'g5': 0.0, 'g6': -25.0, 'g10-top': -30.0}
 STACK_LOOP = False   # see build_anchors: g10-top -> g10-low as a banked descending half-loop
 EARLY_CLIMB = True   # see build_anchors: climb right after the previous gate, turn level into the next
-POSE_Z_OFFSET_M = {'g10-top': -0.40}   # gate label -> crossing height shift (m); g10-top: the climb overshoots 0.4-0.6 m in replay and +0.2 in flight
+POSE_Z_OFFSET_M = {'g9': +0.45, 'g10-top': -0.25, 'g10-low': +0.20}   # g9 +0.45: start the 2.7 m climb to g10-top BEFORE g9 (race_042 arrived 0.4 m low and clipped the lower bar; race_040 was 0.1 m from it with motors pinned on the climb)   # g10-low: the U arrives diving; replay crossed 0.56 low, aim 0.2 high   # was -0.40 (clipped the lower bar with the U, race_041 lap 2); 0 fails the replay (+0.58 high, its climb model overshoots 0.4-0.6 where flight overshoots ~0.2); -0.25 splits it   # gate label -> crossing height shift (m); g10-top: the climb overshoots 0.4-0.6 m in replay and +0.2 in flight
 POST_STUB_M = {'g6': 1.2}     # gate label -> straight exit length (m); g6: a 2 m stub south then a 90 deg bend west was the dip-and-rise into the g7 loop
 PRE_STUB_M = {}      # gate label -> straight approach length (m); g10-top: the turn from the g9 arc must finish BEFORE the gate (race_026 crossed 0.9 m right of centre)
-POSE_LAT_OFFSET_M = {'g6': +0.35, 'g8': -0.30, 'g10-top': +0.20}   # gate label -> crossing point shift along the bar (+ = left of heading): compensates the follower cutting the inside of a fast apex   # gate label -> crossing tilt in deg (both laps); wins over the bisector rule  # apex THROUGH a gate: the crossing direction may
+POSE_LAT_OFFSET_M = {'g8': -0.30, 'g10-top': +0.20}   # g6 +0.35 REMOVED (race_038: with the swing the g6 exit is straight, the drone no longer cuts inside there; it runs 0.3-0.5 m OUTSIDE like everywhere else and the outside bias put it into g6's left post at x 16.8)   # gate label -> crossing point shift along the bar (+ = left of heading): compensates the follower cutting the inside of a fast apex   # gate label -> crossing tilt in deg (both laps); wins over the bisector rule  # apex THROUGH a gate: the crossing direction may
                            # tilt toward the bisector of the incoming and
                            # outgoing chords by up to this. The 1.5 m opening
                            # seen at angle a is 1.5cos(a)-0.26sin(a) wide:
@@ -183,6 +183,23 @@ REVERSAL_SIDE_FLIP = False  # route reversal clearance on the OTHER side
 # 0.6-1.0 m wide of, missing g7 on 2026-09-09). 2.0 m is the loop Brian
 # drew: top of the loop 4 m above g7, west point 2.5 m west of it.
 REVERSAL_LOOP_R_M = 2.5
+# REVERSAL SWING: approach a reversal gate with ONE
+# constant-radius turn on the FAR side of the gate (for g7, arriving from
+# g6 in the north-east and crossing east: a right-hand circle whose top is
+# g7, so the line swings SOUTH of g7). The arrival-side loop above is
+# geometrically an S with a U on the end (south out of g6, right to go
+# west, then 180 deg left to come back east) and it carried the two
+# tightest bends on the lap outside the stack: r 0.7 m at 2.0 m/s out of
+# g6 and r 1.6-1.8 m into the loop; flown 4.4 s against 3.5 planned. The
+# swing has no bends: a straight from the previous gate's stub tangent
+# onto the circle, then the arc all the way round to the crossing. About
+# the same model time at r 3-3.5 m; its case is trackability.
+REVERSAL_SWING = True
+REVERSAL_SWING_R_M = 2.5   # sweep 2.5/3.0/3.5/4.0: 42.94/43.09/43.23/43.38 s model, replay g7 within 0.14 m at all four - the shorter path beats the higher arc speed (Brian: the loop was too big); 4.0 had lifted the g6 dip, watch g6 in flight
+SWING_CROSS_OFFSET_M = 0.0   # crossing bias on a swing: 0.25 toward the far side put the path 0.6 m off-centre at g7's plane (tilted crossing) and touched the frame
+SWING_SAMPLE_M = 1.25        # arc anchor spacing on the swing (2.5 m rippled r 2.9..5.2 on an r 3.5 circle)
+V_REVERSAL_SWING_MPS = 6.5   # crossing cap on a swing (the r 3.5 arc itself
+                             # holds ~6.7; the 3.5 m/s loop cap is not needed)
 REVERSAL_CROSS_OFFSET_M = 0.25  # see build_anchors: aim inside the loop by the follower's wide error
 _LAST_REVERSAL = []          # reversal flags of the last build_anchors() call
 _LAST_LABELS = []
@@ -205,6 +222,22 @@ CLIMB_RUNIN_M = 0.0      # extra LEVEL run-in before a gate approached with
 CORNER_R_M = 2.5         # corner-arc radius at sharp junctions; swept 2.5/3.5/4.5 on
                          # g6->g7: 2.77/2.93/3.11 s, turn starts at the gate at 2.5
 STACKED_STANDOFF_M = 2.0
+# STACK U (Brian, 2026-09-09 night): the stacked pair is flown as a U in
+# the VERTICAL plane, not a vertical drop with the reversal at the bottom.
+# Apex anchor STACK_U_EXTRA_M beyond the standoffs at mid height: the path
+# goes out past the top gate while already descending, reverses its
+# horizontal velocity at the apex (still falling), and comes back through
+# the low gate descending. The thrust vector points back-and-up the whole
+# way, so the throttle never has to go to zero - race_039 hung 0.6 s at
+# 3.7 m at zero throttle with the motors on their floor, then rose into
+# g10-low's top bar.
+STACK_U = True    # priced by the 3D thrust-vector ceiling now (race_041's 3 s was the old horizontal-loop pricing at 1.7 m/s plus the yaw demand at idle)
+STACK_U_R_M = 1.35       # horizontal semi-axis = the vertical one (a round U; 2.0 made an r 0.9 bottom) (vertical
+                         # semi-axis = half the gate spacing); a single apex
+                         # anchor folded the spline to r 0.2-0.3 m whatever
+                         # its distance, a sampled half-ellipse keeps r ~1-1.5
+STACK_U_SAMPLES = 6
+V_TILT_SMOOTH_M = 0.0   # moving-minimum window on the tilt/curvature ceiling (see _speed_profile); 1.5 m cost 4 s on the lap and did not remove the g4 ripple - off
 CLEARANCE_LATERAL_M = 2.7 / 2.0 + 1.2
 CLEARANCE_BACK_M = 2.5
 
@@ -455,7 +488,10 @@ def build_anchors(course, cfg: VehicleConfig):
             side = math.copysign(1.0, float(np.dot(bar, lane[k - 1] - lane[k])))
             if REVERSAL_SIDE_FLIP:
                 side = -side
-            lane[k] = lane[k] + side * REVERSAL_CROSS_OFFSET_M * bar
+            if REVERSAL_SWING:
+                side = -side      # the swing's inside is the FAR side
+            lane[k] = lane[k] + side * (SWING_CROSS_OFFSET_M if REVERSAL_SWING
+                                        else REVERSAL_CROSS_OFFSET_M) * bar
     # Reversal-gate crossing target moved to the INSIDE of the loop by the
     # follower's measured steady-state error: the pure-pursuit carrot runs
     # a curve wide by about L^2/(2R) (0.45 m in the replay of the 2.5 m
@@ -469,7 +505,10 @@ def build_anchors(course, cfg: VehicleConfig):
             side = math.copysign(1.0, float(np.dot(bar, lane[k - 1] - lane[k])))
             if REVERSAL_SIDE_FLIP:
                 side = -side
-            lane[k] = lane[k] + side * REVERSAL_CROSS_OFFSET_M * bar
+            if REVERSAL_SWING:
+                side = -side      # the swing's inside is the FAR side
+            lane[k] = lane[k] + side * (SWING_CROSS_OFFSET_M if REVERSAL_SWING
+                                        else REVERSAL_CROSS_OFFSET_M) * bar
 
     # Junction arc parameters (k -> k+1): (radius, turn sign) for bent
     # non-reversal junctions, else None. Used twice: the apex anchor
@@ -701,7 +740,14 @@ def build_anchors(course, cfg: VehicleConfig):
                     apex = np.array([mid[0] + out[0] * sag,
                                      mid[1] + out[1] * sag,
                                      0.5 * (lane[k - 1][2] + ctr[2])])
-                    if ARC_SAMPLE_M > 0.0:
+                    if BIARC and ARC_SAMPLE_M > 0.0:
+                        p0 = anchors[-1]
+                        u = p0[:2] - lane[k - 1][:2]
+                        for q in _biarc_points(p0, u, pre, n_anchor,
+                                               p0[2], pre[2], ARC_SAMPLE_M):
+                            if np.linalg.norm(q - anchors[-1]) > _DEDUP_M:
+                                anchors.append(q)
+                    elif ARC_SAMPLE_M > 0.0:
                         # Sample the WHOLE junction circle uniformly from
                         # the previous post stub to this pre stub instead
                         # of one apex anchor: with anchors 2 / 4.5 / 4.7 /
@@ -716,6 +762,13 @@ def build_anchors(course, cfg: VehicleConfig):
                         p1 = pre[:2]
                         u = p0 - lane[k - 1][:2]
                         u = u / max(float(np.hypot(u[0], u[1])), 1e-6)
+                        if ARC_SPLIT_MISMATCH:
+                            chord = p1 - p0
+                            ch = math.atan2(chord[1], chord[0])
+                            al0 = wrap_pi(ch - math.atan2(u[1], u[0]))
+                            al1 = wrap_pi(math.atan2(n_anchor[1], n_anchor[0]) - ch)
+                            al = 0.5 * (al0 + al1)
+                            u = np.array([math.cos(ch - al), math.sin(ch - al)])
                         nrm = np.array([-u[1], u[0]])
                         dvec = p1 - p0
                         den = 2.0 * float(np.dot(dvec, nrm))
@@ -811,7 +864,44 @@ def build_anchors(course, cfg: VehicleConfig):
             # accel. climb=0 recovers the old flat clearance anchor.
             clr[2] = anchors[-1][2] + p.reversal_climb_m
             loop_pts = []
-            if REVERSAL_LOOP_R_M > 0.0:
+            swing_done = False
+            if REVERSAL_SWING and REVERSAL_SWING_R_M > 0.0:
+                R = REVERSAL_SWING_R_M
+                d_x = cross_dir[k]
+                # centre on the FAR side, the circle TANGENT to the crossing
+                # direction at the straight lead-in point (not at the gate:
+                # ending the arc 1.5 m early left a 25 deg kink, r 1.1 m)
+                lead_pt = ctr - d_x * REVERSAL_LEADIN_M
+                C = lead_pt + R * _rot(d_x, -side * math.pi / 2.0)
+                phi_g = math.atan2(lead_pt[1] - C[1], lead_pt[0] - C[0])
+                P = anchors[-1]
+                dv = P[:2] - C[:2]
+                dist = float(np.hypot(dv[0], dv[1]))
+                if dist > R + 0.2:
+                    ang = math.atan2(dv[1], dv[0])
+                    alpha = math.acos(R / dist)
+                    best = None
+                    for sg in (1.0, -1.0):
+                        th_t = ang + sg * alpha
+                        # arc from the tangent point forward to the gate,
+                        # measured backwards from the gate as +side*back
+                        sweep = (side * (th_t - phi_g)) % (2.0 * math.pi)
+                        if math.radians(120.0) <= sweep <= math.radians(340.0):
+                            if best is None or sweep < best[1]:
+                                best = (th_t, sweep)
+                    if best is not None:
+                        th_t, sweep = best
+                        back_end = 0.0          # last sample IS the lead-in point (uniform spacing; a 0.6 m gap rippled to r 1.6)
+                        n_pts = max(2, int((sweep - back_end) * R / SWING_SAMPLE_M))
+                        for i in range(n_pts + 1):
+                            back = sweep - i * (sweep - back_end) / n_pts
+                            th = phi_g + side * back
+                            q = C + R * np.array([math.cos(th), math.sin(th), 0.0])
+                            q[2] = ctr[2]
+                            loop_pts.append(q)
+                        clr = loop_pts[0].copy()
+                        swing_done = True
+            if REVERSAL_LOOP_R_M > 0.0 and not swing_done:
                 R = REVERSAL_LOOP_R_M
                 d_x = cross_dir[k]
                 C = ctr + R * _rot(d_x, side * math.pi / 2.0)
@@ -855,8 +945,39 @@ def build_anchors(course, cfg: VehicleConfig):
                 pre[2] = ctr[2]
             elif np.linalg.norm(clr - anchors[-1]) > _DEDUP_M:
                 anchors.append(clr)
+        stacked_in = (STACK_U and k > 0
+                      and math.hypot(ctr[0] - lane[k - 1][0],
+                                     ctr[1] - lane[k - 1][1]) < 1.0
+                      and abs(float(ctr[2] - lane[k - 1][2])) > 1.0)
+        if stacked_in:
+            # Half-ellipse in the vertical plane from the previous (top)
+            # gate's post stub down to this (low) gate's pre stub: horizontal
+            # semi-axis STACK_U_R_M out along the top gate's exit direction,
+            # vertical semi-axis half the height difference, tangent to the
+            # horizontal stubs at both ends. Sampled so the spline rounds it.
+            # The U lies in the LOW gate's approach plane: out along the
+            # reverse of its entry direction and back. The top gate's post
+            # anchor is re-laid onto that same line (its own crossing may
+            # be tilted, g10-top -30 deg: the U built along that tilt ended
+            # 1.2 m west of the low gate's pre stub and the spline jogged
+            # east through an r 0.85 m fold at the bottom).
+            u_dir = -pre_dir / max(float(np.linalg.norm(pre_dir[:2])), 1e-9)
+            u_dir = np.array([u_dir[0], u_dir[1], 0.0])
+            d0 = pre_d[k]
+            z_top = float(anchors[-1][2]); z_low = float(pre[2])
+            anchors[-1] = np.array([lane[k - 1][0] + u_dir[0] * d0,
+                                    lane[k - 1][1] + u_dir[1] * d0, z_top])
+            n_prev = u_dir
+            base = lane[k - 1][:2] + n_prev[:2] * d0
+            z_mid = 0.5 * (z_top + z_low); a_v = 0.5 * (z_top - z_low)
+            for j in range(1, STACK_U_SAMPLES):
+                th = math.pi * j / STACK_U_SAMPLES
+                q_xy = base + n_prev[:2] * (STACK_U_R_M * math.sin(th))
+                q = np.array([q_xy[0], q_xy[1], z_mid + a_v * math.cos(th)])
+                if np.linalg.norm(q - anchors[-1]) > _DEDUP_M:
+                    anchors.append(q)
         gap = float(np.linalg.norm(pre - anchors[-1]))
-        if k > 0 and gap < p.anchor_standoff_m:
+        if k > 0 and gap < p.anchor_standoff_m and not stacked_in:
             anchors[-1] = 0.5 * (anchors[-1] + pre)
         elif gap > _DEDUP_M:
             anchors.append(pre)
@@ -905,6 +1026,9 @@ def build_anchors(course, cfg: VehicleConfig):
         for k in range(1, len(center_idx)):
             z_from = anchors[center_idx[k - 1]][2]
             z_to = anchors[center_idx[k]][2]
+            a0, a1 = anchors[center_idx[k - 1]], anchors[center_idx[k]]
+            if STACK_U and math.hypot(a1[0] - a0[0], a1[1] - a0[1]) < 1.0:
+                continue        # the stacked pair's U keeps its own altitudes
             if abs(z_to - z_from) > 1.0:
                 for i in range(center_idx[k - 1] + 2, center_idx[k]):
                     anchors[i][2] = z_to
@@ -997,6 +1121,8 @@ class Plan:
     binding: np.ndarray    # [N] name of the ceiling that set v_lim there
     events: List[dict]     # per crossing: event, lap, label, s, t, v, x/y/z
     meta: dict = field(default_factory=dict)
+    yaw: Optional[np.ndarray] = None   # [N] nose heading (rad), see _yaw_profile
+    yaw_hold: Optional[np.ndarray] = None
 
     @property
     def total_s(self) -> float:
@@ -1026,7 +1152,220 @@ class Plan:
             ],
             "samples": np.column_stack(
                 [self.t, self.pos, self.vel, self.acc]).round(4).tolist(),
+            # nose heading per sample; the follower flies it when present
+            # (older plans without it fall back to the path tangent)
+            "yaw": (None if self.yaw is None
+                    else np.asarray(self.yaw).round(4).tolist()),
         }
+
+
+YAW_CUSP_DEG = 120.0     # tangent turning more than this within YAW_CUSP_WIN_M
+YAW_CUSP_WIN_M = 3.0     # of arc is a cusp: hold the nose, do not chase it
+YAW_HOLD_AFTER_M = 5.0   # keep the nose held this far past the cusp (the
+                         # exit gate of the stacked pair and its stub are
+                         # flown backwards), then
+YAW_BLEND_M = 5.0        # unwind to the tangent over this arc
+YAW_CUSP_FLIP = True     # Brian: flip the nose 180 deg AT the cusp instead of
+                         # holding it (drift backwards through the fold, then
+                         # dive nose-first through the low gate); the follower
+                         # yaws only while there is throttle to yaw with
+_LAST_YAW: list = []     # [yaw, hold] of the last _speed_profile() call
+
+
+def _yaw_profile(T: np.ndarray, s: np.ndarray, s_min: float = 0.0):
+    """Nose heading per sample. Tangent-following everywhere except across
+    a CUSP, where the path folds back on itself faster than any nose can
+    follow (the stacked pair: through g10-top heading south, stop, back
+    north through g10-low). There the nose is HELD on the entry heading -
+    the drone flies the exit gate backwards - for YAW_HOLD_AFTER_M past
+    the fold, then blended to the tangent over YAW_BLEND_M. One geometric
+    rule, no gate names: a cusp is wherever the XY tangent turns more than
+    YAW_CUSP_DEG within YAW_CUSP_WIN_M of arc (dot product of the two
+    unit tangents, so unwrap artefacts and the near-vertical takeoff
+    spiral cannot fake one). A loop (g7: 270 deg over 15 m) never
+    qualifies. Returns (yaw [rad, wrapped], hold mask)."""
+    n = len(s)
+    ds = float(s[1] - s[0]) if n > 1 else 1.0
+    w = max(1, int(round(0.5 * YAW_CUSP_WIN_M / ds)))
+    txy = np.hypot(T[:, 0], T[:, 1])
+    psi = np.arctan2(T[:, 1], T[:, 0])
+    # heading is undefined where the path is near-vertical: carry the last
+    # defined tangent heading through those samples
+    for i in range(1, n):
+        if txy[i] <= 0.3:
+            psi[i] = psi[i - 1]
+    ux, uy = np.cos(psi), np.sin(psi)
+    dot = np.ones(n)
+    dot[w:n - w] = ux[2 * w:] * ux[:n - 2 * w] + uy[2 * w:] * uy[:n - 2 * w]
+    defined = np.zeros(n, dtype=bool)
+    defined[w:n - w] = (txy[2 * w:] > 0.3) & (txy[:n - 2 * w] > 0.3)
+    cusp = defined & (dot < math.cos(math.radians(YAW_CUSP_DEG)))
+    cusp[s < s_min] = False      # the takeoff spiral folds too; not a cusp
+    hold = np.zeros(n, dtype=bool)
+    yaw = psi.copy()
+    i = 0
+    while i < n:
+        if not cusp[i]:
+            i += 1
+            continue
+        j = i
+        while j < n and cusp[j]:
+            j += 1
+        held = psi[max(i - 1, 0)]
+        if YAW_CUSP_FLIP:
+            held = held + math.pi
+        k = i
+        while k < n and s[k] - s[j - 1] < YAW_HOLD_AFTER_M:
+            yaw[k] = held
+            hold[k] = True
+            k += 1
+        j2 = k
+        while k < n and s[k] - s[j2] < YAW_BLEND_M:
+            f = (s[k] - s[j2]) / YAW_BLEND_M
+            d = (psi[k] - held + math.pi) % (2 * math.pi) - math.pi
+            yaw[k] = held + f * d
+            k += 1
+        i = k
+    yaw = (yaw + math.pi) % (2 * math.pi) - math.pi
+    return yaw, hold
+
+
+THRUST_SHARE = 0.85      # share of the max horizontal thrust vector the PLAN may
+               # use (drag + cornering together); the rest is headroom for the
+               # altitude loop and attitude corrections (race_035, see
+               # _speed_profile). Terminal speed in the plan drops 9.7 -> 9.0.
+BRAKE_DRAG_SHARE = 0.5   # share of a_drag(v) the brake pass may count as
+               # free deceleration. Physically all of it is (level off at
+               # 9.7 m/s and drag brakes at 25 m/s^2), but collecting it
+               # means swinging the thrust vector ~60 deg, and the
+               # attitude cannot do that in the 0.15 s the full-share
+               # profile allowed: race_031 planned 9.7 -> 7.3 in 1.5 m
+               # after g3, the tilt eased 66 -> 62 deg, speed fell at
+               # 3 m/s^2 instead of 13, and the drone ran 3 m wide of g4.
+BIARC = False  # junction = two tangent-continuous arcs matching BOTH crossing
+               # headings exactly (_biarc_points). Measured WORSE than the
+               # one-circle junction (+0.2 s, g3->g4 r 2.7 vs 5.5): the
+               # spline absorbs a ~10 deg tangent mismatch at a stub for
+               # free, and forcing the exact tangent spends radius on it.
+               # Kept for a course where a junction needs it.
+ARC_SPLIT_MISMATCH = True   # one-circle junction: share the exit/entry
+               # tangent mismatch EQUALLY between both stubs instead of
+               # matching the exit exactly and squaring up at the entry
+               # (g4->g5, 17 deg apart: the entry stub kinked at r 2.9 m /
+               # 4.1 m/s two metres before g5; split, each end is 8.5 deg
+               # off, which the spline rounds without a visible kink)
+
+
+def _arc_through(p, t, q, ds):
+    """Points on the circle tangent to unit t at p and passing through q,
+    from p toward q, every ~ds m, endpoints excluded. Straight if q lies
+    on the tangent line."""
+    p = np.asarray(p, float); q = np.asarray(q, float); t = np.asarray(t, float)
+    nrm = np.array([-t[1], t[0]])
+    d = q - p
+    den = 2.0 * float(np.dot(d, nrm))
+    L = float(np.hypot(d[0], d[1]))
+    if abs(den) < 1e-6 * max(L, 1.0):
+        n_pts = max(0, int(L / ds))
+        return [p + d * (i / (n_pts + 1)) for i in range(1, n_pts + 1)]
+    r_s = float(np.dot(d, d)) / den          # signed radius, + = left turn
+    sgn = 1.0 if r_s > 0 else -1.0
+    r = abs(r_s)
+    C = p + r_s * nrm
+    th0 = math.atan2(p[1] - C[1], p[0] - C[0])
+    th1 = math.atan2(q[1] - C[1], q[0] - C[0])
+    dth = wrap_pi(th1 - th0)
+    if sgn * dth < 0:
+        dth += sgn * 2.0 * math.pi
+    n_pts = max(0, int(abs(dth) * r / ds))
+    return [np.array([C[0] + r * math.cos(th0 + dth * i / (n_pts + 1)),
+                      C[1] + r * math.sin(th0 + dth * i / (n_pts + 1))])
+            for i in range(1, n_pts + 1)]
+
+
+def _biarc_points(p0, t0, p1, t1, z0, z1, ds):
+    """BIARC junction: two circular arcs, tangent-continuous at their joint,
+    leaving p0 along unit t0 and arriving at p1 along unit t1 EXACTLY.
+    Why: a single circle through both stubs can only honour ONE tangent;
+    with the g4->g5 crossing angles 17 deg apart it arrived at the g5
+    stub 8 deg off and the spline squared up in the last 2 m at r 2.9 m
+    (4.1 m/s where the sweep runs 8). Construction: A = p0 + d0 t0,
+    B = p1 - d1 t1, joint J = (A+B)/2 with |A-B| = d0 + d1, which makes
+    the two arcs meet with a common tangent at J. The split d0:d1 is the
+    free parameter; the EQUAL-tangent split dumps all the asymmetry into
+    one arc (g4->g5: 16.9 m then 4.5 m), so the split is searched for the
+    largest MINIMUM radius - the corner speed is set by the tighter arc.
+    Returns the interior XYZ points (z linear in arc fraction), endpoints
+    excluded."""
+    p0 = np.asarray(p0, float)[:2]; p1 = np.asarray(p1, float)[:2]
+    t0 = np.asarray(t0, float)[:2]; t1 = np.asarray(t1, float)[:2]
+    t0 = t0 / max(float(np.hypot(*t0)), 1e-9)
+    t1 = t1 / max(float(np.hypot(*t1)), 1e-9)
+    v = p1 - p0
+
+    def radius(p, t, q):
+        """signed: + = left turn, - = right, inf = straight"""
+        nrm = np.array([-t[1], t[0]])
+        d = q - p
+        den = 2.0 * float(np.dot(d, nrm))
+        return float("inf") if abs(den) < 1e-9 else float(np.dot(d, d)) / den
+
+    def solve(lam):
+        # d0 = lam*D, d1 = (1-lam)*D, |v - D*(lam t0 + (1-lam) t1)| = D
+        w = lam * t0 + (1.0 - lam) * t1
+        a = float(np.dot(w, w)) - 1.0
+        b = -2.0 * float(np.dot(v, w))
+        c = float(np.dot(v, v))
+        if abs(a) < 1e-9:
+            D = c / max(-b, 1e-9)
+        else:
+            disc = b * b - 4.0 * a * c
+            if disc < 0:
+                return None
+            roots = [(-b - math.sqrt(disc)) / (2 * a), (-b + math.sqrt(disc)) / (2 * a)]
+            pos = [r for r in roots if r > 1e-6]
+            if not pos:
+                return None
+            D = min(pos)
+        A = p0 + lam * D * t0
+        B = p1 - (1.0 - lam) * D * t1
+        J = 0.5 * (A + B)
+        r1 = radius(p0, t0, J)
+        r2 = -radius(p1, -t1, J)      # second arc traversed J -> p1
+        c_shape = (r1 * r2 > 0) or math.isinf(r1) or math.isinf(r2)
+        return J, min(abs(r1), abs(r2)), c_shape
+
+    # Prefer C-shaped pairs (both arcs turn the same way): an S-shaped
+    # pair can post a larger minimum radius yet be a longer, wigglier
+    # path (measured: max-min over all shapes cost +1.8 s on the lap).
+    best = None
+    for lam in np.linspace(0.05, 0.95, 37):
+        r = solve(float(lam))
+        if r is None:
+            continue
+        key = (r[2], r[1])
+        if best is None or key > (best[2], best[1]):
+            best = r
+    if best is None:
+        return []
+    J = best[0]
+    # dense trace of both arcs, then UNIFORM resampling over the whole
+    # junction: per-arc sampling left uneven gaps (1.7 / 1.7 / 2.2 m) and
+    # the spline rippled through them to r 2.4 m on an r 5.5 m corner
+    fine = 0.1
+    seg1 = _arc_through(p0, t0, J, fine)
+    seg2 = _arc_through(p1, -t1, J, fine)[::-1]     # built backwards from p1
+    chain = np.array([p0] + seg1 + [J] + seg2 + [p1])
+    cum = np.concatenate([[0.0], np.cumsum(np.hypot(*np.diff(chain, axis=0).T))])
+    tot = max(float(cum[-1]), 1e-9)
+    n_pts = max(1, int(tot / ds))
+    out = []
+    for i in range(1, n_pts + 1):
+        f = i / (n_pts + 1)
+        x = float(np.interp(f * tot, cum, chain[:, 0]))
+        y = float(np.interp(f * tot, cum, chain[:, 1]))
+        out.append(np.array([x, y, z0 + f * (z1 - z0)]))
+    return out
 
 
 def _speed_profile(P: np.ndarray, s: np.ndarray, cfg: VehicleConfig,
@@ -1055,13 +1394,105 @@ def _speed_profile(P: np.ndarray, s: np.ndarray, cfg: VehicleConfig,
     # 2026-09-09) - it went wide and missed g7. Full budget at r >= 4 m,
     # A_LAT_TIGHT at r <= 2 m, linear between. Wide arcs (g0-g6) keep
     # their speed.
-    r_here = 1.0 / np.maximum(kappa, 1e-6)
+    # Curvature NORMAL (3D unit vector toward the centre of curvature). The
+    # tight-loop budget below is keyed on the HORIZONTAL curvature only:
+    # it exists for the follower running wide on flat loops, and a vertical
+    # U through the stacked pair is not that.
+    dT = np.gradient(T, s, axis=0)
+    n_len = np.linalg.norm(dT, axis=1)
+    n_vec = dT / np.maximum(n_len, 1e-9)[:, None]
+    n_vec[n_len < 1e-6] = 0.0
+    # The ceiling below uses a ~0.75 m smoothed curvature: Menger on 0.25 m
+    # samples ripples through the junction arcs and the profile rippled
+    # +-0.7 m/s along g4->g5 with it (the follower then brakes and
+    # accelerates every metre - Brian: "weird oscillation after g4").
+    win_c = max(1, int(round(0.75 / ds)) | 1)
+    kappa_c = np.convolve(kappa, np.ones(win_c) / win_c, mode="same")
+    kappa_h = kappa_c * np.hypot(n_vec[:, 0], n_vec[:, 1])
+    r_here = 1.0 / np.maximum(kappa_h, 1e-6)
     frac_r = np.clip((r_here - R_TIGHT_M) / (R_FULL_M - R_TIGHT_M), 0.0, 1.0)
-    a_lat_eff = A_LAT_TIGHT + frac_r * (a_lat - A_LAT_TIGHT)
+    # ...and only on LEVEL paths: it exists for the follower running wide
+    # on flat loops; in the stack's vertical U "wide" is a harmless extra
+    # half metre of travel, and the real limits there are thrust and
+    # gravity (below).
+    flat_turn = (np.abs(T[:, 2]) < 0.5) & (np.abs(n_vec[:, 2]) < 0.5)
+    a_lat_eff = np.where(flat_turn, A_LAT_TIGHT + frac_r * (a_lat - A_LAT_TIGHT), a_lat)
+    # DRAG SHARES THE TILT (race_030, 2026-09-09): the ONE horizontal thrust
+    # vector, |a| <= a_lat_full at max tilt, has to supply the drag along
+    # the path AND the corner accel across it. At 9 m/s drag alone is 21 of
+    # the 24 m/s^2, so a 5.5 m corner that this ceiling priced at 9.1 m/s
+    # (lateral 15) was physically impossible: the follower pinned at 68 deg
+    # from g3 onward and ran 3 m wide of g4. The lateral capacity at speed
+    # v is therefore sqrt(a_full^2 - a_drag(v)^2), and the plan may use
+    # a_lat_eff/a_full of THAT (the margin stays a share of what is left
+    # for cornering, so it still buys tracking room). Solved per sample for
+    # the largest v with v^2*kappa <= share * sqrt(a_full^2 - a_drag(v)^2)
+    # by bisection (a_drag is the config's general lin+quad law). On a
+    # straight this reduces to the terminal speed by itself.
+    # THRUST HEADROOM (race_035): the plan is written against the absolute
+    # thrust ceiling, and the drone flew the g4->g5 arc with m_max pinned
+    # at 1.00, throttle 1600-1740, altitude sagging 0.3 m and 0.6-0.8 m
+    # wide until it clipped g5's post. Holding altitude at 67 deg already
+    # takes 70% of the motors; the attitude loop's corrections need the
+    # rest. So the plan may use THRUST_SHARE of the maximum horizontal
+    # thrust vector - drag AND cornering both fit inside that - and the
+    # remainder is the altitude loop's and the mixer's.
+    # 3D THRUST-VECTOR CEILING (Brian, 2026-09-09 night, the stack): the
+    # thrust the motors must supply at speed v is
+    #     th = v^2*kappa*n + a_drag(v)*T + g*zhat
+    # and it is feasible when (1) th_z >= 0 (a quad cannot push DOWN: over
+    # the top of a vertical U gravity alone bends the path, so v^2/r <= g
+    # there), (2) |th| <= the thrust ceiling times THRUST_SHARE (pulling
+    # out at the bottom of a U: v^2/r <= T - g), and (3) the HORIZONTAL
+    # part fits inside the tilt clamp with the cornering margin,
+    # |th_xy| <= share * THRUST_SHARE * th_z * tan(max_tilt). On a level
+    # path th_z = g and (3) is exactly the old joint drag+cornering
+    # ceiling; the old form priced a vertical U as a 0.5 m horizontal loop
+    # (1.7 m/s, the 3 s stack), this prices it by thrust and gravity.
+    tan_tilt = math.tan(cfg.tilt_rad())
+    t_max = float(max(cfg.thrust.curve_acc)) * THRUST_SHARE
+    share = a_lat_eff / cfg.a_lat_full()
+
+    def feasible(v_arr):
+        ad = np.array([cfg.a_drag(float(x)) for x in v_arr])
+        a_curv = (v_arr * v_arr * kappa_c)[:, None] * n_vec
+        a_drag_v = ad[:, None] * T
+        th = a_curv + a_drag_v
+        th[:, 2] += G
+        th_z = th[:, 2]
+        ok1 = th_z >= 0.0
+        ok2 = np.linalg.norm(th, axis=1) <= t_max
+        # horizontal budget at this th_z, drag takes its share first, the
+        # cornering MARGIN applies to what is left (as before on level paths)
+        h_cap = THRUST_SHARE * np.maximum(th_z, 0.0) * tan_tilt
+        drag_xy = np.hypot(a_drag_v[:, 0], a_drag_v[:, 1])
+        room = np.sqrt(np.maximum(h_cap * h_cap - drag_xy * drag_xy, 0.0))
+        curv_xy = np.hypot(a_curv[:, 0], a_curv[:, 1])
+        ok3 = (drag_xy <= h_cap) & (curv_xy <= share * room)
+        return ok1 & ok2 & ok3
+
+    lo = np.zeros(n)
+    hi = np.full(n, float(lim.v_max_mps))
+    for _ in range(40):
+        mid = 0.5 * (lo + hi)
+        ok = feasible(mid)
+        lo = np.where(ok, mid, lo)
+        hi = np.where(ok, hi, mid)
+    # Moving MINIMUM over V_TILT_SMOOTH_M: the junction arcs meet the stubs
+    # at slightly different curvature and the raw ceiling ripples +-0.7 m/s
+    # every metre through g4->g5; a minimum never raises the ceiling, it
+    # just stops the follower braking and accelerating on every ripple.
+    v_tilt = lo
+    wm = max(1, int(round(V_TILT_SMOOTH_M / ds)) | 1)
+    if wm > 1:
+        pad = wm // 2
+        vp = np.pad(v_tilt, pad, mode="edge")
+        v_tilt = np.array([vp[i:i + wm].min() for i in range(n)])
+    a_full = cfg.a_lat_full() * THRUST_SHARE   # for a_avail below
     # Named pointwise ceilings; v_lim = elementwise min, and the argmin NAME
     # is kept per sample so reports say WHAT binds, not a guess.
     ceilings = {"v_max": np.full(n, float(lim.v_max_mps))}
-    ceilings["tilt/curvature"] = np.sqrt(a_lat_eff / np.maximum(kappa, 1e-6))
+    ceilings["tilt/curvature"] = v_tilt
 
     # Attitude-slew ceiling: a_lat = v^2*kappa, so at steady speed
     # d(a_lat)/dt ~ v^3 * dkappa/ds. Heavy low-pitch builds (8" Archer) are
@@ -1081,9 +1512,20 @@ def _speed_profile(P: np.ndarray, s: np.ndarray, cfg: VehicleConfig,
     ceilings["accel-slew"] = slew_v
 
     # Yaw-rate ceiling: the nose tracks the path tangent, dpsi/dt = v*dpsi/ds.
-    # Only where the heading is defined (path not near-vertical).
+    # Only where the heading is defined (path not near-vertical), and NOT
+    # where the yaw profile holds the nose across a cusp (see _yaw_profile:
+    # the stacked pair is flown as a stop-and-reverse with the nose kept on
+    # the entry heading, so the tangent's 180 deg flip there is not a yaw
+    # the drone has to perform - it was pricing the cusp at 1.2 m/s, and in
+    # flight the spin it demanded churned the motors and floated the drone
+    # 1.5 s at 4.5 m, race_029).
+    # first passage of the first crossing (lap 2 passes it again, farther on)
+    _d0 = np.linalg.norm(P - centers[0][None, :], axis=1)
+    _near0 = np.flatnonzero(_d0 < 1.0)
+    s_first = (float(s[_near0[0]]) if len(_near0) else 0.0) + YAW_CUSP_WIN_M
+    yaw_prof, yaw_hold = _yaw_profile(T, s, s_min=s_first)
     v_yaw = np.full(n, np.inf)
-    yaw_ok = txy > 0.2
+    yaw_ok = (txy > 0.2) & ~yaw_hold
     v_yaw[yaw_ok] = lim.max_yaw_rate_rps / np.maximum(dpsi_ds[yaw_ok], 1e-6)
     ceilings["yaw-rate"] = v_yaw
 
@@ -1108,7 +1550,9 @@ def _speed_profile(P: np.ndarray, s: np.ndarray, cfg: VehicleConfig,
         for k, is_rev in enumerate(_LAST_REVERSAL):
             if is_rev:
                 dk = np.linalg.norm(P[:, :2] - centers[k, :2], axis=1)
-                v_rev[dk < REVERSAL_WINDOW_M] = V_REVERSAL_MPS
+                v_rev[dk < REVERSAL_WINDOW_M] = (V_REVERSAL_SWING_MPS
+                                                 if REVERSAL_SWING
+                                                 else V_REVERSAL_MPS)
         for k, lab in enumerate(_LAST_LABELS):
             if lab in GATE_SPEED_CAP:
                 dk = np.linalg.norm(P[:, :2] - centers[k, :2], axis=1)
@@ -1159,7 +1603,11 @@ def _speed_profile(P: np.ndarray, s: np.ndarray, cfg: VehicleConfig,
 
     # Two-pass with friction circle.
     def a_avail(budget: float, vi: float, ki: float) -> float:
-        frac = min(1.0, (vi * vi * ki) / a_lat)
+        # friction circle against the lateral capacity LEFT at this speed
+        ad = cfg.a_drag(vi)
+        cap = max(0.1, a_lat / cfg.a_lat_full()
+                  * math.sqrt(max(a_full * a_full - ad * ad, 0.0)))
+        frac = min(1.0, (vi * vi * ki) / cap)
         return max(0.1, budget * math.sqrt(max(0.0, 1.0 - frac * frac)))
 
     # Gravity along the path: the +T tangent component of gravity is -g*Tz
@@ -1169,11 +1617,20 @@ def _speed_profile(P: np.ndarray, s: np.ndarray, cfg: VehicleConfig,
     # the climb for free, get it back on the descent - without it the
     # profile sees a climb as only a longer path (measured: wingover made
     # the lap SLOWER until this term was added).
+    # Drag (measured, [vehicle] drag_*): the plant loses a_drag(v) against
+    # the velocity. Accelerating, the forward budget is the SMALLER of the
+    # net-accel cap and what max-tilt thrust has left after drag - the
+    # profile then saturates at the terminal speed by itself (measured
+    # 9.7 m/s at 68 deg; without this term the plan asked for 15 m/s on
+    # the g1-g3 straight and the follower pinned at max tilt, race_029).
+    # Braking, drag is free deceleration on top of the brake budget.
+    a_thrust = cfg.a_lat_full() * THRUST_SHARE
     Tz = T[:, 2]
     v = v_lim.copy()
     v[0] = 0.0
     for i in range(n - 1):
-        aa = a_avail(lim.a_accel_max, v[i], kappa[i]) - G * Tz[i]
+        budget = max(0.1, min(lim.a_accel_max, a_thrust - cfg.a_drag(v[i])))
+        aa = a_avail(budget, v[i], kappa[i]) - G * Tz[i]
         aa = max(0.1, aa)
         v[i + 1] = min(v_lim[i + 1], math.sqrt(v[i] * v[i] + 2 * aa * ds))
     v[-1] = 0.0
@@ -1181,7 +1638,8 @@ def _speed_profile(P: np.ndarray, s: np.ndarray, cfg: VehicleConfig,
         budget = lim.a_brake_max
         if i >= i_last:
             budget *= RUNOUT_BRAKE_FRAC     # settle, do not slam (see above)
-        ab = a_avail(budget, v[i], kappa[i]) + G * Tz[i - 1]
+        ab = (a_avail(budget, v[i], kappa[i])
+              + BRAKE_DRAG_SHARE * cfg.a_drag(v[i]) + G * Tz[i - 1])
         ab = max(0.1, ab)
         v[i - 1] = min(v[i - 1], math.sqrt(v[i] * v[i] + 2 * ab * ds))
 
@@ -1200,6 +1658,7 @@ def _speed_profile(P: np.ndarray, s: np.ndarray, cfg: VehicleConfig,
 
     vel = v[:, None] * T
     acc = np.gradient(vel, t, axis=0)
+    _LAST_YAW[:] = [yaw_prof, yaw_hold]
     return T, kappa, dpsi_ds, dkappa_ds, binding, v_lim, v, t, vel, acc
 
 
@@ -1293,10 +1752,11 @@ def plan(cfg: VehicleConfig, course=None) -> Plan:
         "path_length_m": round(float(sg[-1]), 2),
         "frame_violations": frame_violations(P, course),
     }
+    yaw_prof, yaw_hold = (_LAST_YAW if _LAST_YAW else (None, None))
     return Plan(s=sg, pos=P, vel=vel, acc=acc, t=t, v=v, v_lim=v_lim,
                 tangent=T, kappa=kappa, dpsi_ds=dpsi_ds,
                 dkappa_ds=dkappa_ds, binding=binding, events=events,
-                meta=meta)
+                meta=meta, yaw=yaw_prof, yaw_hold=yaw_hold)
 
 
 def frame_violations(P: np.ndarray, course) -> int:
@@ -1344,6 +1804,9 @@ def load_plan(path: os.PathLike) -> dict:
     d["pos"] = samples[:, 1:4]
     d["vel"] = samples[:, 4:7]
     d["acc"] = samples[:, 7:10]
+    y = d.get("yaw")
+    d["yaw_arr"] = (np.asarray(y, dtype=float)
+                    if y is not None and len(y) == len(samples) else None)
     seg = np.linalg.norm(np.diff(d["pos"], axis=0), axis=1)
     d["s_arr"] = np.concatenate([[0.0], np.cumsum(seg)])
     return d

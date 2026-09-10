@@ -78,6 +78,15 @@ class VehicleConfig:
         tracking error)."""
         return self.planner.a_lat_margin * self.a_lat_full()
 
+    def a_drag(self, v_mps: float) -> float:
+        """Speed-dependent loss the plant applies against the velocity,
+        as an accel (m/s^2): (drag_lin*v + drag_quad*v^2) / mass. The
+        planner subtracts it from thrust when accelerating and adds it
+        when braking; the follower feeds it forward so the position loop
+        does not have to carry it as steady-state velocity error."""
+        vh = self.vehicle
+        return (vh.drag_lin * v_mps + vh.drag_quad * v_mps * v_mps) / vh.mass_kg
+
     def pwm_for_thrust(self, thrust_mps2: float) -> float:
         """Inverse of the measured [thrust] curve: specific thrust (m/s^2 of
         accel the motors give a LEVEL drone, hover = G) -> throttle PWM.

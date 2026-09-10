@@ -73,6 +73,16 @@ if not _TRAJ_PATH:
         "(produce one with `python -m raceline.planner`, or use race.py)")
 
 CFG = load_config(os.environ.get("AIGP_VEHICLE_TOML"))
+BRAKE_LOOKAHEAD_T = 0.0    # s of anticipation for a planned brake at terminal speed
+                           # (see Tracker.step). OFF: the replay loses g7 with
+                           # 0.15 (loop entry speed), and the plan brakes into
+                           # the g3-g4 arc at only 3.5 m/s^2 anyway.
+BRAKE_LA_SHARE0 = 0.7      # anticipation starts once drag holds this share of the tilt (v > ~8 m/s)
+CARROT_CROSS_ONLY = True   # position term = cross-track offset to the carrot only (see Tracker.step)
+YAW_IDLE_BAND = 150        # PWM below hover_pwm under which no yaw is commanded (see autopilot)
+NO_OVERSPEED_PUSH = True   # at/above plan speed, no forward along-track push (see Tracker.step)
+OVERSPEED_SHARE0 = 0.5     # ...but only where drag already holds this share of the tilt (v > ~6.9 m/s); the 3.5 m/s loops keep their pull-through
+PRIORITY_CLAMP = True      # clamp keeps the cross-track component, trims along-track
 PLAN = plan_io.load_plan(_TRAJ_PATH)
 print(f"[RACELINE] plan {os.path.basename(_TRAJ_PATH)}: "
       f"{len(PLAN['events'])} events, {PLAN['s_arr'][-1]:.0f} m, "
@@ -89,6 +99,9 @@ class Tracker:
         self.pos = plan["pos"]
         self.vel = plan["vel"]
         self.acc = plan["acc"]
+        # nose heading per sample when the plan carries one (held across
+        # the stacked-pair cusp, blended back to the tangent after it)
+        self.yaw_arr = plan.get("yaw_arr")
         self.n = len(self.s)
         self.cfg = cfg
         # arc position of every crossing event: the tracker may never run
@@ -253,21 +266,96 @@ class Tracker:
         # velocity fed future speed-ups too early, cut corners, and arrived
         # at the stacked-gate climb at 4.9 m/s where the plan said 3);
         # position target from the carrot ahead
-        a_des = (self.acc[i][:2]
-                 + f.kp_pos * (self.pos[ic][:2] - est.p[:2])
-                 + f.kd_pos * (self.vel[i][:2] - est.v[:2]))
+        # Drag compensation: the plan's acc is NET of the measured drag
+        # ([vehicle] drag_*), so the thrust the loop must ask for is that
+        # plus the drag the plant takes back at this speed. Without it the
+        # kd term had to carry 9 m/s^2 of drag at 6 m/s as a permanent
+        # 2.3 m/s velocity deficit (race_029: every straight 1-6 m/s under
+        # plan). Along the CURRENT velocity - that is the direction the
+        # plant applies it.
+        v_h = float(np.hypot(est.v[0], est.v[1]))
+        a_drag_ff = ((self.cfg.a_drag(v_h) / v_h) * est.v[:2]
+                     if v_h > 0.3 else np.zeros(2))
+        e_pos = self.pos[ic][:2] - est.p[:2]
+        v_plan_here = float(np.hypot(self.vel[i][0], self.vel[i][1]))
+        # CROSS-TRACK ONLY position term (race_038): the carrot sits
+        # lookahead_t*v ahead ALONG the path, so kp * that distance is a
+        # permanent forward push (10-11 m/s^2 at kp 4, 8.7 m/s) that
+        # cancelled the speed loop's braking (kd -7) on the g3-g4 entry: the
+        # drone crossed g4 at 8.7 against a plan of 6.7 and ran outside
+        # from there to g6's post. Along-track position has no meaning for
+        # a speed-profile follower; the speed loop owns it.
+        if CARROT_CROSS_ONLY and v_h > 0.5:
+            u = est.v[:2] / v_h
+            # ...and measured to the NEAREST path point, not the carrot: on
+            # an arc the carrot's chord points inward, and at kp 4 that pull
+            # cut every arc 0.3 m inside and g7 by 0.85 m in replay. The
+            # carrot keeps its jobs for altitude and yaw below.
+            e_pos = self.pos[i][:2] - est.p[:2]
+            e_pos = e_pos - float(np.dot(e_pos, u)) * u
+        # Speed target: the plan speed HERE, except that an upcoming brake
+        # is anticipated (never a speed-up: chasing the carrot's speed fed
+        # accelerations too early and cut corners). The anticipation is
+        # the time the attitude needs to swing the thrust vector from
+        # "holding speed against drag" to "braking", so it scales with
+        # the drag share of the tilt: BRAKE_LOOKAHEAD_T at terminal
+        # speed, nothing in the slow loops (where replay showed it costs).
+        v_tgt = self.vel[i][:2]
+        share = self.cfg.a_drag(v_h) / self.cfg.a_lat_full()
+        t_la = BRAKE_LOOKAHEAD_T * max(0.0, (share - BRAKE_LA_SHARE0)
+                                       / max(1.0 - BRAKE_LA_SHARE0, 1e-6))
+        ib = self._at_s(s_here + t_la * v_h)
+        vb = float(np.hypot(self.vel[ib][0], self.vel[ib][1]))
+        vi = float(np.hypot(v_tgt[0], v_tgt[1]))
+        if vb < vi and vi > 1e-6:
+            v_tgt = v_tgt * (vb / vi)
+        a_ctrl = (self.acc[i][:2] + f.kp_pos * e_pos
+                  + f.kd_pos * (v_tgt - est.v[:2]))
+        # No forward push once AT plan speed: the carrot's along-track
+        # part (kp * lookahead, 3.6 m/s^2 at 9.9 m/s) otherwise drives the
+        # drone past the plan; with the drag feedforward it summed to
+        # 27.7 on the g2-g3 straight, pinned the tilt at 68 deg and
+        # delivered the drone to the g4 turn at 9.9 m/s with no authority
+        # left (race_031). Only the forward NET component is cut, only
+        # when not slower than the plan - the loop entries, where the
+        # drone is below plan speed, keep the pull-through (removing it
+        # there cost +0.13..0.4 m at g7 in replay).
+        drag_share = self.cfg.a_drag(v_h) / self.cfg.a_lat_full()
+        if (NO_OVERSPEED_PUSH and v_h > 0.5 and v_h >= v_plan_here
+                and drag_share >= OVERSPEED_SHARE0):
+            u = est.v[:2] / v_h
+            fwd = float(np.dot(a_ctrl, u))
+            if fwd > 0.0:
+                a_ctrl = a_ctrl - fwd * u
+        a_des = a_ctrl + a_drag_ff
+        # Priority clamp: the ONE thrust vector is bounded by max tilt.
+        # A uniform scale-down took the turn away together with the
+        # brake (race_031, 3 m wide). Keep the cross-track component
+        # (never go wide), give the along-track component what is left
+        # (go slow instead).
         a_max = self.cfg.a_lat_full()
-        norm = float(np.hypot(a_des[0], a_des[1]))
-        if norm > a_max:
-            a_des *= a_max / norm
+        if PRIORITY_CLAMP and v_h > 0.5:
+            u = est.v[:2] / v_h
+            n_ = np.array([-u[1], u[0]])
+            cross = max(-a_max, min(a_max, float(np.dot(a_des, n_))))
+            room = math.sqrt(max(a_max * a_max - cross * cross, 0.0))
+            along = max(-room, min(room, float(np.dot(a_des, u))))
+            a_des = along * u + cross * n_
+        else:
+            norm = float(np.hypot(a_des[0], a_des[1]))
+            if norm > a_max:
+                a_des *= a_max / norm
 
         z_target = float(self.pos[ic][2])
         vz_ff = float(self.vel[ic][2])
 
         iy = self._at_s(s_here + f.yaw_lookahead_m)
-        tvec = self.vel[iy]
-        txy = math.hypot(tvec[0], tvec[1])
-        yaw_des = math.atan2(tvec[1], tvec[0]) if txy > 0.3 else None
+        if self.yaw_arr is not None:
+            yaw_des = float(self.yaw_arr[iy])
+        else:
+            tvec = self.vel[iy]
+            txy = math.hypot(tvec[0], tvec[1])
+            yaw_des = math.atan2(tvec[1], tvec[0]) if txy > 0.3 else None
 
         done = (self.s[-1] - s_here < 1.0
                 and float(np.linalg.norm(self.pos[-1] - est.p)) < 1.5)
@@ -352,6 +440,16 @@ def autopilot(update: SensorUpdate) -> RCCommand:
     if airborne:
         roll, pitch, eb = attitude_sticks(CFG, est, a_des)
         yaw_stick = _YAW.stick(est, yaw_des)
+        # No yaw demand when the motors cannot deliver it: through the
+        # stack the throttle sits at minimum for ~1 s and the yaw loop kept
+        # 60-140 PWM on the stick for a 30 deg error it could never close.
+        # Betaflight then lifts two motors to make the torque, the mean
+        # motor output stays at 0.2-0.4 instead of idle, and the drone
+        # hangs 0.6 s at 3.7 m (race_039-041). Below hover minus
+        # YAW_IDLE_BAND the stick stays centred; the heading is held
+        # again as soon as there is throttle to hold it with.
+        if throttle < CFG.thrust.hover_pwm - YAW_IDLE_BAND:
+            yaw_stick = 1500
     cos_tilt = float(est.R[2, 2])
     _state["trace_n"] += 1
     if _state["trace_n"] == 1:

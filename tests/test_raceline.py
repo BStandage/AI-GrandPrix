@@ -109,7 +109,15 @@ class TestPlanGeometry(unittest.TestCase):
                                  f"{e['label']} crossing speed {e['v']:.2f}")
 
     def test_lateral_accel_within_planner_budget(self):
-        a_lat = PLAN.v ** 2 * PLAN.kappa
+        # HORIZONTAL curvature only: the stacked pair is flown as a U in the
+        # vertical plane where the limits are thrust and gravity, not the
+        # tilt budget (planner._speed_profile, 3D thrust-vector ceiling).
+        dT = np.gradient(PLAN.tangent, PLAN.s, axis=0)
+        n_len = np.linalg.norm(dT, axis=1)
+        n_xy = np.hypot(dT[:, 0], dT[:, 1]) / np.maximum(n_len, 1e-9)
+        n_z = np.abs(dT[:, 2]) / np.maximum(n_len, 1e-9)
+        flat = (np.abs(PLAN.tangent[:, 2]) < 0.2) & (n_z < 0.2)
+        a_lat = (PLAN.v ** 2 * PLAN.kappa * n_xy)[flat]
         # small tolerance: kappa is a discrete estimate
         self.assertLessEqual(float(a_lat.max()), CFG.a_lat_planner() * 1.15)
 
