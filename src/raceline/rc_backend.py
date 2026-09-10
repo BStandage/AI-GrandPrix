@@ -98,7 +98,8 @@ class AltitudeLoop:
         self.thrust = 0.0    # last commanded specific thrust (for logging)
 
     def throttle(self, t: float, est: StateEstimate, z_target: float,
-                 vz_ff: float, airborne: bool, integrate: bool) -> int:
+                 vz_ff: float, airborne: bool, integrate: bool,
+                 az_ff: float = 0.0) -> int:
         f, th = self.cfg.follower, self.cfg.thrust
         dt = max(1e-3, t - self.last_t)
         self.last_t = t
@@ -109,7 +110,10 @@ class AltitudeLoop:
         if not airborne and est.v[2] < 0.7:
             self.a_cmd, self.thrust = 0.0, 0.0
             return int(f.takeoff_pwm)
-        a_cmd = f.kp_z * err + f.kd_z * (vz_ff - est.v[2]) + self.i_term
+        # az_ff: the plan's vertical acceleration at the carrot, so the loop
+        # LEADS a climb instead of chasing it (race_053: 0.3-0.5 m behind
+        # the plan through the g9 climb with 500 PWM of throttle unused)
+        a_cmd = f.kp_z * err + f.kd_z * (vz_ff - est.v[2]) + self.i_term + az_ff
         # no-balloon guard: aggressive braking transients lifted the drone
         # 1.4 m above its line and into a gate's top bar. Well above target
         # the loop may not command a climb.
@@ -140,7 +144,10 @@ def attitude_sticks(cfg, est: StateEstimate, a_des, a_z: float = 0.0) -> tuple:
     # demand against hover thrust: with a_z of -20 in the stack's drop even
     # a 0.5 g floor gave 77-84 deg of tilt, and the pull-out throttle then
     # shoved the drone 1 m sideways into g10-low's post (race_046, race_051).
-    gz = G + max(float(a_z), 0.0)
+    # a_z may be negative when the caller runs a coherent thrust vector
+    # (solvers.follower THRUST_VECTOR_MODE clips it at -0.85 g itself);
+    # other callers pass 0 or a climb demand
+    gz = max(G + float(a_z), 0.15 * G)
     n = math.sqrt(ax * ax + ay * ay + gz * gz)
     zd = np.array([ax / n, ay / n, gz / n])
     zb = est.R[:, 2]
