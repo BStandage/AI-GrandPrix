@@ -49,7 +49,7 @@ curve_pwm = [1000, 1240, 1350, 1500, 1650, 1800, 2000]
 curve_acc = [0.0, 9.81, 16.2, 22.7, 31.1, 37.2, 37.5]
 
 [limits]                  # ceilings shared by planner AND follower
-max_tilt_deg     = 75.0   # 75 with the follower's thrust-vector budget (THRUST_BUDGET_SHARE): tilt pulls back by itself when altitude needs thrust; a FIXED 75 clamp sank the drone (race_044).
+max_tilt_deg     = 89.0   # NO LIMIT (config validator caps at 89.5) (Brian, feature/rip): the thrust-vector budget is the only bound - at 90 the vertical thrust is zero, so the model allows it only for the instant the thrust vector affords, and the follower's mapping floor (0.5 g) caps the commanded tilt near 82.
                           # (~70 deg, TWR 2.9) applies when FIGHTING to stay
                           # level from a lift deficit - but when the drone is
                           # already high/climbing, pitching forward past that
@@ -104,7 +104,7 @@ max_yaw_rate_rps = 8.0    # nose-follows-tangent ceiling; enters v_lim directly.
                           # crossings unchanged (+0.189/+0.086).
                           # Kept consistent with follower.yaw_clamp below
                           # (~0.31 rad/s per 60 PWM measured => 400 PWM ~ 2.0)
-a_lat_rate_max   = 165.0  # m/s^3 - attitude-slew ceiling: how fast lateral
+a_lat_rate_max   = 165.0   # back to the flown value: the calibrated replay (80% thrust, 0.06 s lag) could not follow plans built at 400.0   # UNTESTED-MAX (feature/rip): was 165.0. measured with the old attitude loop; the loop is 3x faster now.  # m/s^3 - attitude-slew ceiling: how fast lateral
                           # accel can change. MEASURED by solvers.sysid_slew
                           # (slew_009, 2026-09-08) AFTER applying the aerobatic
                           # Betaflight tune to the eeprom (rc_rate 140, srate
@@ -171,12 +171,12 @@ v_gate_mps       = 20.0   # = v_max: a straight-through gate is just track,
                           # 2.0 -> 69.5 s, 2.5 -> 66.0 s, all 12/12 clean.
                           # 1.6 is the moderate pick; room to go higher.
 gate_window_m    = 2.0    # one uniform rule, never special-cased per gate
-vz_up_max        = 4.0   # UNCAPPED (feature/uncapped, 2026-09-10): was 2.5.     # LOWERED 4.0 -> 2.5 (race_040/042): climbing into g10-top at
+vz_up_max        = 2.5   # race_052: at speed the drone climbs 2.4 m/s with motors pinned; 4.0 planned the climb too late and it took g10-top's bar 0.36 m low (again)
                           # 6-7 m/s forward the drone managed 2.0-2.2 m/s with the
                           # motors at 100% (35 m/s^2 commanded) and arrived 0.4 m
                           # low; 8.1 m/s is the hover climb ceiling, not the one at
                           # racing speed against drag. history: measured ceiling 8.1 m/s at full throttle; margin for tilt
-vz_down_max      = 5.0    # RAISED 3.0 -> 5.0 (2026-09-09). The planner note
+vz_down_max      = 5.0   # back to the flown value: the calibrated replay (80% thrust, 0.06 s lag) could not follow plans built at 8.0   # UNTESTED-MAX (feature/rip): was 5.0.     # RAISED 3.0 -> 5.0 (2026-09-09). The planner note
                           # that this knob "does nothing" dates from slew 5.3;
                           # at slew 165 it bound 35 pct of the stacked-gate
                           # drop (the plan sat at exactly -3.00 m/s for 0.9 s,
@@ -184,7 +184,7 @@ vz_down_max      = 5.0    # RAISED 3.0 -> 5.0 (2026-09-09). The planner note
                           # limited; arresting 5 m/s in the 2 m stub needs
                           # 6.3 m/s^2 = 1.6 g, well inside the measured
                           # curve. Model: stack leg 1.82 -> 1.61 s per lap.
-a_accel_max      = 20.0   # UNCAPPED (feature/uncapped, 2026-09-10): was 12.0.   # forward-accel budget = how hard it pitches to
+a_accel_max      = 20.0   # back to the flown value: the calibrated replay (80% thrust, 0.06 s lag) could not follow plans built at 33.0   # UNTESTED-MAX (feature/rip): was 20.0. thrust-limited horizontal.   # UNCAPPED (feature/uncapped, 2026-09-10): was 12.0.   # forward-accel budget = how hard it pitches to
                          # gain speed. RAISED 14 -> 30: at 14 the pitch
                          # command was only atan(14/g)=55 deg and the drone
                          # flew too flat/high; 30 commands atan(30/g)=72 deg
@@ -195,7 +195,7 @@ a_accel_max      = 20.0   # UNCAPPED (feature/uncapped, 2026-09-10): was 12.0.  
                          # now 30 deg the airframe has g*tan30 = 5.66 of
                          # along-track budget, so 4.0 had become an artificial
                          # limiter left behind by the tilt change.
-a_brake_max      = 20.0   # UNCAPPED (feature/uncapped, 2026-09-10): was 12.0.   # RAISED from 5.0, same tilt-consistency reasoning
+a_brake_max      = 20.0   # back to the flown value: the calibrated replay (80% thrust, 0.06 s lag) could not follow plans built at 33.0   # UNTESTED-MAX (feature/rip): was 20.0. thrust-limited horizontal.   # UNCAPPED (feature/uncapped, 2026-09-10): was 12.0.   # RAISED from 5.0, same tilt-consistency reasoning
 
 [planner]
 laps = 2                  # VADR-TS-004 scores 2-lap runs; the lap boundary

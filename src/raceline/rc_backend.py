@@ -135,11 +135,12 @@ def attitude_sticks(cfg, est: StateEstimate, a_des, a_z: float = 0.0) -> tuple:
     into g10-top's frame."""
     f = cfg.follower
     ax, ay = float(a_des[0]), float(a_des[1])
-    # Floor at half g: with the altitude loop asking for ~free fall the
-    # floor at 0.15 g pointed the thrust axis nearly horizontal (tilt
-    # 85-89 deg through the stack's drop, race_046) and the pull-out
-    # thrust then shoved the drone 0.5-1.0 m sideways into g10-low's post.
-    gz = max(G + float(a_z), 0.5 * G)
+    # The vertical demand enters the mapping only when CLIMBING. Descending,
+    # the throttle does the descent and the tilt serves the horizontal
+    # demand against hover thrust: with a_z of -20 in the stack's drop even
+    # a 0.5 g floor gave 77-84 deg of tilt, and the pull-out throttle then
+    # shoved the drone 1 m sideways into g10-low's post (race_046, race_051).
+    gz = G + max(float(a_z), 0.0)
     n = math.sqrt(ax * ax + ay * ay + gz * gz)
     zd = np.array([ax / n, ay / n, gz / n])
     zb = est.R[:, 2]

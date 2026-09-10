@@ -177,7 +177,7 @@ CORNER_STUB_TILT = True    # tilt the corner-arc stub as well as adding the arc
                            # 2.65 m/s right at the gate, +0.2 s); tilted ->
                            # smooth, g6 referee-geometry clearance 0.30 m,
                            # the same as the lane gates g1/g2.
-REVERSAL_SIDE_FLIP = False  # route reversal clearance on the OTHER side
+REVERSAL_SIDE_FLIP = True   # feature/rip: the NORTH swing searched to 27.33 vs 28.30 south (replay 25/25 both). was False. route reversal clearance on the OTHER side
 # Reversal LOOP as an explicit arc of this radius (0 = the old single
 # clearance anchor, which made a 0.9 m hook into g7 that the drone flew
 # 0.6-1.0 m wide of, missing g7 on 2026-09-09). 2.0 m is the loop Brian
@@ -195,10 +195,14 @@ REVERSAL_LOOP_R_M = 2.5
 # onto the circle, then the arc all the way round to the crossing. About
 # the same model time at r 3-3.5 m; its case is trackability.
 REVERSAL_SWING = True
-REVERSAL_SWING_R_M = 2.5   # sweep 2.5/3.0/3.5/4.0: 42.94/43.09/43.23/43.38 s model, replay g7 within 0.14 m at all four - the shorter path beats the higher arc speed (Brian: the loop was too big); 4.0 had lifted the g6 dip, watch g6 in flight
+REVERSAL_OVERTOP = False   # vertical U over the reversal gate instead of the horizontal swing (see build_anchors)
+OVERTOP_H_M = 2.5
+OVERTOP_B_M = 1.0
+OVERTOP_STANDOFF_M = 1.5
+REVERSAL_SWING_R_M = 2.0   # feature/rip sweep with the g7 cap off: r1.0 29.14 (frame), 1.5 29.48 (frame), 2.0 29.84 clean (v_min 7.3), 2.5 30.22, 3.0 30.60; overtop 29.61 but a 0.45 m fold at 2.4 m/s
 SWING_CROSS_OFFSET_M = 0.0   # crossing bias on a swing: 0.25 toward the far side put the path 0.6 m off-centre at g7's plane (tilted crossing) and touched the frame
 SWING_SAMPLE_M = 1.25        # arc anchor spacing on the swing (2.5 m rippled r 2.9..5.2 on an r 3.5 circle)
-V_REVERSAL_SWING_MPS = 6.5   # crossing cap on a swing (the r 3.5 arc itself
+V_REVERSAL_SWING_MPS = 20.0  # cap OFF (feature/rip): the 4 m disc also caught the straight passing beside g7; the arc's curvature sets the crossing speed
                              # holds ~6.7; the 3.5 m/s loop cap is not needed)
 REVERSAL_CROSS_OFFSET_M = 0.25  # see build_anchors: aim inside the loop by the follower's wide error
 _LAST_REVERSAL = []          # reversal flags of the last build_anchors() call
@@ -221,7 +225,7 @@ CLIMB_RUNIN_M = 0.0      # extra LEVEL run-in before a gate approached with
                          # climb finishes before the frame); 0 = off
 CORNER_R_M = 2.5         # corner-arc radius at sharp junctions; swept 2.5/3.5/4.5 on
                          # g6->g7: 2.77/2.93/3.11 s, turn starts at the gate at 2.5
-STACKED_STANDOFF_M = 2.0
+STACKED_STANDOFF_M = 0.5   # Brian: start the turn back at the gate; the U begins 0.5 m past g10-top (was 2.0 -> 1.0 -> 0.5), calibrated replay 25/25
 # STACK U (Brian, 2026-09-09 night): the stacked pair is flown as a U in
 # the VERTICAL plane, not a vertical drop with the reversal at the bottom.
 # Apex anchor STACK_U_EXTRA_M beyond the standoffs at mid height: the path
@@ -232,7 +236,7 @@ STACKED_STANDOFF_M = 2.0
 # 3.7 m at zero throttle with the motors on their floor, then rose into
 # g10-low's top bar.
 STACK_U = True    # priced by the 3D thrust-vector ceiling now (race_041's 3 s was the old horizontal-loop pricing at 1.7 m/s plus the yaw demand at idle)
-STACK_U_R_M = 1.35       # horizontal semi-axis = the vertical one (a round U; 2.0 made an r 0.9 bottom) (vertical
+STACK_U_R_M = 1.35       # round U (1.0 with a 0.5 m standoff collapsed the pair under the searched offsets)
                          # semi-axis = half the gate spacing); a single apex
                          # anchor folded the spline to r 0.2-0.3 m whatever
                          # its distance, a sampled half-ellipse keeps r ~1-1.5
@@ -865,7 +869,31 @@ def build_anchors(course, cfg: VehicleConfig):
             clr[2] = anchors[-1][2] + p.reversal_climb_m
             loop_pts = []
             swing_done = False
-            if REVERSAL_SWING and REVERSAL_SWING_R_M > 0.0:
+            if REVERSAL_OVERTOP:
+                # OVER THE TOP (Brian, feature/rip): treat g7 like g10-low.
+                # Climb on the way in from the previous gate to a point
+                # OVERTOP_H_M above the gate's own approach point (standoff
+                # OVERTOP_STANDOFF_M on the approach side), heading AWAY
+                # from the crossing direction, then a vertical half-ellipse
+                # (horizontal semi-axis OVERTOP_B_M) reverses the heading
+                # while dropping to the gate's lead-in, and the drone dives
+                # through heading the right way. Same physics and code
+                # shape as STACK_U; replaces the 18 m horizontal swing.
+                d_x = cross_dir[k]
+                dxy = np.array([d_x[0], d_x[1], 0.0])
+                dxy = dxy / max(float(np.linalg.norm(dxy)), 1e-9)
+                pre_pt = ctr - dxy * OVERTOP_STANDOFF_M
+                z_lo = float(ctr[2]); z_hi = z_lo + OVERTOP_H_M
+                z_mid = 0.5 * (z_hi + z_lo); a_v = 0.5 * (z_hi - z_lo)
+                hi_pt = np.array([pre_pt[0], pre_pt[1], z_hi])
+                loop_pts.append(hi_pt)
+                for j in range(1, STACK_U_SAMPLES):
+                    th = math.pi * j / STACK_U_SAMPLES
+                    q_xy = pre_pt[:2] - dxy[:2] * (OVERTOP_B_M * math.sin(th))
+                    loop_pts.append(np.array([q_xy[0], q_xy[1], z_mid + a_v * math.cos(th)]))
+                clr = loop_pts[0].copy()
+                swing_done = True
+            if REVERSAL_SWING and REVERSAL_SWING_R_M > 0.0 and not swing_done:
                 R = REVERSAL_SWING_R_M
                 d_x = cross_dir[k]
                 # centre on the FAR side, the circle TANGENT to the crossing
@@ -1165,6 +1193,7 @@ YAW_HOLD_AFTER_M = 5.0   # keep the nose held this far past the cusp (the
                          # exit gate of the stacked pair and its stub are
                          # flown backwards), then
 YAW_BLEND_M = 5.0        # unwind to the tangent over this arc
+YAW_PREFLIP_M = 3.0      # start the 180 flip this far BEFORE the cusp (pre-yaw)
 YAW_CUSP_FLIP = True     # Brian: flip the nose 180 deg AT the cusp instead of
                          # holding it (drift backwards through the fold, then
                          # dive nose-first through the low gate); the follower
@@ -1214,6 +1243,15 @@ def _yaw_profile(T: np.ndarray, s: np.ndarray, s_min: float = 0.0):
         held = psi[max(i - 1, 0)]
         if YAW_CUSP_FLIP:
             held = held + math.pi
+            # PRE-YAW (Brian): the nose is already reversed when the drop
+            # starts - the flip is done on the approach where there is
+            # throttle to yaw with, not in the fall.
+            k0 = i
+            while k0 > 0 and s[i] - s[k0 - 1] < YAW_PREFLIP_M:
+                k0 -= 1
+            for kk in range(k0, i):
+                yaw[kk] = held
+                hold[kk] = True
         k = i
         while k < n and s[k] - s[j - 1] < YAW_HOLD_AFTER_M:
             yaw[k] = held
@@ -1234,7 +1272,7 @@ THRUST_SHARE = 0.9       # CALIBRATED (race_044): 1.0 left the altitude loop not
                # use (drag + cornering together); the rest is headroom for the
                # altitude loop and attitude corrections (race_035, see
                # _speed_profile). Terminal speed in the plan drops 9.7 -> 9.0.
-BRAKE_DRAG_SHARE = 0.5   # share of a_drag(v) the brake pass may count as
+BRAKE_DRAG_SHARE = 0.5   # back to the flown value (1.0 tried on feature/rip, the calibrated replay could not follow it). share of a_drag(v) the brake pass may count as
                # free deceleration. Physically all of it is (level off at
                # 9.7 m/s and drag brakes at 25 m/s^2), but collecting it
                # means swinging the thrust vector ~60 deg, and the
@@ -1449,7 +1487,7 @@ def _speed_profile(P: np.ndarray, s: np.ndarray, cfg: VehicleConfig,
     # path th_z = g and (3) is exactly the old joint drag+cornering
     # ceiling; the old form priced a vertical U as a 0.5 m horizontal loop
     # (1.7 m/s, the 3 s stack), this prices it by thrust and gravity.
-    tan_tilt = math.tan(cfg.tilt_rad())
+    tan_tilt = math.tan(min(cfg.tilt_rad(), math.radians(89.0)))   # 90 deg = no tilt bound; the thrust cap (cond 2) rules
     t_max = float(max(cfg.thrust.curve_acc)) * THRUST_SHARE
     share = a_lat_eff / cfg.a_lat_full()
 
