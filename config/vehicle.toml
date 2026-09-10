@@ -49,7 +49,7 @@ curve_pwm = [1000, 1240, 1350, 1500, 1650, 1800, 2000]
 curve_acc = [0.0, 9.81, 16.2, 22.7, 31.1, 37.2, 37.5]
 
 [limits]                  # ceilings shared by planner AND follower
-max_tilt_deg     = 68.0   # bank/pitch authority. The altitude-hold ceiling
+max_tilt_deg     = 75.0   # 75 with the follower's thrust-vector budget (THRUST_BUDGET_SHARE): tilt pulls back by itself when altitude needs thrust; a FIXED 75 clamp sank the drone (race_044).
                           # (~70 deg, TWR 2.9) applies when FIGHTING to stay
                           # level from a lift deficit - but when the drone is
                           # already high/climbing, pitching forward past that
@@ -171,7 +171,7 @@ v_gate_mps       = 20.0   # = v_max: a straight-through gate is just track,
                           # 2.0 -> 69.5 s, 2.5 -> 66.0 s, all 12/12 clean.
                           # 1.6 is the moderate pick; room to go higher.
 gate_window_m    = 2.0    # one uniform rule, never special-cased per gate
-vz_up_max        = 2.5    # LOWERED 4.0 -> 2.5 (race_040/042): climbing into g10-top at
+vz_up_max        = 4.0   # UNCAPPED (feature/uncapped, 2026-09-10): was 2.5.     # LOWERED 4.0 -> 2.5 (race_040/042): climbing into g10-top at
                           # 6-7 m/s forward the drone managed 2.0-2.2 m/s with the
                           # motors at 100% (35 m/s^2 commanded) and arrived 0.4 m
                           # low; 8.1 m/s is the hover climb ceiling, not the one at
@@ -184,7 +184,7 @@ vz_down_max      = 5.0    # RAISED 3.0 -> 5.0 (2026-09-09). The planner note
                           # limited; arresting 5 m/s in the 2 m stub needs
                           # 6.3 m/s^2 = 1.6 g, well inside the measured
                           # curve. Model: stack leg 1.82 -> 1.61 s per lap.
-a_accel_max      = 12.0  # forward-accel budget = how hard it pitches to
+a_accel_max      = 20.0   # UNCAPPED (feature/uncapped, 2026-09-10): was 12.0.   # forward-accel budget = how hard it pitches to
                          # gain speed. RAISED 14 -> 30: at 14 the pitch
                          # command was only atan(14/g)=55 deg and the drone
                          # flew too flat/high; 30 commands atan(30/g)=72 deg
@@ -195,7 +195,7 @@ a_accel_max      = 12.0  # forward-accel budget = how hard it pitches to
                          # now 30 deg the airframe has g*tan30 = 5.66 of
                          # along-track budget, so 4.0 had become an artificial
                          # limiter left behind by the tilt change.
-a_brake_max      = 12.0  # RAISED from 5.0, same tilt-consistency reasoning
+a_brake_max      = 20.0   # UNCAPPED (feature/uncapped, 2026-09-10): was 12.0.   # RAISED from 5.0, same tilt-consistency reasoning
 
 [planner]
 laps = 2                  # VADR-TS-004 scores 2-lap runs; the lap boundary
@@ -232,7 +232,7 @@ turn_angle_deg         = 40.0  # LOWERED from 100.0: at 100, only the g6->g7
                                # distance before the frame, not just less
                                # speed. Global rule, no per-gate anything.
 sample_ds_m   = 0.25           # uniform arc-length resolution of the plan
-a_lat_margin  = 0.6            # corner speed share of tilt authority. RAISED
+a_lat_margin  = 0.9   # CALIBRATED (race_044): at full share the drone ran 0.4-0.5 m wide (tolerance 0.6); 0.9 keeps 0.1 m.
                                # 0.55 -> 0.75 -> eased to 0.6 while the
                                # attitude gain is retuned for the fast plant
                                # (0.75 corners fed the oscillation).
