@@ -38,11 +38,13 @@ def _interp_rows(t_src, rows_src, t_q):
 def optimize(init_plan: dict, course, cfg, nodes: int = 24, u_max: float = 33.75,
              u_zmin: float = 1.0, slew: float = 250.0, v_max: float = 12.0,
              lat_margin: float = 0.5, z_margin: float = 0.45, v_cross_min: float = 2.0,
-             cross_tilt_deg: float = 25.0,
+             cross_tilt_deg: float = 25.0, tau: float = 0.0, tilt_max_deg: float = 70.0,
+             vz_up_max: float = 3.0,
              max_iter: int = 3000, verbose: bool = True) -> dict:
     import casadi as ca
 
-    k_d = float(cfg.drag_k) if hasattr(cfg, "drag_k") else 0.257
+    k_d = np.asarray(cfg.drag_k_xyz(), dtype=float)        # per-axis quadratic drag, 1/m (world frame)
+    k_d_ca = ca.DM(k_d)
     events = [course.event(k) for k in range(course.total_events)]
     K = len(events)
     N = nodes
@@ -57,7 +59,8 @@ def optimize(init_plan: dict, course, cfg, nodes: int = 24, u_max: float = 33.75
     t_bounds = [0.0] + ev_t
     for k in range(K):
         T = opti.variable()
-        X = opti.variable(6, N + 1)
+        nx = 9 if tau > 0.0 else 6
+        X = opti.variable(nx, N + 1)
         U = opti.variable(3, N)
         Ts.append(T); Xs.append(X); Us.append(U)
         dur0 = max(t_bounds[k + 1] - t_bounds[k], 0.3)
@@ -67,37 +70,63 @@ def optimize(init_plan: dict, course, cfg, nodes: int = 24, u_max: float = 33.75
         tq = np.linspace(t_bounds[k], t_bounds[k + 1], N + 1)
         Pq = _interp_rows(t_src, P_src, tq); Vq = _interp_rows(t_src, V_src, tq); Aq = _interp_rows(t_src, A_src, tq)
         sp = np.linalg.norm(Vq, axis=1, keepdims=True)
-        Uq = Aq + np.array([0.0, 0.0, G]) + k_d * sp * Vq
+        Uq = Aq + np.array([0.0, 0.0, G]) + k_d[None, :] * sp * Vq
         Uq[:, 2] = np.maximum(Uq[:, 2], u_zmin)
-        opti.set_initial(X, np.vstack([Pq.T, Vq.T]))
+        opti.set_initial(X, np.vstack([Pq.T, Vq.T, Uq.T]) if tau > 0.0 else np.vstack([Pq.T, Vq.T]))
         opti.set_initial(U, Uq[:N].T)
         dt = T / N
         for i in range(N):
-            p = X[0:3, i]; v = X[3:6, i]; u = U[:, i]
-            def f(p_, v_):
-                sp_ = ca.sqrt(ca.sumsqr(v_) + 1e-6)
-                return ca.vertcat(v_, u + ca.vertcat(0, 0, -G) - k_d * sp_ * v_)
-            k1 = f(p, v)
-            k2 = f(p + dt / 2 * k1[0:3], v + dt / 2 * k1[3:6])
-            k3 = f(p + dt / 2 * k2[0:3], v + dt / 2 * k2[3:6])
-            k4 = f(p + dt * k3[0:3], v + dt * k3[3:6])
-            x_next = X[:, i] + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
+            u = U[:, i]
+            if tau > 0.0:
+                # ATTITUDE LAG AS A STATE: the achieved thrust vector a follows
+                # the commanded u first-order with time constant tau (the
+                # measured attitude response). The trajectory is then one the
+                # attitude loop can physically produce; no slew guess needed.
+                def f(x_):
+                    v_ = x_[3:6]; a_ = x_[6:9]
+                    sp_ = ca.sqrt(ca.sumsqr(v_) + 1e-6)
+                    return ca.vertcat(v_, a_ + ca.vertcat(0, 0, -G) - k_d_ca * sp_ * v_, (u - a_) / tau)
+            else:
+                def f(x_):
+                    v_ = x_[3:6]
+                    sp_ = ca.sqrt(ca.sumsqr(v_) + 1e-6)
+                    return ca.vertcat(v_, u + ca.vertcat(0, 0, -G) - k_d_ca * sp_ * v_)
+            x = X[:, i]
+            k1 = f(x); k2 = f(x + dt / 2 * k1); k3 = f(x + dt / 2 * k2); k4 = f(x + dt * k3)
+            x_next = x + dt / 6 * (k1 + 2 * k2 + 2 * k3 + k4)
             opti.subject_to(X[:, i + 1] == x_next)
-            # thrust ceiling, no pushing down, speed cap
+            # thrust ceiling, no pushing down, speed cap (on the command, and
+            # on the achieved vector when it is a state)
             opti.subject_to(ca.sumsqr(u) <= u_max ** 2)
             opti.subject_to(u[2] >= u_zmin)
+            # tilt cap: a near-horizontal thrust vector is a sideways shove
+            # while the attitude is still getting there (batch 14, g6)
+            # tilt cone: full angle above the thrust floor, 30 deg at the floor
+            # (at u_z = u_zmin a 70 deg cone allowed 2.7 m/s^2 sideways at idle:
+            # the tracker flapped the attitude through the stack drop)
+            opti.subject_to(math.tan(math.radians(tilt_max_deg)) * (u[2] - u_zmin) + math.tan(math.radians(30.0)) * u_zmin
+                            >= ca.sqrt(u[0] ** 2 + u[1] ** 2 + 1e-6))
+            if tau > 0.0:
+                opti.subject_to(ca.sumsqr(X[6:9, i + 1]) <= u_max ** 2)
+                opti.subject_to(X[8, i + 1] >= 0.0)
             opti.subject_to(ca.sumsqr(X[3:6, i + 1]) <= v_max ** 2)
-            # thrust-vector slew (attitude rate)
-            if i > 0:
+            # climb rate cap: at speed the drone climbs ~2.5-3 m/s with the mixer
+            # busy (batches 14/15: the top gate missed twice with vz 4.5 planned)
+            opti.subject_to(X[5, i + 1] <= vz_up_max)
+            # thrust-vector slew (attitude rate) - only without the lag state
+            if i > 0 and tau <= 0.0:
                 opti.subject_to(ca.sumsqr(U[:, i] - U[:, i - 1]) <= (slew * dt) ** 2)
             J += 1e-4 * ca.sumsqr(U[:, i] - U[:, i - 1]) if i > 0 else 0
         # continuity with the previous segment (state and thrust)
         if x_prev_end is not None:
             opti.subject_to(X[:, 0] == x_prev_end)
-            opti.subject_to(ca.sumsqr(U[:, 0] - Us[k - 1][:, N - 1]) <= (slew * dt) ** 2)
+            if tau <= 0.0:
+                opti.subject_to(ca.sumsqr(U[:, 0] - Us[k - 1][:, N - 1]) <= (slew * dt) ** 2)
         else:
             opti.subject_to(X[0:3, 0] == ca.vertcat(0.0, 0.0, 0.2))
             opti.subject_to(X[3:6, 0] == ca.vertcat(0.0, 0.0, 0.0))
+            if tau > 0.0:
+                opti.subject_to(X[6:9, 0] == ca.vertcat(0.0, 0.0, G))   # hovering thrust at rest
         # gate k at the end of this segment
         e = events[k]
         n = np.array([math.cos(e.heading_rad), math.sin(e.heading_rad), 0.0])
@@ -139,20 +168,23 @@ def optimize(init_plan: dict, course, cfg, nodes: int = 24, u_max: float = 33.75
         tt = t_acc + np.linspace(0, T, N + 1)
         sl = slice(0, N + 1) if k == K - 1 else slice(0, N)
         t_nodes.append(tt[sl]); P.append(X[0:3, sl].T); V.append(X[3:6, sl].T)
-        Uk_full = np.column_stack([Uk, Uk[:, -1]])
-        U.append(Uk_full[:, sl].T)
+        if tau > 0.0:
+            U.append(X[6:9, sl].T)          # achieved thrust = the plan's acceleration source
+        else:
+            Uk_full = np.column_stack([Uk, Uk[:, -1]])
+            U.append(Uk_full[:, sl].T)
         t_acc += T
     t_nodes = np.concatenate(t_nodes); P = np.vstack(P); V = np.vstack(V); U = np.vstack(U)
     ev_times = np.cumsum([float(sol.value(T)) for T in Ts])
     return {"ok": ok, "t": t_nodes, "pos": P, "vel": V, "u": U, "event_t": ev_times,
-            "total_s": float(ev_times[-1]), "solve_s": time.time() - t0, "k_d": k_d}
+            "total_s": float(ev_times[-1]), "solve_s": time.time() - t0, "k_d": k_d.tolist()}
 
 
 def to_plan(res: dict, course, cfg, ds: float = 0.25) -> planner.Plan:
     """Resample the node solution at ds along the arc and package as a Plan."""
-    t = res["t"]; P = res["pos"]; V = res["vel"]; U = res["u"]; k_d = res["k_d"]
+    t = res["t"]; P = res["pos"]; V = res["vel"]; U = res["u"]; k_d = np.asarray(res["k_d"], dtype=float)
     sp = np.linalg.norm(V, axis=1, keepdims=True)
-    A = U + np.array([0.0, 0.0, -G]) + (-k_d) * sp * V      # kinematic accel dv/dt
+    A = U + np.array([0.0, 0.0, -G]) - k_d[None, :] * sp * V      # kinematic accel dv/dt
     seg = np.linalg.norm(np.diff(P, axis=0), axis=1); s_nodes = np.concatenate([[0.0], np.cumsum(seg)])
     s_q = np.arange(0.0, s_nodes[-1], ds)
     pos = np.column_stack([np.interp(s_q, s_nodes, P[:, j]) for j in range(3)])
@@ -200,6 +232,10 @@ def main():
     ap.add_argument("--z-margin", type=float, default=0.45)
     ap.add_argument("--iter", type=int, default=3000)
     ap.add_argument("--cross-tilt-deg", type=float, default=25.0)
+    ap.add_argument("--tau", type=float, default=0.0, help="attitude lag time constant (s); >0 adds the achieved-thrust state")
+    ap.add_argument("--tilt-max-deg", type=float, default=70.0)
+    ap.add_argument("--vz-up-max", type=float, default=3.0)
+    ap.add_argument("--u-zmin", type=float, default=1.0, help="thrust floor (m/s^2): idle motors plus the mixer lift at idle; race_126 fell at -5 m/s^2 with sticks centred, i.e. ~3 of thrust")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
     cfg = load_config()
@@ -207,7 +243,7 @@ def main():
     init = planner.load_plan(args.init)
     res = optimize(init, course, cfg, nodes=args.nodes, u_max=args.umax, slew=args.slew,
                    v_max=args.vmax, lat_margin=args.lat_margin, z_margin=args.z_margin,
-                   cross_tilt_deg=args.cross_tilt_deg, max_iter=args.iter, verbose=not args.quiet)
+                   cross_tilt_deg=args.cross_tilt_deg, tau=args.tau, tilt_max_deg=args.tilt_max_deg, vz_up_max=args.vz_up_max, u_zmin=args.u_zmin, max_iter=args.iter, verbose=not args.quiet)
     plan = to_plan(res, course, cfg)
     planner.write_plan(plan, args.out)
     try:

@@ -102,6 +102,7 @@ def main():
     ap.add_argument("plans", nargs="*")
     ap.add_argument("--glob", default=None)
     ap.add_argument("--timeout", type=float, default=200.0)
+    ap.add_argument("--solver", default="solvers.follower", help="RACE_SOLVER module for every flight in this batch")
     args = ap.parse_args()
     plans = [Path(p) for p in args.plans]
     if args.glob:
@@ -119,8 +120,8 @@ def main():
             model = json.load(open(p))["predicted"]["total_s"]
         except Exception:
             pass
-        print(f"flying {p} (model {model}) ...", flush=True)
-        r = fly(p, timeout_s=args.timeout)
+        print(f"flying {p} (model {model}) with {args.solver} ...", flush=True)
+        r = fly(p, timeout_s=args.timeout, solver=args.solver)
         r["model_s"] = model
         rows.append(r)
         print(f"   -> {r.get('status')} {r.get('passed')}/{r.get('total')} "

@@ -76,6 +76,13 @@ def replay(plan_path: str, verbose: bool = False) -> dict:
         vh = float(np.hypot(v[0], v[1]))
         if vh > 1e-3:
             a_eff[:2] -= (cfg.a_drag(vh) / vh) * v[:2]
+        # vertical drag on CLIMBS: the plant's coefficient on the world-vertical
+        # component is twice the horizontal one (drag_quad_z); without it the
+        # guard passed climbs the sim rejected (g1 / g10-top candidates,
+        # 2026-09-10). Descents stay as calibrated: with the term on both signs
+        # the guard failed the stack drop of the plan that flies clean (L5).
+        if v[2] > 0.0:
+            a_eff[2] -= cfg.drag_k_xyz()[2] * float(np.linalg.norm(v)) * v[2]
         v += a_eff * DT
         p += v * DT
         t += DT

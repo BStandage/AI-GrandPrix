@@ -158,14 +158,14 @@ DOGLEG_S = True
 DOGLEG_MIN_DEG = 25.0
 DOGLEG_SAG_SCALE = 1.0   # Catmull-Rom overshoots sparse bows; <1 tames it
 POSE_ANGLE_MAX_DEG = 35.0
-POSE_TILT_OVERRIDE_DEG = {'g5': 0.0, 'g6': -25.0, 'g10-top': -30.0, 'g4': 14.0}   # flown 32.1 s knobs
+POSE_TILT_OVERRIDE_DEG = {'g5': 4.0, 'g6': -25.0, 'g10-top': -30.0, 'g4': 22.0}   # multi-seed line search seed 2 (plan_28p84_20260910): flown 28.84 / 28.92 clean; was g5 0, g4 14 (32.1 s knobs)
 STACK_LOOP = False   # see build_anchors: g10-top -> g10-low as a banked descending half-loop
 EARLY_CLIMB = True   # see build_anchors: climb right after the previous gate, turn level into the next
 CLIMB_RAMP = False   # ON is the straight climb (g9->top 1.47 -> 1.26 s model) - the replay cannot score climbs, so it is a flight test, not a search default; linear height ramp along the leg instead of the step (see build_anchors)
-POSE_Z_OFFSET_M = {'g4': -0.24, 'g8': 0.24, 'g9': 0.45, 'g10-top': 0.0, 'g10-low': 0.4}   # flown 32.1 s knobs; g10-top at 0 (offsets of -0.25..-0.4 took the bar in batch_1)
-POST_STUB_M = {'g6': 1.2}     # gate label -> straight exit length (m); g6: a 2 m stub south then a 90 deg bend west was the dip-and-rise into the g7 loop
-PRE_STUB_M = {'g0': 0.5}   # g0: the default 2 m entry stub sat BEHIND the takeoff blend anchor (y 1.0 vs 1.8) and folded the first 3 m of the line (race_061 crossed g0 at 4 m/s, 0.55 s behind the model). gate label -> straight approach length (m); g10-top: the turn from the g9 arc must finish BEFORE the gate (race_026 crossed 0.9 m right of centre)
-POSE_LAT_OFFSET_M = {'g4': -0.5, 'g5': -0.5, 'g6': -0.5, 'g8': -0.34, 'g10-top': 0.2, 'g10-low': -0.19}   # the flown 32.1 s knobs (race_061) are the rule now
+POSE_Z_OFFSET_M = {'g0': -0.12, 'g1': -0.06, 'g4': -0.18, 'g8': 0.24, 'g9': 0.45, 'g10-top': -0.21, 'g10-low': 0.4}   # seed-2 search knobs (28.84 s); g10-top -0.21 flew clean twice with the vertical-drag guard (offsets of -0.25..-0.4 took the bar in batch_1)
+POST_STUB_M = {'g6': 1.8, 'g0': 0.4}     # seed-2 search knobs (28.84 s). gate label -> straight exit length (m); g6: a 2 m stub south then a 90 deg bend west was the dip-and-rise into the g7 loop
+PRE_STUB_M = {'g0': 0.4, 'g1': 0.4, 'g5': 0.4, 'g6': 0.4}   # seed-2 search knobs (28.84 s). g0: the default 2 m entry stub sat BEHIND the takeoff blend anchor (y 1.0 vs 1.8) and folded the first 3 m of the line (race_061 crossed g0 at 4 m/s, 0.55 s behind the model). gate label -> straight approach length (m); g10-top: the turn from the g9 arc must finish BEFORE the gate (race_026 crossed 0.9 m right of centre)
+POSE_LAT_OFFSET_M = {'g0': 0.075, 'g1': -0.15, 'g2': 0.15, 'g3': -0.1875, 'g4': -0.5, 'g5': -0.5, 'g6': -0.5, 'g7': 0.0, 'g8': -0.34, 'g10-top': 0.2, 'g10-low': -0.19}   # seed-2 search knobs (plan_28p84_20260910, flown 28.84 / 28.92 clean 2026-09-10)
                            # tilt toward the bisector of the incoming and
                            # outgoing chords by up to this. The 1.5 m opening
                            # seen at angle a is 1.5cos(a)-0.26sin(a) wide:
@@ -237,7 +237,7 @@ STACKED_STANDOFF_M = 0.5   # Brian: start the turn back at the gate; the U begin
 # 3.7 m at zero throttle with the motors on their floor, then rose into
 # g10-low's top bar.
 STACK_U = True    # priced by the 3D thrust-vector ceiling now (race_041's 3 s was the old horizontal-loop pricing at 1.7 m/s plus the yaw demand at idle)
-STACK_U_R_M = 1.35       # round U (1.0 with a 0.5 m standoff collapsed the pair under the searched offsets)
+STACK_U_R_M = 1.2        # seed-2 search (28.84 s); 1.35 flew 29.65. round U (1.0 with a 0.5 m standoff collapsed the pair under the searched offsets)
                          # semi-axis = half the gate spacing); a single apex
                          # anchor folded the spline to r 0.2-0.3 m whatever
                          # its distance, a sampled half-ellipse keeps r ~1-1.5

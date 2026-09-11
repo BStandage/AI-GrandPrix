@@ -83,7 +83,6 @@ ATT_IDLE_SCALE = False     # superseded by THRUST_VECTOR_MODE (race_057: zero de
 THRUST_VECTOR_MODE = True  # throttle = |(a_h, g + a_z)|, tilt = its angle (see autopilot)
 VECTOR_FREEFALL_SHARE = 0.85   # a_z floor: -0.85 g (a quad cannot fall faster than g anyway)
 VECTOR_TILT_MAX_DEG = 60.0     # tilt cap when descending (gz small)
-ACC_LEAD_S_UNUSED = 0    # scale the horizontal demand by the collective below hover (see autopilot)
 ACC_LEAD_S = 0.10          # feedforward acceleration taken this far ahead along the plan (attitude lag compensation, see Tracker.step)
 AZ_FF_GAIN = 0.0           # plan vertical-accel feedforward into the altitude loop: OFF - the calibrated replay fails the clean-flown plan_030 with it on (overshoots the top gate); untested in flight
 YAW_IDLE_BAND = 150        # PWM below hover_pwm under which no yaw is commanded (see autopilot)
