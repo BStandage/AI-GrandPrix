@@ -47,6 +47,13 @@ _SCHEMA = {
 }
 
 
+# section -> {key: default}. Accepted when present, filled in when absent, so
+# older tomls (archer_block2, dev_fast) keep loading.
+_OPTIONAL = {
+    "vehicle": {"drag_quad_z": None},   # None -> same as drag_quad (isotropic)
+}
+
+
 class ConfigError(ValueError):
     pass
 
@@ -62,8 +69,10 @@ class VehicleConfig:
         self.path = path
         self.sha1 = sha1
         for section, keys in _SCHEMA.items():
-            setattr(self, section, SimpleNamespace(**{k: raw[section][k]
-                                                      for k in keys}))
+            vals = {k: raw[section][k] for k in keys}
+            for k, default in _OPTIONAL.get(section, {}).items():
+                vals[k] = raw[section].get(k, default)
+            setattr(self, section, SimpleNamespace(**vals))
 
     # Derived quantities - defined ONCE here so planner and follower agree.
     def tilt_rad(self) -> float:
@@ -84,6 +93,17 @@ class VehicleConfig:
         """Lateral accel the PLAN may use (margin leaves tilt authority for
         tracking error)."""
         return self.planner.a_lat_margin * self.a_lat_full()
+
+    def drag_k_xyz(self):
+        """Quadratic drag per WORLD axis as [kx, ky, kz] in 1/m: the plant
+        applies F = -k |v| v with a larger k on the vertical (physics.py
+        linear_drag [0.2, 0.2, 0.4]); flown climbs measured kz 0.45-0.5
+        against 0.256 horizontal (2026-09-10). Used by the trajectory
+        optimizer and the MPC; the planner's a_drag stays horizontal."""
+        vh = self.vehicle
+        kh = vh.drag_quad / vh.mass_kg
+        kz = (vh.drag_quad if vh.drag_quad_z is None else vh.drag_quad_z) / vh.mass_kg
+        return [kh, kh, kz]
 
     def a_drag(self, v_mps: float) -> float:
         """Speed-dependent loss the plant applies against the velocity,
@@ -112,7 +132,7 @@ def load_config(path=None) -> VehicleConfig:
            f"{path.name}: sections {sorted(set(raw) ^ set(_SCHEMA))} "
            f"unknown or missing")
     for section, keys in _SCHEMA.items():
-        got = set(raw[section])
+        got = set(raw[section]) - set(_OPTIONAL.get(section, {}))
         _check(got == set(keys),
                f"{path.name} [{section}]: keys "
                f"{sorted(got ^ set(keys))} unknown or missing")

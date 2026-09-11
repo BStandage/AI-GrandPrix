@@ -15,6 +15,14 @@ updated = "2026-09-09"
 mass_kg   = 0.9           # seeded from sim/config.py
 drag_lin  = 0.0           # N per (m/s)
 drag_quad = 0.23          # N per (m/s)^2 - MEASURED by solvers.sysid_sprint
+drag_quad_z = 0.45        # N per (m/s)^2 on the WORLD-vertical component: the
+                          # plant's drag is anisotropic (physics.py linear_drag
+                          # [0.2, 0.2, 0.4] on 0.8 kg), so a climb at speed pays
+                          # twice the horizontal coefficient. Fitted from flown
+                          # kinematics (race_084/race_121, 2026-09-10): kz 0.45-0.5
+                          # 1/m against 0.256 horizontal; the isotropic model
+                          # under-read the g9-g10-top climb load by ~5 m/s^2.
+                          # Optional in older tomls (defaults to drag_quad).
                           # (out/sysid/sprint_000.csv, 2026-09-09): constant-tilt
                           # sprints at 30/45/58/68 deg reached terminal speeds
                           # 4.7/6.2/8.2/9.7 m/s; equivalent loss fits
