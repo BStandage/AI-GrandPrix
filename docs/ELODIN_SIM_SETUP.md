@@ -129,7 +129,7 @@ RACE_SOLVER=solver.pq_waypoints uv run -- elodin run sim/main.py
 ```
 
 What you should see, in order:
-- the **frame report** (map->sim transform, 12 crossings/lap, footprint OK),
+- the **frame report** (map->sim transform, 11 crossings/lap, footprint OK),
 - `[SITL] Bridge ready`,
 - `[GATE] lap 0 g0 ...` lines as gates are crossed,
 - a `[RACE]` summary + `race_result_XXX.json` written at the end.
@@ -192,8 +192,8 @@ uv run python scripts/render_pq_course.py  # out/course_layout.png top-down rend
 `sim/pq_course.py` loads `AI-GrandPrix/data/course_map.json` through
 `common.course_map` (the only allowed map parser), applies the named
 `MapToSim` transform (rotation 0, translation puts the drone spawn 3 m
-before gate g0), and builds the 12-crossings-per-lap x 2-lap sequence -
-the stacked gate g10 is two crossings (top opening 4.05 m southbound,
+before gate g0), and builds the 11-crossings-per-lap x 2-lap sequence (published
+10-gate map, 2026-09-15) - the stacked gate g8 (organizer gate 9) is two crossings (top opening 4.05 m southbound,
 bottom 1.35 m northbound) disambiguated by altitude. `sim/main.py` runs
 Elodin physics and Betaflight SITL in lockstep at 1 kHz; each tick the
 selected solver gets a `SensorUpdate` (IMU, baro, mag, 640x360 FPV frames,

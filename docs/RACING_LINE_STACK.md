@@ -62,8 +62,9 @@ diagonal blend to cruise, so the profile accelerates from the first
 meter. Then anchors per crossing (`center +- standoff*normal`) with a
 two-value standoff: the base value normally, the larger
 `anchor_standoff_turn_m` on both sides of any junction whose actual
-TRAVEL turns more than `turn_angle_deg` (covers the g10 out-and-back and
-the g7 switchback with one rule). The path is a STRAIGHT segment through
+TRAVEL turns more than `turn_angle_deg` (covers the g8 out-and-back and
+the g5 switchback with one rule; labels are traversal order on the
+published map, g0 = organizer gate 1, gK = gate K+1). The path is a STRAIGHT segment through
 every opening (pre -> center -> post is linear - the hole is never
 curved) with centripetal Catmull-Rom between gates. The base planner
 crosses along each gate's normal; `line_opt --free` may LEARN the
@@ -78,8 +79,8 @@ Timestamps and feedforward accel fall out.
 
 Every plan run prints the CHECK line: the speed-profile minimum and where
 it sits. A near-zero minimum somewhere unexpected means a bad plan -
-fix the plan, don't tune the follower around it. (The known-real minimums are the g7
-switchback and the g10 stack: the course genuinely reverses there.)
+fix the plan, don't tune the follower around it. (The known-real minimums are the g5
+switchback and the g8 stack: the course genuinely reverses there.)
 
 ## How the follower flies it
 

@@ -158,14 +158,27 @@ DOGLEG_S = True
 DOGLEG_MIN_DEG = 25.0
 DOGLEG_SAG_SCALE = 1.0   # Catmull-Rom overshoots sparse bows; <1 tames it
 POSE_ANGLE_MAX_DEG = 35.0
-POSE_TILT_OVERRIDE_DEG = {'g5': 4.0, 'g6': -25.0, 'g10-top': -30.0, 'g4': 22.0}   # multi-seed line search seed 2 (plan_28p84_20260910): flown 28.84 / 28.92 clean; was g5 0, g4 14 (32.1 s knobs)
-STACK_LOOP = False   # see build_anchors: g10-top -> g10-low as a banked descending half-loop
+# GATE RELABEL (2026-09-15): the organizer published ground-truth gate
+# coordinates (Drone_Race_Track_Gate_Coordinates_with_doublegate.pdf) and
+# data/course_map.json is now that table. Labels are still traversal order
+# (g0 = start), but the start moved and one extracted "gate" was not a gate:
+#   published gate N = gK with K = N-1;  old label -> new label:
+#   g2->g0 g3->g1 g4->g2 g5->g3 g6->g4 g7->g5 g8->g6 g9->g7
+#   g10-top->g8-top g10-low->g8-low g0->g9; old g1 dropped (it was a launch
+#   pad marker). Every knob below was remapped by PHYSICAL gate identity, so
+#   the comments' old labels read through that table. Positions moved
+#   0.25-0.8 m and the SW-heading gates (published rot 215: g3, g6) changed
+#   heading, g3 by 37 deg - plan_RACE.json (28.30 s) is STALE and every
+#   knob is a seed for a fresh line_search, not a flown value. PRE_STUB g0
+#   0.4 is kept on the START role (takeoff blend), not moved with the gate.
+POSE_TILT_OVERRIDE_DEG = {'g3': 4.0, 'g4': -33.0, 'g7': -8.0, 'g8-top': -30.0, 'g2': 22.0}   # (old labels g5/g6/g9/g10-top/g4) multi-seed line search seed 2 (plan_28p84_20260910): flown 28.84 / 28.92 clean; was g5 0, g4 14 (32.1 s knobs). g4 (old g6) -33 was tuned against the estimate's SOUTH heading; published heading is 37 deg further clockwise
+STACK_LOOP = False   # see build_anchors: g8-top -> g8-low as a banked descending half-loop
 EARLY_CLIMB = True   # see build_anchors: climb right after the previous gate, turn level into the next
 CLIMB_RAMP = False   # ON is the straight climb (g9->top 1.47 -> 1.26 s model) - the replay cannot score climbs, so it is a flight test, not a search default; linear height ramp along the leg instead of the step (see build_anchors)
-POSE_Z_OFFSET_M = {'g0': -0.12, 'g1': -0.06, 'g4': -0.18, 'g8': 0.24, 'g9': 0.45, 'g10-top': -0.21, 'g10-low': 0.4}   # seed-2 search knobs (28.84 s); g10-top -0.21 flew clean twice with the vertical-drag guard (offsets of -0.25..-0.4 took the bar in batch_1)
-POST_STUB_M = {'g6': 1.8, 'g0': 0.4}     # seed-2 search knobs (28.84 s). gate label -> straight exit length (m); g6: a 2 m stub south then a 90 deg bend west was the dip-and-rise into the g7 loop
-PRE_STUB_M = {'g0': 0.4, 'g1': 0.4, 'g5': 0.4, 'g6': 0.4}   # seed-2 search knobs (28.84 s). g0: the default 2 m entry stub sat BEHIND the takeoff blend anchor (y 1.0 vs 1.8) and folded the first 3 m of the line (race_061 crossed g0 at 4 m/s, 0.55 s behind the model). gate label -> straight approach length (m); g10-top: the turn from the g9 arc must finish BEFORE the gate (race_026 crossed 0.9 m right of centre)
-POSE_LAT_OFFSET_M = {'g0': 0.075, 'g1': -0.15, 'g2': 0.15, 'g3': -0.1875, 'g4': -0.5, 'g5': -0.5, 'g6': -0.5, 'g7': 0.0, 'g8': -0.34, 'g10-top': 0.2, 'g10-low': -0.19}   # seed-2 search knobs (plan_28p84_20260910, flown 28.84 / 28.92 clean 2026-09-10)
+POSE_Z_OFFSET_M = {'g9': -0.12, 'g2': -0.18, 'g6': 0.24, 'g7': 0.20, 'g8-top': -0.21, 'g8-low': 0.4}   # g7 0.45 -> 0.20 (2026-09-15, race_158; 0.15 and below shift the spline into a lateral touch at g4 on lap 2, whose lat -0.5 leaves 0.1 m): the early climb to g8-top crossed g7 at 1.90 on lap 2 and clipped the top bar (limit 1.95); 0.45 was the old g9 knob on a heading now 37 deg different. (old g0/g4/g8/g9/g10-top/g10-low; old g1 -0.06 dropped) seed-2 search knobs (28.84 s); g8-top -0.21 flew clean twice with the vertical-drag guard (offsets of -0.25..-0.4 took the bar in batch_1)
+POST_STUB_M = {'g4': 1.8, 'g9': 0.4, 'g7': 0.4}     # (old g6/g0/g9) seed-2 search knobs (28.84 s). gate label -> straight exit length (m); g4 (old g6): a 2 m stub south then a 90 deg bend west was the dip-and-rise into the g5 (old g7) loop
+PRE_STUB_M = {'g0': 0.4, 'g9': 0.4, 'g3': 0.4, 'g4': 0.8, 'g7': 0.4}   # (old g0/g1->dropped/g5/g6/g9; g0 kept for the START role) g4 tilt -33 / pre 0.8 = apex through old g6 (Brian): g6->g7 -0.08 s/lap, race_147/153, 28.30 clean   # seed-2 search knobs (28.84 s). g0: the default 2 m entry stub sat BEHIND the takeoff blend anchor (y 1.0 vs 1.8) and folded the first 3 m of the line (race_061 crossed g0 at 4 m/s, 0.55 s behind the model). gate label -> straight approach length (m); g8-top: the turn from the g7 arc must finish BEFORE the gate (race_026 crossed 0.9 m right of centre)
+POSE_LAT_OFFSET_M = {'g9': 0.075, 'g0': 0.15, 'g1': -0.1875, 'g2': -0.5, 'g3': -0.5, 'g4': -0.5, 'g5': 0.0, 'g6': -0.34, 'g7': -0.15, 'g8-top': 0.2, 'g8-low': -0.19}   # (old g0/g2/g3/g4/g5/g6/g7/g8/g9/g10-top/g10-low; old g1 -0.15 dropped) seed-2 search knobs, flown 28.84 / 28.92 clean 2026-09-10 on the OVERHEAD ESTIMATE map; g7 (old g9: lat -0.15, tilt -8, stubs 0.4) recovered by path-matching plan_RACE (the search log had reset them) - these defaults reproduced plan_RACE exactly (model 25.57) on the old map
                            # tilt toward the bisector of the incoming and
                            # outgoing chords by up to this. The 1.5 m opening
                            # seen at angle a is 1.5cos(a)-0.26sin(a) wide:
@@ -197,6 +210,15 @@ REVERSAL_LOOP_R_M = 2.5
 # the same model time at r 3-3.5 m; its case is trackability.
 REVERSAL_SWING = True
 REVERSAL_OVERTOP = False   # vertical U over the reversal gate instead of the horizontal swing (see build_anchors)
+REVERSAL_PIVOT = False     # BRAKE-AND-PIVOT (flown 2026-09-10: side 1.5 took the g7 frame, race_139; side 2.5 flew clean but g6->g7 2.06 s vs the swing 2.00, race_140 29.87 - the follower cuts the hook 0.8 m inside, so the pivot buys nothing under this tracker) instead of the swing: the time-optimal solution (traj_opt, 2026-09-10)
+                           # does not loop north of g7 at all - it runs from g6 straight at the gate, brakes hard,
+                           # crosses slowly and accelerates away (g6->g8 2.56 s model vs the swing's 2.79 model /
+                           # 3.16 flown, the one section the follower flies 0.4 s wider than its model). The pivot
+                           # point sits PIVOT_BACK_M behind the gate plane and PIVOT_SIDE_M to the swing side, on the
+                           # approach side of the plane so the only crossing is the counted one; the lead-in makes
+                           # the last metres straight through the opening.
+PIVOT_BACK_M = 2.5
+PIVOT_SIDE_M = 2.5   # 1.5 flew 0.8 m inside the plan on the westbound run and took the g7 frame 1.4 m north of centre (race_139)
 OVERTOP_H_M = 2.5
 OVERTOP_B_M = 1.0
 OVERTOP_STANDOFF_M = 1.5
@@ -894,6 +916,16 @@ def build_anchors(course, cfg: VehicleConfig):
                     loop_pts.append(np.array([q_xy[0], q_xy[1], z_mid + a_v * math.cos(th)]))
                 clr = loop_pts[0].copy()
                 swing_done = True
+            if REVERSAL_PIVOT and not swing_done:
+                d_x = cross_dir[k]
+                lead_pt = ctr - d_x * REVERSAL_LEADIN_M
+                # the perpendicular on the swing-centre side (the side the loop used to bulge to)
+                perp = _rot(d_x, -side * math.pi / 2.0)
+                q = ctr - d_x * PIVOT_BACK_M + perp * PIVOT_SIDE_M
+                q[2] = ctr[2]
+                loop_pts.append(q)
+                clr = loop_pts[0].copy()
+                swing_done = True
             if REVERSAL_SWING and REVERSAL_SWING_R_M > 0.0 and not swing_done:
                 R = REVERSAL_SWING_R_M
                 d_x = cross_dir[k]
@@ -1037,12 +1069,22 @@ def build_anchors(course, cfg: VehicleConfig):
     # run-out descended through g1's frame plane at z 0.8 (referee-geometry
     # scan, 2026-09-09: the only sample within 0.20 m of any frame on the
     # whole plan). A post-finish contact still voids the run.
+    # SIDE CHOICE (2026-09-15, race_160): "away from the next gate" parked
+    # 2.25 m LEFT of the finish, 1.4 m from the boundary cone west of g0
+    # on the published map (g1 is 9.8 m ahead there, so its frame plane is
+    # no longer the threat). Take the side whose park point is farther
+    # from every obstacle the course knows: cones and the other gates.
     bar = np.array([-exit_n[1], exit_n[0], 0.0])
-    nxt = events[1] if len(events) > 1 else None
-    if nxt is not None:
-        to_next = np.array([nxt.x - last_e.x, nxt.y - last_e.y, 0.0])
-        side = -1.0 if float(np.dot(bar, to_next)) >= 0 else 1.0
-        park = park + bar * side * (2.7 / 2.0 + 0.9)
+    obstacles = [(c.x, c.y) for c in getattr(course, "cones", ())]
+    obstacles += [(e.x, e.y) for e in events[1:-1]]
+    best, best_clear = park, -1.0
+    for side in (1.0, -1.0):
+        cand = park + bar * side * (2.7 / 2.0 + 0.9)
+        clear = min((math.hypot(cand[0] - ox, cand[1] - oy)
+                     for ox, oy in obstacles), default=math.inf)
+        if clear > best_clear:
+            best, best_clear = cand, clear
+    park = best
     park[2] = PARK_ALT_M
     anchors.append(park)
 

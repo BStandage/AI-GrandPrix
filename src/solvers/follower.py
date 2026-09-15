@@ -39,8 +39,8 @@ from raceline.rc_backend import (   # noqa: E402  (the shared proven loops)
     AltitudeLoop, GroundTruthSource, StateEstimate, YawLoop, attitude_sticks)
 
 # Arming phases, matching the baseline's Betaflight handshake.
-T_DISARMED_END = 0.50   # 0.30 tried 2026-09-10: arm request inside Betaflight BOOTGRACE, two starts wedged at "1 responses"
-T_ARM_IDLE_END = 0.75   # 0.50 tried, see above
+T_DISARMED_END = 0.50   # 0.30 tried twice (2026-09-10, race_137 with the boot-grace hold in place): Betaflight never armed, the drone sat on the ground for the whole run - the arm request must come later than 0.3 s after the first RC frame regardless of the boot grace
+T_ARM_IDLE_END = 0.55   # 0.75 -> 0.55 (2026-09-10): the arm takes at 0.50, the motors only need a few frames at idle before throttle-up
 
 # RETRY DEBOUNCE: consecutive control ticks the nearest-point search must read
 # "past the gate" before a retry actually fires. At the 1000 Hz PID rate this
@@ -391,6 +391,7 @@ _SOURCE = GroundTruthSource()
 _TRACKER = Tracker(PLAN, CFG)
 _ALT = AltitudeLoop(CFG)
 _YAW = YawLoop(CFG)
+LAND_RATE_MPS = 1.0   # descent after the finish (see autopilot)
 _state = {"done_t": None, "dbg_t": 0.0, "trace": None, "trace_n": 0}
 
 # Per-tick trace, decimated to TRACE_EVERY ticks (~100 Hz at the 1 kHz
@@ -448,11 +449,22 @@ def autopilot(update: SensorUpdate) -> RCCommand:
     a_des, z_target, vz_ff, yaw_des, done = _TRACKER.step(
         est, update.next_gate_index)
 
-    if done:
+    if done or _state["done_t"] is not None:
+        # LATCHED: once the last crossing is credited the race is over. The
+        # old 1 s idle-and-disarm dropped the drone from 1.1 m; on the ground
+        # the tracker's recovery branch took over and slid it into g0's frame
+        # (race_143, contact 2.7 s after the finish). Hold the park point and
+        # descend at LAND_RATE_MPS, disarm on the deck.
         if _state["done_t"] is None:
             _state["done_t"] = t
-        if t - _state["done_t"] > 1.0:
-            return RCCommand(arm=1000, throttle=1000)   # land/disarm
+        dt_done = t - _state["done_t"]
+        f = CFG.follower
+        park = _TRACKER.pos[-1]
+        a_des = f.kp_pos * (park[:2] - est.p[:2]) - f.kd_pos * est.v[:2]
+        z_target = max(0.0, float(park[2]) - LAND_RATE_MPS * dt_done)
+        vz_ff = -LAND_RATE_MPS if z_target > 0.0 else 0.0
+        if est.p[2] < 0.10 and dt_done > 0.5:
+            return RCCommand(arm=1000, throttle=1000)
 
     airborne = est.p[2] >= CFG.follower.min_alt_translation_m
     throttle = _ALT.throttle(update.t, est, z_target, vz_ff, airborne,

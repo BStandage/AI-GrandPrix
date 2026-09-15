@@ -397,8 +397,8 @@ yaw_clamp   = 400       # RAISED from 200 to stay consistent with the
                         # per 60 PWM measured => 400 PWM ~ 2.0 rad/s, so the
                         # nose can actually deliver what the plan assumes
 yaw_lookahead_m = 3.0   # aim the nose at the tangent this far ahead
-takeoff_pwm = 1330
-min_alt_translation_m = 0.15  # LOWERED 1.0 -> 0.3 -> 0.15: below this the follower
+takeoff_pwm = 1700
+min_alt_translation_m = 0.0   # LOWERED 1.0 -> 0.3 -> 0.15 -> 0.0 (2026-09-10: lean toward g0 from throttle-up, the sim damps rotation in the first 0.5 m anyway): below this the follower
                               # climbs vertically (throttle only, no lean),
                               # which forced the elevator ride to ~1 m before
                               # any forward pitch. 0.3 lets it thrust-vector

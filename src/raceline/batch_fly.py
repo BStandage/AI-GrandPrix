@@ -71,7 +71,27 @@ def fly(plan_path: Path, timeout_s: float = 200.0, solver: str = "solvers.follow
             result["status"] = "ERROR"
             result["crash"] = log[log.index("Traceback"):][:200].replace("\n", " ")
             break
+    # keep the container log for the post-mortem (race_142: the trace ended at
+    # 21.6 s with no referee line and the log was gone with the container)
+    try:
+        log_dir = AIGP_REPO / "out" / "flightlogs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        n = len(glob.glob(str(log_dir / "container_*.log")))
+        with open(log_dir / f"container_{n:03d}.log", "w", encoding="utf-8") as fh:
+            fh.write(_logs())
+        result["container_log"] = f"container_{n:03d}.log"
+    except Exception as ex:
+        result["container_log"] = f"unsaved: {ex}"
     _compose("down", "--remove-orphans", timeout=120)
+    # the sim writes a 2.5-5.7 GB elodin recording (run/betaflight_dbNNN) per
+    # flight into the sim-run volume; 119 of them filled the 161 GB Docker
+    # disk twice on 2026-09-10 and stalled flights mid-run. Nobody replays a
+    # batch flight's recording: drop it.
+    try:
+        subprocess.run(["docker", "run", "--rm", "-v", "elodin-sim-aigp_sim-run:/r", "alpine",
+                        "sh", "-c", "rm -rf /r/betaflight_db*"], capture_output=True, text=True, timeout=300)
+    except Exception as ex:
+        print(f"   (recording cleanup failed: {ex})")
     result["wall_s"] = round(time.time() - t0, 1)
     # first-gate-to-last-gate time from the newest flight log: the referee
     # total includes arming and takeoff, which varied by up to 2 s between

@@ -4,10 +4,40 @@ Spec: `20260818_PQ_Technical_Spec_0001.pdf` (VADR-TS-004 / 00.01).
 
 - **15 min/day** on the real track.
 - **2 laps** = complete run. Incomplete ranked by gates passed.
-- Track **60x21 m**, gates 1.5 m inner opening, includes a **double gate**.
+- Track **85 x 165 ft (25.9 x 50.3 m)**, 10 gates, 1.5 m inner opening,
+  gate 9 is the **double gate**. Published coordinates 2026-09-15 are
+  `data/course_map.json` (labels gK = organizer gate K+1).
+- Start = the dashed orange line ~7.3 m behind gate 1 (`meta.start`); the
+  solid bar just past gate 1 is probably the timing line.
 - PQ course != VQ2. VQ2 tapes are archive only.
 
 Steady is a **mapper**, not the race solution. Race = trusted map + solve.
+
+## Day 0 - board bring-up (Orin quickstart, 2026-09-15)
+
+Before the cage, with the drone on the bench and props OFF:
+
+1. USB-C to the micro-USB port, `ssh dcl@192.168.55.1` (pw `dcl`). If it
+   hangs, give the laptop's RNDIS interface 192.168.55.100/24; fallback is
+   the serial console on /dev/ttyACM0 at 115200.
+2. `sudo ~/target/bringup-check.sh` - stops at the first broken layer.
+   Then `uname -a` (5.15.148-tegra), `nvpmodel -q` (25W), `ls /dev/video0`.
+3. `sudo ~/target/msp/setup_jetson_uart.sh --apply` once per board, then
+   `python3 ~/target/msp/msp_bench.py --port /dev/ttyTHS1 info` - firmware
+   identity, sensors, battery, arming blockers. `telemetry --hz 20` for a
+   live attitude stream; `imu_check.py` for the IMU acceptance test.
+4. `~/target/live-view-imu.py --msp /dev/ttyTHS1` - camera + attitude on
+   one browser page at http://192.168.55.1:8080/ : both halves alive.
+   Grey/flat colour over SSH is expected (no Argus without a display).
+5. Save the Betaflight `diff all` to TWO places (see Day 1 item 3) and
+   copy `~/target/msp/msp.py` + `msp_rc.py` into our tree - they are the
+   RC-down / IMU-back library our runtime imports.
+6. `frame-timestamps.py` -> CSV: frame period and jitter at 1920x1080@60,
+   and the camera-vs-IMU clock offset (no shared clock, no trigger).
+7. Decide the capture path (Argus needs an EGL context: headless X
+   session at boot, or raw V4L2 + own debayer/AE) and prove it survives a
+   reboot without a monitor.
+8. `sudo shutdown -h now`, wait for the LED, then pull power. Never yank.
 
 ## Day 1 - before ANY mapping or racing (FAQ-driven, 2026-08-28)
 
