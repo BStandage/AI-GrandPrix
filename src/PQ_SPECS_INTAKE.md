@@ -21,7 +21,14 @@ Source: `20260818_PQ_Technical_Spec_0001.pdf`
 ### Betaflight / FC
 - Full config access (rates, PIDs, filters, telemetry): **yes**. Reflash: **no**.
 - Extract config yourself via Betaflight CLI - run `diff all` on day 1.
-- Version constraint: **2026.6.1 or earlier** (MSP override breaks above).
+- Version constraint as first stated: "2026.6.1 or earlier (MSP override
+  breaks above)". **2026-09-15: asked "what Betaflight firmware is on the
+  Archer, is there a fork?", the organizers sent configurator 10.10.0 and
+  no fork -> the drones are on stock Betaflight 4.5.x** (10.10.0 is the
+  4.5 configurator and cannot talk to 2026.x firmware; the 2026.6.1
+  figure was presumably the app). The sim's SITL is pinned to 4.5.5 on
+  the sim branch `feature/betaflight-4.5`. Install configurator 10.10.0
+  from the GitHub release tag; it coexists with the 2026.6.1 app.
 
 ### FC <-> Jetson
 - **UART. TX: RC control commands (Jetson->FC). RX: IMU data (FC->Jetson).**
@@ -43,8 +50,9 @@ Source: `20260818_PQ_Technical_Spec_0001.pdf`
   camera-to-IMU lever arm isn't a guess; fusion extrinsic is half-solved.
 
 ### Gates
-- **Double gate = one gate flown through twice** (confirms the g10
-  out-and-back model).
+- **Double gate = one gate flown through twice** (confirms the
+  out-and-back model; it is organizer gate 9 = our g8 on the published
+  map).
 - Gate depth discrepancy: spec 260 mm vs diagram 140 mm - **under
   review**. Do not hard-code depth-sensitive logic.
 - Gate pictures to be provided ahead of time (detector training data).
@@ -70,6 +78,12 @@ Source: `20260818_PQ_Technical_Spec_0001.pdf`
       sustained speed runs. Still open: cage height, gates inside?, time
       limits.
 - [ ] Gate depth resolution (260 vs 140 mm).
+- [ ] Exact Betaflight 4.5.x patch level on the Archer, and the MSP
+      override setup in their `diff all`: which channels we may override
+      (`msp_override_channels_mask`), whether arming stays on the
+      pilot's transmitter, and what happens when our RC stream pauses.
+- [ ] Double gate 9: is it crossed twice per lap (south top / north low)
+      and what is the top-opening height? (4.05 m is our estimate.)
 - [x] UART protocol = **MSP over /dev/ttyTHS1 @ 115200** (Orin quickstart,
       2026-09-15). Still open: sustainable MSP_SET_RAW_RC rate,
       staleness/failsafe behavior if our RC stream hiccups.
@@ -111,8 +125,13 @@ geometry work carries over. What changed:
   top-opening height on site.
 - Code labels are traversal order: **gK = organizer gate K+1** (g0 = gate
   1, g8 = the double gate 9, g9 = gate 10). Planner knobs, line_search,
-  sim tests and the viewer were relabelled by physical identity;
-  `plan_RACE.json` (28.30 s) was flown on the ESTIMATE map and is stale.
+  sim tests and the viewer were relabelled by physical identity. The
+  28.30 s estimate-map plan is archived
+  (`out/plans/archive_20260915_estimate_map/`); `plan_RACE.json` is now
+  the published-map plan, flown clean 23/23 in **29.55 s** (race_160,
+  2026-09-15, laps 15.72 + 13.84; sim on ground truth). The speed ladder
+  (`raceline.ladder`, 60/50/40/35 s rungs with centred crossings) is the
+  race-day binary-search set - see `PQ_PROCEDURE.md`.
 
 | Gate | X ft | Y ft | rot | ENU x m | ENU y m | heading | label |
 |---|---|---|---|---|---|---|---|

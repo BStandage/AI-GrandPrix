@@ -1,6 +1,6 @@
 # Elodin PQ sim - full setup guide (Windows + WSL)
 
-How to go from a bare Windows machine to watching a drone fly the extracted
+How to go from a bare Windows machine to watching a drone fly the published
 PQ course in the Elodin simulator. Every step here was actually executed on
 Brian's machine on 2026-08-27; the **Gotchas** notes are real failures we
 hit and their fixes - read them before asking for help.
@@ -80,15 +80,15 @@ Installs to `~/.local/bin/uv`. Open a new shell or `source ~/.local/bin/env`.
 
 ```bash
 cd /mnt/c/Users/<you>/Documents/GitRepos     # or wherever
-git clone <this-repo-url> AI-GrandPrix
-git clone https://github.com/elodin-sys/ai-grand-prix elodin-sim
+git clone https://github.com/bstandageusf/AI-GrandPrix.git AI-GrandPrix
+git clone https://github.com/BStandage/elodin-sim-aigp.git elodin-sim-aigp
 ```
 
-> **Gotcha:** the sim repo's natural name `ai-grand-prix` differs from
-> `AI-GrandPrix` only by case. Windows folders are case-insensitive by
-> default, so the two would collide - clone the sim as `elodin-sim` (any
-> distinct name works; the cross-repo path resolution looks for a sibling
-> named exactly `AI-GrandPrix`, or set env `AIGP_REPO` to point at it).
+> **Gotcha:** the upstream sim repo's natural name `ai-grand-prix` differs
+> from `AI-GrandPrix` only by case. Windows folders are case-insensitive by
+> default, so the two would collide - our fork is named `elodin-sim-aigp`
+> for that reason. Both repos look for each other as siblings (override
+> with `AIGP_REPO` / `AIGP_SIM_REPO`).
 
 ## 5. Python env for the sim
 
@@ -112,6 +112,15 @@ bash scripts/build_betaflight.sh    # compiles obj/main/betaflight_SITL.elf
 Needs the `build-essential` from step 2. `git status` showing
 `M betaflight` afterwards is expected (the script enables lockstep sync in
 the submodule's target.h).
+
+**Firmware version matters.** The Archer's flight controller runs
+Betaflight 4.5.x (the organizers ship configurator 10.10.0, the 4.5
+configurator). The sim's submodule is pinned to tag 4.5.5 on the sim
+branch `feature/betaflight-4.5` (2026-09-15; main still builds 2026.6.0
+until that branch is validated and merged). After switching the submodule
+version, delete `betaflight/obj/` and `eeprom.bin` so the build and the
+config are regenerated - the Docker entrypoint does both when they are
+missing.
 
 ## 7. Elodin CLI (runtime), inside WSL
 
@@ -191,10 +200,13 @@ uv run python scripts/render_pq_course.py  # out/course_layout.png top-down rend
 
 `sim/pq_course.py` loads `AI-GrandPrix/data/course_map.json` through
 `common.course_map` (the only allowed map parser), applies the named
-`MapToSim` transform (rotation 0, translation puts the drone spawn 3 m
-before gate g0), and builds the 11-crossings-per-lap x 2-lap sequence (published
-10-gate map, 2026-09-15) - the stacked gate g8 (organizer gate 9) is two crossings (top opening 4.05 m southbound,
-bottom 1.35 m northbound) disambiguated by altitude. `sim/main.py` runs
+`MapToSim` transform (rotation 0; the drone spawn is the map's start
+line, `meta.start`, 7.3 m behind gate g0 - maps without one fall back to
+a 3 m standoff), and builds the 11-crossings-per-lap x 2-lap sequence
+(published 10-gate map, 2026-09-15; 23 events including the start and
+finish crossings of g0) - the stacked gate g8 (organizer gate 9) is two
+crossings (top opening 4.05 m southbound, bottom 1.35 m northbound)
+disambiguated by altitude. `sim/main.py` runs
 Elodin physics and Betaflight SITL in lockstep at 1 kHz; each tick the
 selected solver gets a `SensorUpdate` (IMU, baro, mag, 640x360 FPV frames,
 race state) and returns an `RCCommand`. `RaceTracker` scores ordered

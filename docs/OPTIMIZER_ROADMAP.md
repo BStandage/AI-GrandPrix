@@ -1,5 +1,15 @@
 # Line optimizer roadmap: escaping local minima
 
+UPDATE (2026-09-15): the course is now the organizers' PUBLISHED map and
+the labels below are the OLD estimate-map ones - read "g7 switchback" as
+today's g5 hairpin and "the stacked gate" as g8; 24 crossings is now 23
+events. Item 1 exists in practice as `raceline.line_search` (multi-seed,
+per-crossing knobs, calibrated replay as the guard) and produced every
+plan_RACE since 2026-09-09; `line_opt --free` needs scipy, which the
+project venv does not carry. The 29.55 s published-map plan is a
+relabelled seed of the 28.30 s estimate-map search, so a fresh search on
+the new geometry is the cheapest second still on the table.
+
 UPDATE (2026-08-29): the precondition below is met - the Betaflight tune
 sprint landed and the slew ceiling is measured (48.8 m/s^3 at race
 amplitude, was 5.3). The search space also grew past this doc's status

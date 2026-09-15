@@ -11,7 +11,10 @@ Spec: `20260818_PQ_Technical_Spec_0001.pdf` (VADR-TS-004 / 00.01).
   solid bar just past gate 1 is probably the timing line.
 - PQ course != VQ2. VQ2 tapes are archive only.
 
-Steady is a **mapper**, not the race solution. Race = trusted map + solve.
+The map is PUBLISHED (2026-09-15) - there is no survey step. Race =
+published map + planner + the ladder rung the day allows. The old
+survey -> make_map -> solve pipeline (steady/giga/ace, `analysis.fresh_map`)
+lives in `src/_archive/` and is not part of PQ.
 
 ## Day 0 - board bring-up (Orin quickstart, 2026-09-15)
 
@@ -82,68 +85,108 @@ time each step really takes. There is exactly one day 1.
 Slew measurement is already runnable: `RACE_SOLVER=solvers.sysid_slew`
 (protocol + analyzer in `src/raceline/sysid_slew.py`).
 
-## Daily clock (15 min)
+## Race-day binary search (speed ladder, 2026-09-15)
+
+`python -m raceline.ladder --targets 60 50 40 35` (run from `src/`) builds
+one rung per target: `config/ladder/vehicle_<T>s.toml` (the race toml with
+max_tilt_deg / v_max_mps / a_lat_rate_max / a_lat_margin scaled by one
+level k in [0, 1]) and `out/plans/plan_LADDER_<T>s.json/.png`, every
+crossing through the CENTRE of its opening (per-gate knobs zeroed), zero
+frame contacts. `config/ladder/ladder.json` is the index. plan_RACE is the
+top rung (k = 1 plus the searched per-gate knobs).
+
+Fly a rung:
+
+```bash
+python race.py --config config/ladder/vehicle_60s.toml --traj out/plans/plan_LADDER_60s.json
+```
+
+Procedure, one rung per heat:
+
+1. Slowest rung first (60 s). Clean -> jump to the fastest you brought.
+2. Fails -> the midpoint of the last clean and the last failed rung
+   (`--k <level>` builds any intermediate rung in seconds; k is monotonic
+   in time, see ladder.json for the k of each target).
+3. Each heat halves the interval. Targets are MODEL times: the race rung
+   flies ~10 % over its model in the sim, slow rungs less.
+4. On the two scoring days fly the fastest rung that was clean twice.
+   A complete slow run outranks every incomplete fast one.
+
+## Daily clock (15 min slot, published-map era)
 
 | Min | Action |
 |-----|--------|
-| 0-6 | Survey fly (steady or equivalent visual) - collect dbg + session ticks |
-| 6-10 | `make_map` -> accept/reject. **REJECT -> stop; do not race garbage** |
-| 10-15 | One solved heat on ACCEPTED map only (giga/ace/CL - not untrusted open-loop) |
+| 0-3 | Power up, `ssh dcl@192.168.55.1`, `bringup-check.sh`, `msp_bench.py info` (arming blockers, battery), camera alive. Load the rung's plan + toml. |
+| 3-8 | **Heat 1**: the rung the binary search calls for (first slot of the day: the slowest rung that was clean last time). |
+| 8-11 | Read the trace and the blackbox: gates scored, first contact if any, where the estimator drifted. One question answered per heat. |
+| 11-15 | **Heat 2** only if heat 1 was clean and the next rung is loaded; otherwise a repeat of heat 1 or the midpoint rung. |
 
-One question per heat. No per-gate open-loop tuning.
+Every heat is a rung of the ladder or plan_RACE, nothing hand-edited
+between heats. Two clean runs of a rung before it counts as "held".
 
 ## Pipeline
 
 ```mermaid
 flowchart LR
-  survey[Survey_fly] --> dbg[dbg_CSV_plus_session]
-  dbg --> make[fresh_map.make_map]
-  make -->|ACCEPT| acc[course_map_ACCEPTED.json]
-  make -->|REJECT| survey
-  acc --> solve[solve_giga]
-  solve --> heat[Fly_solved_policy]
+  map[data/course_map.json published] --> ladder[raceline.ladder rungs + plan_RACE]
+  ladder --> sim[Docker sim: batch_fly, referee]
+  sim -->|clean| bring[Orin: MSP bridge, ANGLE output, estimator]
+  bring --> heat[Heat: fly one rung]
+  heat -->|clean twice| faster[next rung up]
+  heat -->|fails| mid[midpoint rung]
 ```
 
-### Survey -> map
+### Before the venue (sim)
 
 ```bash
 cd src
-# CONTROL_MODE = steady  (survey)
-python main.py
-
-python -m analysis.fresh_map.make_map <dbg.csv> <session>
-# ACCEPT writes pilots/*/course_map_ACCEPTED.json (map_resolve priority 1)
-# REJECT exits 1 - do not solve/race
+python -m raceline.ladder --targets 60 50 40 35     # rungs -> config/ladder + out/plans
+python -m raceline.batch_fly ../out/plans/plan_LADDER_60s.json ../out/plans/plan_RACE.json
 ```
 
-### Solve -> heat
+Every rung we bring has been flown clean in the sim on the Archer's
+firmware generation (Betaflight 4.5.5 SITL).
+
+### At the venue
 
 ```bash
-cd src
-python -m analysis.solve_giga
-# CONTROL_MODE = giga   # or ace once map is ACCEPTED
-python main.py
+python race.py --config config/ladder/vehicle_60s.toml --traj out/plans/plan_LADDER_60s.json   # sim rehearsal of the day's rung
 ```
+
+The on-drone runtime (MSP bridge + estimator) does not exist yet; when it
+does, the same plan JSON and toml are its inputs.
 
 ## On-site rules
 
-- First heat of a new course = **survey**, not a VQ2 tape.
-- Double gate: confirm extract gets two gate IDs / correct association before ACCEPT.
-- Map legs that cannot fit in 60x21 -> REJECT / re-survey.
-- Never Frankenstein surveys across a topology fork.
-- Incomplete run still scores by gates - prefer finishing early gates cleanly over a wild full-lap attempt on a bad map.
+- First heat of day 1 = the slowest rung, not plan_RACE, however good the
+  sim looked.
+- Double gate 9: confirm with the organizers (and with our eyes on day 1)
+  that it is crossed twice per lap and what the top-opening height is.
+  Our plan assumes south through the top at 4.05 m, back north through
+  the low opening.
+- Start position = the dashed line behind gate 1; the timing line is
+  probably the solid bar just past gate 1. Confirm both on day 1.
+- Never edit a gate's knob between heats. A rung that fails goes down the
+  ladder, not into the planner.
+- Incomplete run still scores by gates - prefer finishing early gates
+  cleanly over a wild full-lap attempt at a rung that has not held.
 
-## Modes
+## Solvers on the day
 
-| Mode | Role |
+| Solver | Role |
 |------|------|
-| `steady` | Survey / map source only |
-| `giga` / `ace` | Race after ACCEPTED map + solve |
-| `fair` | Observe-only shell until it beats survey without fighting vision |
-| VQ2 sacred tapes | Archive - never PQ smoke |
+| `solvers.follower` + a ladder rung | the race, at whatever rung the binary search has reached |
+| `solvers.follower` + `plan_RACE` | only after the 35 s rung has held twice |
+| `solvers.sysid_*` | training-cage measurements (day 1), never a race slot |
+| tape-era pilots (`src/_archive/`) | archive - never PQ |
 
 ## Abort
 
-- Lost gate / wrong opening on survey: abort, restart survey.
-- ACCEPT fail: do not solve; re-fly survey.
-- Detector dead: fix vision before trusting extract.
+- Estimator lost (gate fix residuals blow up, or position disagrees with
+  the last gate crossing by more than an opening): abort the heat, land.
+- Frame contact: the run is void; land, read the trace, drop a rung.
+- Link stalls (MSP stream pauses, FC failsafe engages): the failsafe
+  behaviour in their `diff all` decides what the drone does - know it
+  before the first heat.
+- Detector dead or camera grey/black: fix vision before flying anything
+  faster than the slowest rung.
