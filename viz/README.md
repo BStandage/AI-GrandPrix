@@ -23,8 +23,14 @@ not hand-authored:
        --start-px 100 369 --roi -1 0 23 56
    ```
 
-   Gate numbers shown in the viewer are **traversal order** (g0 = start
-   teal gate, g10 = double gate), not extraction ids.
+   Gate numbers shown in the viewer are **traversal order** (g0 = start,
+   g8 = double gate), not extraction ids. **Since 2026-09-15 `GATES` holds
+   the organizer's PUBLISHED coordinates** (`data/course_map.json`, source
+   `published`; the overhead estimate moved to
+   `data/course_map_overhead_estimate.json`): 10 gates, g0 = organizer gate
+   1, gK = gate K+1. `PATH`/`CONES` are the old extraction rigid-aligned
+   onto the published frame (+0.34, +0.24 m, 0.06 deg) - the line is still
+   an illustration, and the cones were eyeballed from the PDF figure.
 
 2. `PATH` / `CONES` — the traced racing line and cone centroids, dumped
    from the same extraction (see `trace_line` / the `blob` shapes in

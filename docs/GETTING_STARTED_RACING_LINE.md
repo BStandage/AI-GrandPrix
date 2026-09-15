@@ -15,9 +15,11 @@ it; that failure means "do step 0 or use Docker," not that you broke
 something.
 
 Race length comes from `[planner] laps` in the toml: the dev default is 1
-lap = 12 crossings (half the wall-clock per iteration); the September spec
-format is 2 laps = 24. Numbers below say 12/12 - double everything at
-laps = 2.
+lap = 11 crossings (half the wall-clock per iteration); the September spec
+format is 2 laps (23 events: the start crossing of g0 plus 11 per lap,
+the last one being g0 as the finish line). Example output below predates
+the published 10-gate map (2026-09-15: g0 = organizer gate 1, the double
+gate is g8 = organizer gate 9) - the shape is right, the numbers are not.
 
 **The mental model, in one paragraph:** there are two repos side by side.
 `AI-GrandPrix` (this one) owns the course map, the planner, the follower, and
@@ -124,7 +126,7 @@ something like:
 PLAN  12 events, 135 m path, config 862aded1
       predicts total 29.6 s (lap0 28.6s) - model prediction, unverified; baseline 225.3 s
 CHECK frame contacts: 0 samples (MUST be 0 - the referee crashes the run on contact)
-CHECK speed-profile minimum: 1.28 m/s at s=121.7 m (nearest event: g10-top, +10.4 m along-path)
+CHECK speed-profile minimum: 1.28 m/s at s=121.7 m (nearest event: g8-top, +10.4 m along-path)
       profile ruled by: accel-slew 43%, gate-window 29%, v_max 14%, tilt/curvature 8%
       ...per-event crossing speeds...
 FILES plan -> out/plans/plan_004.json
@@ -137,7 +139,7 @@ Three things to know:
   tracker record (and at the September race, only real flight) counts.
 - The CHECK lines are your plan sanity gate. Frame contacts must be 0 or
   race.py refuses to fly the plan. The speed-profile minimum names the
-  slowest point and where it sits: a low minimum around the g10 stack or
+  slowest point and where it sits: a low minimum around the g8 stack or
   the g7 switchback is expected (the course genuinely reverses there); a
   near-zero minimum anywhere else means the planner produced a kinked
   path - fix the plan (planner params), do not fly it and then tune the
@@ -247,7 +249,7 @@ race.cmd
                           line), then for every crossing points before/
                           at/after the opening (wider standoff where the
                           travel turns hard - one global rule covers the
-                          g10 out-and-back and the g7 switchback)
+                          g8 out-and-back and the g5 switchback)
                        b. path: a STRAIGHT segment through every opening
                           (pre -> center -> post is linear; the hole is
                           never curved), smooth spline everywhere else.

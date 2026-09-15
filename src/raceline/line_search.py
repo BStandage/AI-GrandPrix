@@ -31,8 +31,8 @@ from raceline import course as cb
 from raceline import planner
 from raceline.config import load_config
 
-GATES = ["g0", "g1", "g2", "g3", "g4", "g5", "g6", "g7", "g8", "g9",
-         "g10-top", "g10-low"]
+GATES = ["g0", "g1", "g2", "g3", "g4", "g5", "g6", "g7",
+         "g8-top", "g8-low", "g9"]   # traversal order on the PUBLISHED map (2026-09-15): g8 = the double gate, g9 = the last single before the finish
 CONTACT_PENALTY_S = 50.0
 REPLAY_MARGIN_M = 0.45   # required LATERAL clearance at every crossing in the calibrated replay (opening half-width 0.75; real drone ~0.3 wider than the replay)
 REPLAY_MARGIN_Z_M = 0.65  # height: the replay's altitude loop overshoots climbs by ~0.5 where the flown follower overshoots ~0.2, so only a near-miss of the bar counts
@@ -91,7 +91,7 @@ def search(cfg, course, sweeps=3, seed=0, verbose=True, frozen=(), knobs=None):
             continue
         axes.append((("lat", g), -0.5, 0.5, 0.15))
         axes.append((("z", g), -0.4, 0.4, 0.12))
-        if g not in ("g10-top", "g10-low"):
+        if g not in ("g8-top", "g8-low"):
             axes.append((("tilt", g), -TILT_MAX_DEG, TILT_MAX_DEG, 8.0))
             # straight stub lengths at the crossing (the g4->g5 wobble is
             # the exit stub meeting the junction arc at a different radius)
@@ -154,6 +154,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sweeps", type=int, default=3)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--tilt-max", type=float, default=None, help="crossing tilt bound (deg) for every gate; default TILT_MAX_DEG (25). 40 let g6 apex: g6->g7 -0.09 s/lap, race_147")
     ap.add_argument("--out", default="out/plans/plan_search.json")
     ap.add_argument("--replay", action="store_true",
                     help="replay the result; freeze the knobs of any gate the "
@@ -163,6 +164,9 @@ def main():
                     help="comma-separated gate labels whose knobs stay at the rule values "
                          "(the gates the SIM rejected: batch_fly results)")
     args = ap.parse_args()
+    global TILT_MAX_DEG
+    if args.tilt_max is not None:
+        TILT_MAX_DEG = float(args.tilt_max)
     cfg = load_config()
     course = cb.load_course(laps=cfg.planner.laps)
     t0 = time.time()
@@ -180,6 +184,11 @@ def main():
             print("no feasible plan")
             return 1
         planner.write_plan(best_p, args.out)
+        # the knob set of THIS plan, saved before the post-replay freeze logic
+        # below rewrites the dict (the printed knobs at the end are not the
+        # saved plan's when a gate was frozen: 2026-09-10, plan_gs2_r1)
+        with open(str(Path(args.out).with_suffix(".knobs.json")), "w", encoding="utf-8") as fh:
+            json.dump(json.loads(json.dumps(knobs)), fh, indent=1)
         try:
             from raceline import render_plan
             png = str(Path(args.out).with_suffix(".png"))
@@ -222,7 +231,7 @@ def main():
                     knobs[key][g] = rule[key][g]
                 else:
                     knobs[key].pop(g, None)
-        if miss.startswith("g10"):
+        if miss.startswith("g8"):
             # the stack shape itself is what the replay could not fly:
             # fall back to the flown 35 s stack and take it out of the search
             knobs["stack_so"], knobs["stack_r"] = 2.0, 1.35
