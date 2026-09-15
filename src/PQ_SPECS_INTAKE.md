@@ -1,6 +1,6 @@
 # PQ tech specs intake - VADR-TS-004 / 00.01 (2026-08-18)
 
-Source: `20260818_PQ_Technical_Spec_0001.pdf`
+Source: `docs/specs/20260818_PQ_Technical_Spec_0001.pdf` (the published course and Orin quickstart PDFs are in `docs/specs/` too)
 
 ## Locked from spec
 

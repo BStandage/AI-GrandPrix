@@ -98,7 +98,7 @@ cd AI-GrandPrix/tests
 python -m unittest test_raceline -v
 ```
 
-Expect 35 tests. The one to know about is
+Expect 25 tests. The one to know about is
 `test_tracker_replay_completes_all_events`: it feeds the planner's own
 trajectory through the sim's gate tracker and demands every crossing in
 order and direction. If the planner ever produces a path that wouldn't
@@ -106,7 +106,7 @@ score, this test fails before you waste a sim run. Known state
 (2026-09-15): three standoff-rule tests (`test_degenerate_leg_uses_heading_comparison`,
 `test_travel_reversal_triggers_turn_standoff`,
 `test_lateral_accel_within_planner_budget`) are stale from the September
-planner changes and fail; the other 32 pass.
+planner changes and fail; the other 22 pass.
 
 ---
 

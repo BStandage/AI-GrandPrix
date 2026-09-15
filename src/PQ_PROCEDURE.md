@@ -1,6 +1,6 @@
 # PQ procedure: map -> solve -> race
 
-Spec: `20260818_PQ_Technical_Spec_0001.pdf` (VADR-TS-004 / 00.01).
+Spec: `docs/specs/20260818_PQ_Technical_Spec_0001.pdf` (VADR-TS-004 / 00.01); published course and Orin quickstart PDFs alongside it.
 
 - **15 min/day** on the real track.
 - **2 laps** = complete run. Incomplete ranked by gates passed.
@@ -13,8 +13,8 @@ Spec: `20260818_PQ_Technical_Spec_0001.pdf` (VADR-TS-004 / 00.01).
 
 The map is PUBLISHED (2026-09-15) - there is no survey step. Race =
 published map + planner + the ladder rung the day allows. The old
-survey -> make_map -> solve pipeline (steady/giga/ace, `analysis.fresh_map`)
-lives in `src/_archive/` and is not part of PQ.
+survey -> make_map -> solve pipeline (steady/giga/ace) was removed from
+the tree on 2026-09-15 (git history) and is not part of PQ.
 
 ## Day 0 - board bring-up (Orin quickstart, 2026-09-15)
 
@@ -178,7 +178,7 @@ does, the same plan JSON and toml are its inputs.
 | `solvers.follower` + a ladder rung | the race, at whatever rung the binary search has reached |
 | `solvers.follower` + `plan_RACE` | only after the 35 s rung has held twice |
 | `solvers.sysid_*` | training-cage measurements (day 1), never a race slot |
-| tape-era pilots (`src/_archive/`) | archive - never PQ |
+| tape-era pilots | removed 2026-09-15 (git history) - never PQ |
 
 ## Abort
 

@@ -30,9 +30,11 @@
 > Tune ONLY `config/vehicle.toml`. Race with `race.cmd` (or `python race.py`
 > from the repo root). The `raceline.*` modules run from `src/`:
 > `cd src && python -m raceline.batch_fly ../out/plans/plan_RACE.json`.
-> Old tape-era code lives in `src/_archive/` - reference, not a starting
-> point. Plans made on the pre-publication course estimate are archived
-> under `out/plans/archive_20260915_estimate_map/`.
+> The tape-era code (pilots, tape tools, MAVLink comms, the old runtime)
+> and the overhead-image map extractor were removed on 2026-09-15; git
+> history has them. Plans made on the pre-publication course estimate are
+> archived under `out/plans/archive_20260915_estimate_map/`. Organizer
+> spec PDFs live in `docs/specs/`.
 
 ## AI Grand Prix (AI-GP) Development Kit
 Conceived by Anduril founder Palmer Luckey and partnered with the Drone Champions League (DCL), Neros Technologies, and JobsOhio, AI-GP is a premier autonomous drone racing competition.
