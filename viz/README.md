@@ -24,9 +24,10 @@ hand-authored:
 
 2. `PATH` / `CONES` - the racing line traced from the 2026-08-27 overhead
    image and its cone centroids, rigid-aligned onto the published frame
-   (+0.34, +0.24 m, 0.06 deg; the estimate itself is kept as
-   `data/course_map_overhead_estimate.json`, produced by
-   `scripts/extract_course_map.py`). The line is an illustration - the
+   (+0.34, +0.24 m, 0.06 deg; the estimate and the extractor that made
+   it were retired on 2026-09-15 - git history has both, and the
+   alignment record lives in the published map's `meta`). The line is an
+   illustration - the
    flown line is `out/plans/plan_RACE.png`. It is drawn at opening height
    (1.35 m); near the double gate the traced points within 4.5 m are cut
    and bridged by a Catmull-Rom spline that flies the known maneuver:

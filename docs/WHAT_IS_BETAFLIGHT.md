@@ -195,6 +195,26 @@ that layer is that the physical drone won't have ground truth - an
 estimator (IMU dead-reckoning + vision fixes) will implement the same
 interface.
 
+### Detector image conventions (measured on the old sim camera, 2026-06-30)
+
+The HSV gate detector (`src/perception/detectors/hsv_classic.py`, kept
+for the real camera) reports a gate as normalized image offsets. These
+were measured on the tape-era 640x360 camera with a 20 deg up-tilt and
+fx = fy = 320; the numbers change with the real camera's calibration, the
+sign conventions do not:
+
+| Quantity | Convention |
+|---|---|
+| `offset_x`, `offset_y` | each roughly -1..+1 across the image, 0 = image centre |
+| `+offset_x` | gate to the drone's RIGHT (confirmed by an open-loop roll test, not by eye) |
+| `+offset_y` | gate LOWER in the image = drone is above the gate |
+| `offset_y = 0` | the gate sits on the camera axis, i.e. up-tilt degrees ABOVE the drone - not level |
+| level gate (at the drone's altitude, dead ahead) | `offset_y ~ +fy * tan(uptilt) / (H/2)`; 0.65 on that camera |
+
+Two lessons that carried: aim the drone at `offset_y = 0` and it flies
+under the gate; and never read a sign convention off a flight where two
+axes move at once - isolate the axis with an open-loop step first.
+
 ## 7. The September hardware (physical qualifier)
 
 From the PQ spec (VADR-TS-004, 2026-08-18) plus the organizer FAQ answers
