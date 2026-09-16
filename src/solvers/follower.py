@@ -33,7 +33,10 @@ from raceline import planner as plan_io
 from raceline.config import G, load_config
 
 course_bridge.pq_course()          # side effect: sim repo importable
-from solver.api import RCCommand, SensorUpdate  # noqa: E402
+try:
+    from solver.api import RCCommand, SensorUpdate  # noqa: E402
+except ImportError:      # on the Orin: no sim repo, same dataclasses
+    from hardware.api_shim import RCCommand, SensorUpdate  # noqa: E402
 
 from raceline.rc_backend import (   # noqa: E402  (the shared proven loops)
     AltitudeLoop, GroundTruthSource, StateEstimate, YawLoop, attitude_sticks,
@@ -412,6 +415,10 @@ else:
     print("[RACELINE] state source: ground truth")
 _TRACKER = Tracker(PLAN, CFG)
 _FIX = {"n": 0, "last_res": 0.0, "t_det": -1.0, "err": 0.0}
+if STATE_SOURCE == "deadreckon":
+    # the drone has no referee: the estimator advances the gate index itself
+    # when its own position crosses the next opening's plane
+    _SOURCE.set_events([(e["x"], e["y"], e["z"], e.get("heading_rad")) for e in PLAN["events"]])
 # YAW POLICY. The plan's yaw follows the path tangent, which points the
 # camera away from the gate through a hairpin exactly when the estimator
 # needs to see it. With dead reckoning the nose aims at the next gate
@@ -504,10 +511,21 @@ def autopilot(update: SensorUpdate) -> RCCommand:
                 est.v[:] = _SOURCE.v
         truth = np.asarray(update.world_pos[4:7], dtype=float)
         _FIX["err"] = float(np.hypot(est.p[0] - truth[0], est.p[1] - truth[1]))
-    a_des, z_target, vz_ff, yaw_des, done = _TRACKER.step(
-        est, update.next_gate_index)
-    if AIM_AT_GATE and not done and 0 <= update.next_gate_index < len(_TRACKER.event_xyz):
-        gx, gy, _gz = _TRACKER.event_xyz[update.next_gate_index]
+    # the gate index: the referee's in the sim, the estimator's own count under
+    # dead reckoning (the drone has no referee); the trace logs the referee's
+    next_event = _SOURCE.next_event if STATE_SOURCE == "deadreckon" else update.next_gate_index
+    return step(update.t, est, next_event, update.baro_fresh, _motor_stats(update))
+
+
+def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
+         motor_stats: str = "") -> RCCommand:
+    """One control tick from a state estimate: the tracker, the landing,
+    the thrust budget, the sticks and the trace. Pure with respect to the
+    sensor source, so the Orin runtime calls it with FC-fed estimates and
+    the sim wrapper below calls it with the sim's."""
+    a_des, z_target, vz_ff, yaw_des, done = _TRACKER.step(est, next_event)
+    if AIM_AT_GATE and not done and 0 <= next_event < len(_TRACKER.event_xyz):
+        gx, gy, _gz = _TRACKER.event_xyz[next_event]
         dxg, dyg = gx - float(est.p[0]), gy - float(est.p[1])
         if math.hypot(dxg, dyg) > AIM_HANDOFF_M:
             yaw_des = math.atan2(dyg, dxg)
@@ -530,8 +548,8 @@ def autopilot(update: SensorUpdate) -> RCCommand:
             return RCCommand(arm=1000, throttle=1000, aux2=AUX2)
 
     airborne = est.p[2] >= CFG.follower.min_alt_translation_m
-    throttle = _ALT.throttle(update.t, est, z_target, vz_ff, airborne,
-                             update.baro_fresh,
+    throttle = _ALT.throttle(t, est, z_target, vz_ff, airborne,
+                             baro_fresh,
                              (AZ_FF_GAIN * getattr(_TRACKER, 'az_ff', 0.0)) if getattr(_TRACKER, 'in_fold', False) else 0.0)
     # THRUST-VECTOR BUDGET, vertical first (Brian, race_044): the motors
     # make T_MAX of specific thrust in total. The altitude loop states its
@@ -621,14 +639,14 @@ def autopilot(update: SensorUpdate) -> RCCommand:
     if fh is not None and _state["trace_n"] % TRACE_EVERY == 0:
         w = est.omega if est.omega is not None else (0.0, 0.0, 0.0)
         fh.write(f"{t:.3f},{_TRACKER.s[_TRACKER.idx]:.2f},"
-                 f"{update.next_gate_index},"
+                 f"{next_event},"
                  f"{est.p[0]:.3f},{est.p[1]:.3f},{est.p[2]:.3f},"
                  f"{est.v[0]:.3f},{est.v[1]:.3f},{est.v[2]:.3f},"
                  f"{z_target:.3f},{vz_ff:.3f},{a_des[0]:.2f},{a_des[1]:.2f},"
                  f"{cos_tilt:.3f},{w[0]:.2f},{w[1]:.2f},"
                  f"{_ALT.a_cmd:.2f},{_ALT.thrust:.2f},"
                  f"{roll},{pitch},{throttle},{yaw_stick},"
-                 f"{_motor_stats(update)}\n")
+                 f"{motor_stats}\n")
     # heartbeat ALWAYS prints - a crash below 1 m used to go silent for
     # 23 s while the drone skidded 140 m (measured); crashes must narrate
     if t - _state["dbg_t"] >= 1.0:

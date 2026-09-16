@@ -28,8 +28,9 @@ def pq_course():
     except ImportError:
         pass
     if not SIM_REPO.is_dir():
-        raise RuntimeError(
-            f"elodin sim repo not found at {SIM_REPO}; set AIGP_SIM_REPO")
+        # no sim repo (the Orin): the vendored, elodin-free copy
+        from raceline import pq_course as mod
+        return mod
     p = str(SIM_REPO)
     if p not in sys.path:
         sys.path.insert(0, p)

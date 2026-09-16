@@ -50,7 +50,14 @@ def rot_zyx(roll: float, pitch: float, yaw: float) -> np.ndarray:
 class FcStateSource:
     def __init__(self, bridge, map_north_heading_deg: float = 0.0,
                  pitch_nose_up_positive: bool = True, roll_right_positive: bool = True,
-                 alt_offset_m: float = 0.0):
+                 alt_offset_m: float = 0.0, acc_lsb_per_g: float = 512.0,
+                 acc_signs=(1.0, 1.0, 1.0)):
+        # MSP_RAW_IMU accel: Betaflight reports its sensor frame (x forward,
+        # y left, z up; +1 g on z at rest). acc_lsb_per_g is the raw count of
+        # 1 g (512 on most boards, 256 on the SITL): read it at rest on the
+        # bench. acc_signs flips axes if the tilt test disagrees.
+        self.acc_lsb_per_g = acc_lsb_per_g
+        self.acc_signs = acc_signs
         self.bridge = bridge
         self.map_north_heading_deg = map_north_heading_deg
         self.pitch_sign = 1.0 if pitch_nose_up_positive else -1.0
@@ -88,9 +95,13 @@ class FcStateSource:
         alt = (s.altitude.alt_m - self.alt_offset_m) if s.altitude is not None else 0.0
         vz = s.altitude.vario_mps if s.altitude is not None else 0.0
         omega = None
+        self.accel_body = None
         if s.imu is not None:
             gx, gy, gz = (math.radians(v) for v in s.imu.gyro)   # FRD deg/s
             omega = np.array([gx, -gy, -gz])                      # -> FLU
+            g0 = 9.80665
+            self.accel_body = np.array([self.acc_signs[i] * s.imu.acc[i] / self.acc_lsb_per_g * g0
+                                        for i in range(3)])       # body FLU specific force, m/s^2
         self.last_t = s.t
         return StateEstimate(p=np.array([0.0, 0.0, alt]), v=np.array([0.0, 0.0, vz]),
                              R=R, yaw=yaw, omega=omega)
