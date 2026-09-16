@@ -51,6 +51,7 @@ _SCHEMA = {
 # older tomls (archer_block2, dev_fast) keep loading.
 _OPTIONAL = {
     "vehicle": {"drag_quad_z": None},   # None -> same as drag_quad (isotropic)
+    "follower": {"angle_limit_deg": 80.0},   # Betaflight `angle_limit` when flying ANGLE mode (AIGP_ANGLE_MODE=1)
 }
 
 

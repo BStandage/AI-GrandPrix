@@ -1,0 +1,83 @@
+"""
+The seeker pilot: brain + the proven loops -> RC sticks, in ANGLE mode.
+
+Shared by the sim adapter (solvers.seeker) and the Orin runtime
+(hardware.runtime), so the drone flies the code the sim validated.
+
+    pilot = SeekerPilot(cfg, crossings, start_xy=(0, 0), laps=2)
+    out = pilot.tick(t, est, det, baro_fresh)   # -> Sticks
+
+`est` is a raceline.rc_backend.StateEstimate built from SENSORS ONLY:
+p = (0, 0, altitude), v = (0, 0, vertical speed), R and yaw from the
+attitude. The horizontal position is never read.
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+from typing import Optional, Sequence
+
+from raceline.rc_backend import AltitudeLoop, StateEstimate, YawLoop, angle_sticks
+from seeker.brain import Command, Crossing, Detection, SeekerBrain, SeekerConfig
+
+T_DISARMED_END = 0.50
+T_ARM_IDLE_END = 0.55
+AUX2_ANGLE = 1800
+
+
+@dataclass
+class Sticks:
+    throttle: int = 1000
+    roll: int = 1500
+    pitch: int = 1500
+    yaw: int = 1500
+    arm: int = 1000
+    aux2: int = AUX2_ANGLE
+    phase: str = "INIT"
+    crossing: int = 0
+    done: bool = False
+    z_target: float = 0.0
+    yaw_target: float = 0.0
+    a_des: tuple = (0.0, 0.0)
+    tilt_deg: tuple = (0.0, 0.0)
+
+
+class SeekerPilot:
+    def __init__(self, cfg, crossings: Sequence[Crossing], start_xy=(0.0, 0.0), laps: int = 2,
+                 seeker_cfg: Optional[SeekerConfig] = None, t0: float = 0.0):
+        self.cfg = cfg
+        self.brain = SeekerBrain(crossings, seeker_cfg or SeekerConfig(), start_xy=start_xy, laps=laps)
+        self.alt = AltitudeLoop(cfg)
+        self.yaw = YawLoop(cfg)
+        self.t0 = t0
+        self.last: Optional[Command] = None
+
+    @property
+    def done(self) -> bool:
+        return self.brain.done
+
+    def tick(self, t: float, est: Optional[StateEstimate], det: Optional[Detection],
+             baro_fresh: bool = True) -> Sticks:
+        tr = t - self.t0
+        if tr < T_DISARMED_END or est is None:
+            return Sticks(arm=1000, throttle=1000, phase="INIT")
+        if tr < T_ARM_IDLE_END:
+            return Sticks(arm=1800, throttle=1000, phase="ARM")
+        cmd = self.brain.step(t, est.yaw, float(est.p[2]), float(est.v[2]), det)
+        self.last = cmd
+        if cmd.done:
+            return Sticks(arm=1000, throttle=1000, phase=cmd.phase, crossing=cmd.crossing, done=True)
+        airborne = float(est.p[2]) >= self.cfg.follower.min_alt_translation_m
+        throttle = self.alt.throttle(t, est, cmd.z_target, 0.0, airborne, baro_fresh, 0.0)
+        roll, pitch, ang = angle_sticks(self.cfg, est, cmd.a_des, self.alt.a_cmd)
+        yaw_stick = self.yaw.stick(est, cmd.yaw_target)
+        return Sticks(throttle=int(throttle), roll=roll, pitch=pitch, yaw=yaw_stick,
+                      arm=1800 if cmd.arm else 1000, phase=cmd.phase, crossing=cmd.crossing,
+                      z_target=cmd.z_target, yaw_target=cmd.yaw_target, a_des=cmd.a_des,
+                      tilt_deg=ang)
+
+
+def crossings_from_course(course) -> list[Crossing]:
+    """sim.pq_course.RaceCourse -> the brain's per-lap crossing list (sim frame)."""
+    return [Crossing(c.label, c.x, c.y, c.z, c.heading_rad) for c in course.crossings]

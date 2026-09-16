@@ -36,7 +36,8 @@ course_bridge.pq_course()          # side effect: sim repo importable
 from solver.api import RCCommand, SensorUpdate  # noqa: E402
 
 from raceline.rc_backend import (   # noqa: E402  (the shared proven loops)
-    AltitudeLoop, GroundTruthSource, StateEstimate, YawLoop, attitude_sticks)
+    AltitudeLoop, GroundTruthSource, StateEstimate, YawLoop, attitude_sticks,
+    angle_sticks)
 
 # Arming phases, matching the baseline's Betaflight handshake.
 T_DISARMED_END = 0.50   # 0.30 tried twice (2026-09-10, race_137 with the boot-grace hold in place): Betaflight never armed, the drone sat on the ground for the whole run - the arm request must come later than 0.3 s after the first RC frame regardless of the boot grace
@@ -67,6 +68,12 @@ RETRY_CONFIRM_TICKS = 20
 MAX_RETRIES_PER_GATE = 3
 
 _TRAJ_PATH = os.environ.get("AIGP_TRAJ")
+# ANGLE MODE (the hardware control shape): the FC closes the attitude loop,
+# our sticks are tilt angles (rc_backend.angle_sticks) and AUX2 is held high
+# to engage the ANGLE box configured in the SITL (configure_betaflight.py:
+# aux 1 = ANGLE on AUX2 1700-2100, angle_limit 80). Default off = acro.
+ANGLE_MODE = os.environ.get("AIGP_ANGLE_MODE", "0") == "1"
+AUX2 = 1800 if ANGLE_MODE else 1500
 if not _TRAJ_PATH:
     raise RuntimeError(
         "solvers.follower needs AIGP_TRAJ=/path/to/plan.json "
@@ -441,9 +448,9 @@ def reset_state() -> None:
 def autopilot(update: SensorUpdate) -> RCCommand:
     t = update.t
     if t < T_DISARMED_END:
-        return RCCommand(arm=1000, throttle=1000)
+        return RCCommand(arm=1000, throttle=1000, aux2=AUX2)
     if t < T_ARM_IDLE_END:
-        return RCCommand(arm=1800, throttle=1000)
+        return RCCommand(arm=1800, throttle=1000, aux2=AUX2)
 
     est = _SOURCE.estimate(update)
     a_des, z_target, vz_ff, yaw_des, done = _TRACKER.step(
@@ -464,7 +471,7 @@ def autopilot(update: SensorUpdate) -> RCCommand:
         z_target = max(0.0, float(park[2]) - LAND_RATE_MPS * dt_done)
         vz_ff = -LAND_RATE_MPS if z_target > 0.0 else 0.0
         if est.p[2] < 0.10 and dt_done > 0.5:
-            return RCCommand(arm=1000, throttle=1000)
+            return RCCommand(arm=1000, throttle=1000, aux2=AUX2)
 
     airborne = est.p[2] >= CFG.follower.min_alt_translation_m
     throttle = _ALT.throttle(update.t, est, z_target, vz_ff, airborne,
@@ -535,7 +542,10 @@ def autopilot(update: SensorUpdate) -> RCCommand:
         throttle = int(round(CFG.pwm_for_thrust(t_mag)))
     roll = pitch = yaw_stick = 1500
     if airborne:
-        roll, pitch, eb = attitude_sticks(CFG, est, a_des, az_eff)
+        if ANGLE_MODE:
+            roll, pitch, eb = angle_sticks(CFG, est, a_des, az_eff)
+        else:
+            roll, pitch, eb = attitude_sticks(CFG, est, a_des, az_eff)
         yaw_stick = _YAW.stick(est, yaw_des)
         # No yaw demand when the motors cannot deliver it: through the
         # stack the throttle sits at minimum for ~1 s and the yaw loop kept
@@ -579,4 +589,4 @@ def autopilot(update: SensorUpdate) -> RCCommand:
               f"air={airborne} stk=({roll},{pitch},{throttle},{yaw_stick})")
 
     return RCCommand(arm=1800, throttle=throttle, roll=roll, pitch=pitch,
-                     yaw=yaw_stick)
+                     yaw=yaw_stick, aux2=AUX2)

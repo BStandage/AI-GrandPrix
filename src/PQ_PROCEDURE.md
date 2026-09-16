@@ -29,6 +29,13 @@ Before the cage, with the drone on the bench and props OFF:
    `python3 ~/target/msp/msp_bench.py --port /dev/ttyTHS1 info` - firmware
    identity, sensors, battery, arming blockers. `telemetry --hz 20` for a
    live attitude stream; `imu_check.py` for the IMU acceptance test.
+   Then OUR link, from `AI-GrandPrix/src` on the Orin (pyserial needed):
+   `python3 -m hardware.bench --port /dev/ttyTHS1 info`,
+   `... rc-test --props-off` (the FC must echo our sticks back in MSP_RC;
+   if not, read `map`, `msp_override_channels_mask` and the receiver type
+   in the diff), `... arm-test --props-off` (ARMED flag seen, blockers
+   listed, disarms). Note the attitude rate and RTT it prints: that is
+   the real link budget.
 4. `~/target/live-view-imu.py --msp /dev/ttyTHS1` - camera + attitude on
    one browser page at http://192.168.55.1:8080/ : both halves alive.
    Grey/flat colour over SSH is expected (no Argus without a display).
@@ -146,6 +153,28 @@ python -m raceline.batch_fly ../out/plans/plan_LADDER_60s.json ../out/plans/plan
 
 Every rung we bring has been flown clean in the sim on the Archer's
 firmware generation (Betaflight 4.5.5 SITL).
+
+### The race-day pilot: the vision seeker
+
+`solvers.seeker` (sim) and `hardware.runtime` (Orin) fly the SAME brain
+(`seeker/brain.py`): gate to gate on the camera, the FC heading and the
+barometer, with the published map giving each leg's heading, distance
+and the gate's height. No position estimate exists or is used. Speed is
+a fixed 8 deg forward tilt (~2.3 m/s). Legs that do not face the gate
+(the g5 hairpin, the lap close) are flown as timed dead-reckoned
+transits to a point 5 m in front of the gate, then a stop, a turn onto
+the gate, a scan, and the approach. The stacked gate is a stop, a
+180 turn, a height change, and the second pass. Expect 60 to 90 s laps.
+
+Before the venue: `cd src && python -m raceline.batch_fly --solver solvers.seeker --angle ../out/plans/plan_RACE.json`
+must complete the course in the sim. At the venue (Orin, cage first):
+
+```bash
+cd AI-GrandPrix/src
+python3 -m hardware.bench --port /dev/ttyTHS1 telemetry --hz 5 --seconds 20   # read the heading while pointing along gate 1
+python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north <that heading> --dry-run
+python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north <that heading> --arm
+```
 
 ### At the venue
 

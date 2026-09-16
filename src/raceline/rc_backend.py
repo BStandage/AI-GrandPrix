@@ -166,6 +166,39 @@ def attitude_sticks(cfg, est: StateEstimate, a_des, a_z: float = 0.0) -> tuple:
     return roll, pitch, eb
 
 
+def angle_sticks(cfg, est: StateEstimate, a_des, a_z: float = 0.0) -> tuple:
+    """World-frame desired accel -> roll/pitch sticks for Betaflight ANGLE
+    mode, where the stick commands a TILT ANGLE (full deflection =
+    `angle_limit`, linear) and the FC closes the attitude loop itself.
+
+    Same thrust-vector target as attitude_sticks: point the body z axis at
+    (ax, ay, G + a_z). Expressed in the yaw-aligned frame (forward, left):
+    pitch = asin(forward component), roll = -asin(left component / cos
+    pitch). Signs follow the measured stick conventions: +pitch stick =
+    nose down = accelerate forward, +roll stick = roll right = accelerate
+    toward -y (right). Yaw uses est.yaw only - no attitude feedback is
+    needed here because the FC does the levelling; that is the point.
+    Returns (roll, pitch, (roll_deg, pitch_deg))."""
+    f = cfg.follower
+    limit = float(getattr(f, "angle_limit_deg", 80.0))
+    ax, ay = float(a_des[0]), float(a_des[1])
+    gz = max(G + float(a_z), 0.15 * G)
+    n = math.sqrt(ax * ax + ay * ay + gz * gz)
+    zx, zy = ax / n, ay / n                      # desired body-z, world xy
+    c, s = math.cos(est.yaw), math.sin(est.yaw)
+    fwd = c * zx + s * zy                        # along the nose
+    left = -s * zx + c * zy                      # along body +y (FLU)
+    pitch_rad = math.asin(clamp(fwd, -1.0, 1.0))
+    cp = max(math.cos(pitch_rad), 1e-3)
+    roll_rad = -math.asin(clamp(left / cp, -1.0, 1.0))
+    lim = math.radians(limit)
+    pitch_rad = clamp(pitch_rad, -lim, lim)
+    roll_rad = clamp(roll_rad, -lim, lim)
+    roll = int(round(1500.0 + 500.0 * roll_rad / lim))
+    pitch = int(round(1500.0 + 500.0 * pitch_rad / lim))
+    return roll, pitch, (math.degrees(roll_rad), math.degrees(pitch_rad))
+
+
 class YawLoop:
     """Yaw stick toward a target heading, holding the last valid target."""
 
