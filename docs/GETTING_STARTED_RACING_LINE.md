@@ -14,10 +14,14 @@ that full setup exists and will fail with Betaflight build errors without
 it; that failure means "do step 0 or use Docker," not that you broke
 something.
 
-Race length comes from `[planner] laps` in the toml: the dev default is 1
-lap = 12 crossings (half the wall-clock per iteration); the September spec
-format is 2 laps = 24. Numbers below say 12/12 - double everything at
-laps = 2.
+Race length comes from `[planner] laps` in the toml; the default is the
+September format, 2 laps = **23 events**: the start crossing of g0, then
+11 crossings per lap (10 gates, the stacked gate g8 counted twice), the
+last one being g0 as the finish line. The course is the organizers'
+**published** map (`data/course_map.json`, 2026-09-15): 10 gates on an
+85 x 165 ft floor, the drone starts on the dashed line 7.3 m behind gate
+1. Code labels are traversal order, so **gK = organizer gate K+1**: g0 is
+gate 1, g8-top/g8-low is the double gate 9, g9 is gate 10.
 
 **The mental model, in one paragraph:** there are two repos side by side.
 `AI-GrandPrix` (this one) owns the course map, the planner, the follower, and
@@ -94,11 +98,15 @@ cd AI-GrandPrix/tests
 python -m unittest test_raceline -v
 ```
 
-Expect **35 tests, OK**. The one to know about is
+Expect 25 tests. The one to know about is
 `test_tracker_replay_completes_all_events`: it feeds the planner's own
 trajectory through the sim's gate tracker and demands every crossing in
 order and direction. If the planner ever produces a path that wouldn't
-score, this test fails before you waste a sim run.
+score, this test fails before you waste a sim run. Known state
+(2026-09-15): three standoff-rule tests (`test_degenerate_leg_uses_heading_comparison`,
+`test_travel_reversal_triggers_turn_standoff`,
+`test_lateral_accel_within_planner_budget`) are stale from the September
+planner changes and fail; the other 22 pass.
 
 ---
 
@@ -121,15 +129,20 @@ This reads `config/vehicle.toml` + `data/course_map.json` and prints
 something like:
 
 ```
-PLAN  12 events, 135 m path, config 862aded1
-      predicts total 29.6 s (lap0 28.6s) - model prediction, unverified; baseline 225.3 s
+PLAN  23 events, 244 m path, config 187cdd88
+      predicts total 26.3 s (lap0 12.2s  lap1 12.0s) - model prediction, unverified; baseline 225.3 s
 CHECK frame contacts: 0 samples (MUST be 0 - the referee crashes the run on contact)
-CHECK speed-profile minimum: 1.28 m/s at s=121.7 m (nearest event: g10-top, +10.4 m along-path)
-      profile ruled by: accel-slew 43%, gate-window 29%, v_max 14%, tilt/curvature 8%
+CHECK speed-profile minimum: 3.31 m/s at s=93.0 m (nearest event: g8-top, +1.2 m along-path)
+      binding constraint there: tilt/curvature; kappa=0.86 1/m ...
+      profile ruled by: tilt/curvature 86%, accel-slew 7%, climb/descent 5%
       ...per-event crossing speeds...
 FILES plan -> out/plans/plan_004.json
       render -> out/plans/plan_004.png
 ```
+
+(`out/plans/plan_RACE.json` is THE flown plan - the naming convention is
+that plan_RACE is always the current race plan and the branch name
+carries its time. Numbered plans are candidates.)
 
 Three things to know:
 
@@ -137,8 +150,8 @@ Three things to know:
   tracker record (and at the September race, only real flight) counts.
 - The CHECK lines are your plan sanity gate. Frame contacts must be 0 or
   race.py refuses to fly the plan. The speed-profile minimum names the
-  slowest point and where it sits: a low minimum around the g10 stack or
-  the g7 switchback is expected (the course genuinely reverses there); a
+  slowest point and where it sits: a low minimum around the g8 stack or
+  the g5 hairpin is expected (the course genuinely reverses there); a
   near-zero minimum anywhere else means the planner produced a kinked
   path - fix the plan (planner params), do not fly it and then tune the
   follower around the kink.
@@ -178,8 +191,9 @@ What happens, in order:
    so expect roughly 4-6 minutes).
 3. While flying you'll see three kinds of lines:
    - `[GATE] lap 0 g3 (event 3) at t=12.41s ...` - the tracker scoring a
-     crossing. Count these; you want one per crossing (12 at the dev
-     default).
+     crossing. Count these; you want one per crossing (23 over two
+     laps: event 0 is the start crossing of g0, events 11 and 22 are the
+     lap-closing crossings of g0).
    - `[CRASH] hit g4 frame at t=... - run INVALID, scoring frozen` - the
      COLLISION REFEREE. Touching any gate frame invalidates the whole run
      on the spot; everything the drone does afterward is unscored
@@ -192,21 +206,26 @@ What happens, in order:
    prints the report:
 
 ```
-RACE  12/12 COMPLETE   total 40.33 s  (baseline 225.3 s -> -185.0)
-      lap 0: 40.33 s
+RACE  23/23 COMPLETE   total 29.55 s  (baseline 225.3 s -> -195.7)
+      lap 0: 15.72 s   lap 1: 13.84 s
       event  lap gate      t(s)   dt-vs-plan(s)
-        0   g0         2.84    +0.00
+        0   g0         ...
         ...
       near-misses: 0
 FILES archived -> out/races/race_000
 ```
 
-Read it as:
+(those are the real numbers of race_160, 2026-09-15, the first clean
+two-lap run on the published map.) Read it as:
 
-- `12/12 COMPLETE` (and `crashed: false`) is the only line that matters
+- `23/23 COMPLETE` (and `crashed: false`) is the only line that matters
   first. The tracker is ordered - one missed gate blocks all scoring after
-  it, so `7/12` usually means one bad corner, not five. A frame contact
-  invalidates the run outright even if every gate ticked.
+  it, so `7/23` usually means one bad corner, not sixteen. A frame contact
+  invalidates the run outright even if every gate ticked. The referee
+  records only the FIRST contact; everything the drone does afterwards
+  is unscored wandering (and the follower, which is never told, will
+  keep fighting the frozen gate - see `MAX_RETRIES_PER_GATE` in the
+  follower).
 - `dt-vs-plan` is per-crossing time versus the plan, aligned at the
   first gate (so takeoff time doesn't pollute it). The three worst are
   flagged - that's where the follower is losing time to tracking, or the
@@ -237,9 +256,12 @@ race.cmd
   v
 [1] LOAD CONFIG        config/vehicle.toml (strict loader, typos fail loudly)
   v
-[2] LOAD COURSE        data/course_map.json -> sim.pq_course -> the gate
-                       crossings in sim coordinates ([planner] laps x 12;
-                       the stacked gate counts twice per lap)
+[2] LOAD COURSE        data/course_map.json (published) -> sim.pq_course
+                       -> the gate crossings in sim coordinates: the
+                       start crossing of g0 + [planner] laps x 11 (the
+                       stacked gate g8 counts twice per lap, g0 closes
+                       each lap). The sim origin is the map's start
+                       line, 7.3 m behind g0.
   v
 [3] PLAN THE LINE      src/raceline/planner.py, ~2 seconds, offline:
                        a. anchors: launch just off the deck, a diagonal
@@ -247,7 +269,7 @@ race.cmd
                           line), then for every crossing points before/
                           at/after the opening (wider standoff where the
                           travel turns hard - one global rule covers the
-                          g10 out-and-back and the g7 switchback)
+                          g8 out-and-back and the g5 switchback)
                        b. path: a STRAIGHT segment through every opening
                           (pre -> center -> post is linear; the hole is
                           never curved), smooth spline everywhere else.
@@ -344,21 +366,29 @@ race.cmd --config config\dev_yourname.toml
 
 Every archived run records which config produced it, so comparing your
 variant against the baseline is just two `out/races/` folders side by
-side. When your variant beats the baseline *at 12/12*, propose copying it
+side. When your variant beats the baseline *at 23/23*, propose copying it
 back into `vehicle.toml`.
 
-A safe first experiment: crossing speed dominates lap time (a dozen gate windows
-per lap), so in `[limits]` try `v_gate_mps = 3.0 -> 3.5`, then re-run.
-Compare: gates (still 12/12, no crash?), total, and the worst `dt-vs-plan` events.
+Know where the baseline sits first: the race config runs with the limits
+essentially open (`max_tilt_deg` 89, `v_max_mps` 20, `v_gate_mps` = v_max,
+`a_lat_rate_max` 165) and the plan is ruled by tilt/curvature - so the
+levers below are for pulling speed OUT (a safer line) far more often than
+for adding it. A safe first experiment: fly a ladder rung
+(`cd src && python -m raceline.ladder --targets 40`, then
+`race.py --config config/ladder/vehicle_40s.toml --traj out/plans/plan_LADDER_40s.json`)
+and compare its `dt-vs-plan` against the race plan's. Compare: gates
+(still 23/23, no crash?), total, and the worst `dt-vs-plan` events.
 **If gates drop or a [CRASH] appears, revert the last change before touching
 anything else.**
 
 The levers, in the order they usually pay off:
 
-1. `v_gate_mps` / `gate_window_m` - speed carried through crossings
-2. `max_tilt_deg` - corner speed and follower authority together
+1. `max_tilt_deg` / `a_lat_margin` - corner speed and follower authority
+   together (the profile is ruled by tilt/curvature today)
+2. `a_lat_rate_max` - attitude slew; the binding limit on a heavy airframe
 3. `a_accel_max` / `a_brake_max` - straight-line ramps
-4. `v_max_mps` - matters only once straights stop being accel-limited
+4. `v_max_mps` (and `v_gate_mps`, kept equal to it) - matters only once
+   straights stop being accel-limited
 5. `[follower] lookahead_m`, `kp_pos` - only if `xtrack` grows or gates
    get clipped; fix tracking, then go back to speed levers
 
@@ -425,17 +455,32 @@ The knob-to-key table and the full solver list live in
 
 ## 6. The rules (read RESTRICTIONS.md, seriously)
 
-- **Every parameter is global.** The schema cannot express a per-gate
-  value, and nobody adds one. "g4 keeps clipping so nudge g4" is the banned
-  move - the fix must improve the *rule* (standoff logic, gains, limits)
-  for every gate at once. The September qualifier is an unseen course with
-  ~15 min/day of practice; per-gate anything teaches us nothing.
+- **Every toml parameter is global.** The schema cannot express a
+  per-gate value, and nobody adds one. "g4 keeps clipping so nudge g4" is
+  the banned move - the fix must improve the *rule* (standoff logic,
+  gains, limits) for every gate at once. The per-crossing offsets that do
+  exist in `planner.py` are OUTPUTS of `raceline.line_search` (a search
+  against the model with the replay guard), recorded as seeds for the
+  next search - never hand-set, and never a per-gate fix for a flown miss.
+  The September course is published, but the sim follower flies on ground
+  truth and the real drone will not; margins you spend in the sim are
+  gone on the day.
 - **Language discipline:** planner numbers are "the model predicts,
   unverified." The sim tracker's record is a sim result. Only real flight
   validates.
-- Reference points: the stop-and-center pilot, 24/24 in 225.3 s (2 laps),
-  and the current stack's proven single-lap result, 12/12 in 40.33 s with
-  zero contacts (2026-08-29). Beat the second one.
+- Reference points: the stop-and-center pilot, 24/24 in 225.3 s (2 laps,
+  estimate map, 2026-08-27); the current stack, **23/23 in 29.55 s** over
+  two laps with zero contacts on the published map (race_160,
+  2026-09-15; laps 15.72 + 13.84, model 26.3). Beat the second one.
+
+## 7. The speed ladder (race-day binary search)
+
+`cd src && python -m raceline.ladder --targets 60 50 40 35` builds one
+plan + toml per target model time: every crossing through the centre of
+its opening, the envelope (tilt, v_max, slew, a_lat_margin) scaled by one
+level k. On the day: fly the slowest rung; clean -> the fastest; fails ->
+the midpoint (`--k`). Details and the heat procedure:
+`src/PQ_PROCEDURE.md`.
 
 ---
 
@@ -450,7 +495,8 @@ The knob-to-key table and the full solver list live in
 | `io port 2240 is already in use` | Another sim owns the render port - usually a Docker sim container someone left up (`docker compose down`), or a zombie `elodin render-server` (kill it). |
 | `No simulation ticks executed` at boot | elodin boot flake (roughly 1 in 4 launches under heavy cycling). Kill leftovers and relaunch; no config change needed. |
 | WSL runs get slow / commands fail with odd exit codes | WSL itself is wedged (hours of sim cycling does this). From PowerShell: `wsl --shutdown`, wait a few seconds, rerun. |
-| `INCOMPLETE: N/24` | Find the first missing `[GATE]` line; watch `xtrack` just before it. Plan issue (CHECK line / PNG kink) vs tracking issue (xtrack blows up) tells you which layer to look at. |
+| `INCOMPLETE: N/23` | Find the first missing `[GATE]` line; watch `xtrack` just before it. Plan issue (CHECK line / PNG kink) vs tracking issue (xtrack blows up) tells you which layer to look at. If a `[CRASH]` line precedes it, everything after is the follower fighting a frozen gate - the crash is the only finding. |
+| `No module named 'raceline'` | You ran `python -m raceline.<x>` from the repo root. The package lives in `src/`: `cd src` first (plan paths then need `../`). `race.py` works from the root. |
 | Render skipped | matplotlib missing in that env - harmless; plan JSON is unaffected. |
 | Windows-side `ModuleNotFoundError: numpy` | `pip install numpy matplotlib`, or just do everything from the WSL uv env. |
 

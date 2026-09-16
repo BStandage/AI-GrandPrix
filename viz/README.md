@@ -11,33 +11,33 @@ static files.
 ## Where the data inside it comes from
 
 The gate constants (`GATES`), racing line (`PATH`), and cones (`CONES`)
-near the top of the `<script>` block are **copied from extractor output**,
-not hand-authored:
+near the top of the `<script>` block are **copied from data**, not
+hand-authored:
 
-1. `GATES` — from `data/course_map.json`, produced by:
-
-   ```
-   python scripts/extract_course_map.py assets/course_overhead.png \
-       --corner 69 91 0 50  --corner 237 91 20 50 \
-       --corner 237 508 20 0 --corner 69 508 0 0 \
-       --start-px 100 369 --roi -1 0 23 56
-   ```
-
+1. `GATES` - the organizer's **published** coordinates (2026-09-15),
+   i.e. `data/course_map.json` with `source: published`: 10 gates on an
+   85 x 165 ft floor, ids = organizer gate numbers, order = traversal.
    Gate numbers shown in the viewer are **traversal order** (g0 = start
-   teal gate, g10 = double gate), not extraction ids.
+   = organizer gate 1, gK = gate K+1, g8 = the double gate 9). The
+   stacked gate's top-opening height (4.05 m) is NOT published; it is the
+   overhead estimate.
 
-2. `PATH` / `CONES` — the traced racing line and cone centroids, dumped
-   from the same extraction (see `trace_line` / the `blob` shapes in
-   `scripts/extract_course_map.py`). The line is drawn at opening height
+2. `PATH` / `CONES` - the racing line traced from the 2026-08-27 overhead
+   image and its cone centroids, rigid-aligned onto the published frame
+   (+0.34, +0.24 m, 0.06 deg; the estimate and the extractor that made
+   it were retired on 2026-09-15 - git history has both, and the
+   alignment record lives in the published map's `meta`). The line is an
+   illustration - the
+   flown line is `out/plans/plan_RACE.png`. It is drawn at opening height
    (1.35 m); near the double gate the traced points within 4.5 m are cut
    and bridged by a Catmull-Rom spline that flies the known maneuver:
    south through the top opening (4.05 m), U-turn, back north through the
-   bottom (1.35 m). The climb/dive *shape* is illustrative — only the
-   crossings and directions are data.
+   bottom (1.35 m). The cones were eyeballed from the PDF figure
+   (`meta.cones_xy`, +-1.5 m).
 
-To refresh after a re-extraction: re-run the command above, paste the new
-`gates` (converted to order-sorted `{id, order, x, y, yaw, entry, type,
-conf}`) into `GATES`, and the new path/cone dumps into `PATH` / `CONES`.
+To refresh after a map change: paste the order-sorted gates from
+`data/course_map.json` (as `{id, order, x, y, yaw, entry, type, conf}`)
+into `GATES`, update `GS` (the stacked gate's XY) and the HUD counts.
 Everything else (camera, spline bridge, HUD) reads from those constants.
 
 ## Deploying (e.g. Vercel)
@@ -52,8 +52,9 @@ protection) until after the September qualifier.
 
 ## Provenance / honesty
 
-Positions are meter-scale estimates from a 327×547 phone screenshot
-(~8.4 px/m), homography-verified against the floor grid (RMS 0.14 m).
-`data/course_map.json` carries `source: estimated_from_overhead_image`;
-swap in `published` or `survey_refined` coordinates via
-`src/common/course_map.py` when better data lands.
+Gate positions are the organizer's published table (feet, converted:
+x = X ft * 0.3048, y = (165 - Y ft) * 0.3048, heading = 90 - rot). The
+overhead estimate that preceded it (327x547 phone screenshot, ~8.4 px/m,
+grid-verified RMS 0.14 m) agreed to < 0.5 m after a rigid fit, which is
+why its traced line and cones are still usable here. Opening heights and
+the cone positions are estimates; everything else is published data.

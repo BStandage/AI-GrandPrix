@@ -14,6 +14,8 @@ import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
+
 G = 9.81
 
 AIGP_REPO = Path(__file__).resolve().parents[2]
@@ -34,14 +36,21 @@ _SCHEMA = {
                 "anchor_standoff_m": float, "anchor_standoff_turn_m": float,
                 "turn_angle_deg": float, "sample_ds_m": float,
                 "a_lat_margin": float, "takeoff_alt_m": float,
-                "v_floor_mps": float},
+                "v_floor_mps": float, "reversal_climb_m": float},
     "optimizer": {"apex_max_m": float},
     "follower": {"kp_pos": float, "kd_pos": float, "lookahead_m": float,
                  "lookahead_t": float,
-                 "ka_att": float, "stick_clamp": int,
+                 "ka_att": float, "kw_att": float, "stick_clamp": int,
                  "kp_z": float, "kd_z": float, "ki_z": float,
                  "kyaw": float, "yaw_clamp": int, "yaw_lookahead_m": float,
                  "takeoff_pwm": int, "min_alt_translation_m": float},
+}
+
+
+# section -> {key: default}. Accepted when present, filled in when absent, so
+# older tomls (archer_block2, dev_fast) keep loading.
+_OPTIONAL = {
+    "vehicle": {"drag_quad_z": None},   # None -> same as drag_quad (isotropic)
 }
 
 
@@ -60,21 +69,58 @@ class VehicleConfig:
         self.path = path
         self.sha1 = sha1
         for section, keys in _SCHEMA.items():
-            setattr(self, section, SimpleNamespace(**{k: raw[section][k]
-                                                      for k in keys}))
+            vals = {k: raw[section][k] for k in keys}
+            for k, default in _OPTIONAL.get(section, {}).items():
+                vals[k] = raw[section].get(k, default)
+            setattr(self, section, SimpleNamespace(**vals))
 
     # Derived quantities - defined ONCE here so planner and follower agree.
     def tilt_rad(self) -> float:
         return math.radians(self.limits.max_tilt_deg)
 
     def a_lat_full(self) -> float:
-        """Lateral accel at max tilt (follower clamp)."""
-        return G * math.tan(self.tilt_rad())
+        """Horizontal accel available while holding altitude: g*tan(tilt),
+        bounded by the thrust ceiling (sqrt(T_max^2 - g^2)). With the tilt
+        clamp at 90 the thrust bound is the one that counts (36 m/s^2);
+        an unbounded tan() broke every ratio built on this number."""
+        g = 9.81
+        by_tilt = g * math.tan(min(self.tilt_rad(), math.radians(89.0)))
+        t_max = float(max(self.thrust.curve_acc))
+        by_thrust = math.sqrt(max(t_max * t_max - g * g, 0.0))
+        return min(by_tilt, by_thrust)
 
     def a_lat_planner(self) -> float:
         """Lateral accel the PLAN may use (margin leaves tilt authority for
         tracking error)."""
         return self.planner.a_lat_margin * self.a_lat_full()
+
+    def drag_k_xyz(self):
+        """Quadratic drag per WORLD axis as [kx, ky, kz] in 1/m: the plant
+        applies F = -k |v| v with a larger k on the vertical (physics.py
+        linear_drag [0.2, 0.2, 0.4]); flown climbs measured kz 0.45-0.5
+        against 0.256 horizontal (2026-09-10). Used by the trajectory
+        optimizer and the MPC; the planner's a_drag stays horizontal."""
+        vh = self.vehicle
+        kh = vh.drag_quad / vh.mass_kg
+        kz = (vh.drag_quad if vh.drag_quad_z is None else vh.drag_quad_z) / vh.mass_kg
+        return [kh, kh, kz]
+
+    def a_drag(self, v_mps: float) -> float:
+        """Speed-dependent loss the plant applies against the velocity,
+        as an accel (m/s^2): (drag_lin*v + drag_quad*v^2) / mass. The
+        planner subtracts it from thrust when accelerating and adds it
+        when braking; the follower feeds it forward so the position loop
+        does not have to carry it as steady-state velocity error."""
+        vh = self.vehicle
+        return (vh.drag_lin * v_mps + vh.drag_quad * v_mps * v_mps) / vh.mass_kg
+
+    def pwm_for_thrust(self, thrust_mps2: float) -> float:
+        """Inverse of the measured [thrust] curve: specific thrust (m/s^2 of
+        accel the motors give a LEVEL drone, hover = G) -> throttle PWM.
+        Linear between the measured points, clamped to [pwm_min, pwm_max]."""
+        th = self.thrust
+        pwm = float(np.interp(thrust_mps2, th.curve_acc, th.curve_pwm))
+        return min(max(pwm, float(th.pwm_min)), float(th.pwm_max))
 
 
 def load_config(path=None) -> VehicleConfig:
@@ -86,7 +132,7 @@ def load_config(path=None) -> VehicleConfig:
            f"{path.name}: sections {sorted(set(raw) ^ set(_SCHEMA))} "
            f"unknown or missing")
     for section, keys in _SCHEMA.items():
-        got = set(raw[section])
+        got = set(raw[section]) - set(_OPTIONAL.get(section, {}))
         _check(got == set(keys),
                f"{path.name} [{section}]: keys "
                f"{sorted(got ^ set(keys))} unknown or missing")
@@ -101,8 +147,14 @@ def load_config(path=None) -> VehicleConfig:
     _check(len(t["curve_pwm"]) == len(t["curve_acc"]) >= 2,
            f"{path.name} [thrust]: curve_pwm/curve_acc must be equal-length "
            "lists of >= 2 points")
-    _check(0 < raw["limits"]["max_tilt_deg"] < 60,
-           f"{path.name}: max_tilt_deg out of sane range (0, 60)")
+    _check(all(a < b for a, b in zip(t["curve_acc"], t["curve_acc"][1:]))
+           and all(a < b for a, b in zip(t["curve_pwm"], t["curve_pwm"][1:])),
+           f"{path.name} [thrust]: curve_pwm/curve_acc must be strictly "
+           "increasing (the follower inverts the curve)")
+    _check(t["curve_pwm"][0] <= t["hover_pwm"] <= t["curve_pwm"][-1],
+           f"{path.name} [thrust]: hover_pwm must lie inside curve_pwm")
+    _check(0 < raw["limits"]["max_tilt_deg"] <= 89.5,
+           f"{path.name}: max_tilt_deg out of sane range (0, 89.5]")
     _check(raw["planner"]["sample_ds_m"] > 0.01,
            f"{path.name}: sample_ds_m too small")
 
