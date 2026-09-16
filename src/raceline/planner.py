@@ -230,6 +230,7 @@ V_REVERSAL_SWING_MPS = 20.0  # cap OFF (feature/rip): the 4 m disc also caught t
 REVERSAL_CROSS_OFFSET_M = 0.25  # see build_anchors: aim inside the loop by the follower's wide error
 _LAST_REVERSAL = []          # reversal flags of the last build_anchors() call
 _LAST_LABELS = []
+_LAST_HEADINGS = []          # crossing headings of the last build_anchors() call
 GATE_SPEED_CAP = {}          # gate label -> speed cap (m/s) within REVERSAL_WINDOW_M of it (the follower's carrot is 0.3 s of speed: slower = tighter tracking)
 V_REVERSAL_MPS = 3.5         # speed cap through a reversal gate (replay: the follower
 REVERSAL_WINDOW_M = 4.0      # left the 2.5 m loop at 9.3 m/s and crossed g7 0.45 m wide)
@@ -1120,9 +1121,10 @@ def build_anchors(course, cfg: VehicleConfig):
                 else:
                     for i in range(lo, hi):
                         anchors[i][2] = z_to
-    global _LAST_REVERSAL, _LAST_LABELS
+    global _LAST_REVERSAL, _LAST_LABELS, _LAST_HEADINGS
     _LAST_REVERSAL = [bool(r) for r in reversal]
     _LAST_LABELS = [c.label for c in events]
+    _LAST_HEADINGS = [c.heading_rad for c in events]
     return np.array(anchors), center_idx
 
 
@@ -1658,6 +1660,24 @@ def _speed_profile(P: np.ndarray, s: np.ndarray, cfg: VehicleConfig,
                 dk = np.linalg.norm(P[:, :2] - centers[k, :2], axis=1)
                 v_rev[dk < REVERSAL_WINDOW_M] = np.minimum(v_rev[dk < REVERSAL_WINDOW_M], GATE_SPEED_CAP[lab])
         ceilings["reversal-gate"] = v_rev
+    # Blind turns (see config _OPTIONAL limits): slow into any crossing that
+    # the camera cannot hold on the way in, by the heading change alone.
+    v_bt = float(getattr(lim, "v_blind_turn_mps", 0.0) or 0.0)
+    if v_bt > 0.0 and _LAST_HEADINGS and len(_LAST_HEADINGS) == len(centers):
+        bt_deg = float(getattr(lim, "blind_turn_deg", 90.0))
+        bt_win = float(getattr(lim, "blind_turn_window_m", 6.0))
+        v_blind = np.full(n, np.inf)
+        i_prev = 0
+        for k, c in enumerate(centers):
+            d = np.linalg.norm(P[i_prev:] - c[None, :], axis=1)
+            j = i_prev + int(np.flatnonzero(d < float(d.min()) + 0.5)[0])
+            if k > 0 and _LAST_HEADINGS[k] is not None and _LAST_HEADINGS[k - 1] is not None:
+                turn = abs(wrap_pi(_LAST_HEADINGS[k] - _LAST_HEADINGS[k - 1]))
+                if math.degrees(turn) > bt_deg:
+                    back = s[j] - s
+                    v_blind[(back >= 0.0) & (back <= bt_win)] = v_bt
+            i_prev = j
+        ceilings["blind-turn"] = v_blind
 
     # RUN-OUT: past the FINAL crossing the race is already scored, so there is
     # nothing to gain by accelerating again - and the time-optimal profile

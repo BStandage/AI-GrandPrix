@@ -102,9 +102,11 @@ class TestAssociation(unittest.TestCase):
         self.src.integrate(0.0, self.src.R, [0, 0, G], 1.35)
 
     def test_picks_the_gate_it_is_looking_at_including_the_stacked_pair(self):
-        for i in (0, 1, 2):
+        for i in (0, 1):
             det = sighting(self.src, LANDMARKS[i][:3])
             self.assertEqual(self.src.associate(det, LANDMARKS), i, f"landmark {i}")
+        # landmark 2 is 21 m away: too far to fix on (a wrong match there is a 2 m jump)
+        self.assertIsNone(self.src.associate(sighting(self.src, LANDMARKS[2][:3]), LANDMARKS))
 
     def test_gate_behind_the_camera_is_not_a_candidate_and_junk_is_unmatched(self):
         det = Detection(offset_x=0.9, offset_y=0.9, area_frac=0.01, t=0.0, range_m=12.0)   # a false positive
@@ -155,6 +157,21 @@ class TestSeveralBlobs(unittest.TestCase):
         idx, r = src.observe_any([junk], LANDMARKS)
         self.assertIsNone(idx)
         self.assertEqual(src.unmatched, 1)
+
+
+class TestMapPrior(unittest.TestCase):
+    def test_only_the_gates_around_the_current_one_are_candidates(self):
+        src = DeadReckonSource()
+        src.R = R_yaw(math.pi / 2)
+        src.p[:] = [0.0, 0.0, 1.35]
+        src.integrate(0.0, src.R, [0, 0, G], 1.35)
+        near = [(0.0, 8.0, 1.35, math.pi / 2), (6.0, 12.0, 1.35, 0.0), (-3.0, 9.0, 1.35, math.pi / 2)]
+        src.set_events([near[2], near[1], near[0]])      # run order: 2, 1, 0; next_event = 0 -> allowed {2, 1}
+        src.set_landmarks(near)
+        self.assertEqual(src.allowed_now(), {2, 1})
+        det = sighting(src, near[0][:3])                  # looking straight at landmark 0, which the map rules out
+        self.assertIsNone(src.associate(det, near))
+        self.assertEqual(src.associate(det, near, allowed={0, 1, 2}), 0)
 
 
 class TestFixes(unittest.TestCase):

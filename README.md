@@ -6,7 +6,7 @@ Sim repo: `elodin-sim-aigp`, checked out next to this one.
 
 - Course: `data/course_map.json` (published). 10 gates, gate 9 double, 23 crossings over 2 laps.
 - Follower flies a plan on dead reckoning: FC attitude and accel, baro altitude, camera fixes on any gate it can match to the map. No ground truth anywhere in the loop.
-- Sim, noisy detector, plans built per camera (`raceline.ladder --cam-tilt --cam-hfov`): stock 20/90 camera, 60 s plan clean, 50 s plan 2 of 4. 35 deg mount + 120 deg lens: 40 s plan clean 2 of 2, 35 s plan 0 of 2. plan_RACE fails.
+- Sim, noisy detector, plans built per camera (`raceline.ladder --cam-tilt --cam-hfov`), the map limits which gates a sighting can be: 20/90 camera, 60 s plan clean. 35 deg mount + 120 deg lens: 40 s plan clean 2 of 3, 35 s plan fails. plan_RACE fails.
 - Archer (from its blackbox): Betaflight 4.4.3, acc_1G 2048, baro yes, no mag, ANGLE mode.
 - Never flown on the real drone.
 

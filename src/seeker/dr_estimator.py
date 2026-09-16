@@ -110,6 +110,8 @@ class DeadReckonSource:
         self.baro0 = None
         self.last_est = None
         self.events = []             # (x, y, z, heading) crossings in run order
+        self.landmarks = None        # unique gates (set_landmarks); event_lm maps each event to one
+        self.event_lm = []
         self.next_event = 0          # our own gate count: advances on our own crossings
         self.crossing_lat_m = 1.5    # generous: the estimate is what we have
         self.crossing_z_m = 1.2
@@ -119,10 +121,29 @@ class DeadReckonSource:
         self.assoc_sigma_rate = 0.5      # m per second without a fix
         self.assoc_min_rad = math.radians(6.0)
         self.assoc_max_rad = math.radians(40.0)
+        self.max_fix_range_m = 15.0      # farther gates are not fixed on: a 6 deg tolerance at 20 m is a
+                                         # 2 m jump when the wrong one matches (race_238, lap 1 hairpin)
 
     def set_events(self, events):
         self.events = [(float(x), float(y), float(z), None if h is None else float(h)) for x, y, z, h in events]
         self.next_event = 0
+        self.landmarks = None
+        self.event_lm = []
+
+    def set_landmarks(self, landmarks):
+        """The unique gates, so the map can say which ones can be in view:
+        the gate just passed, the next one and the one after. Everything
+        else is refused whatever it looks like (we know the course)."""
+        self.landmarks = list(landmarks)
+        key = lambda x, y, z: (round(x, 2), round(y, 2), round(z, 2))
+        lm_of = {key(*lm[:3]): i for i, lm in enumerate(self.landmarks)}
+        self.event_lm = [lm_of.get(key(e[0], e[1], e[2])) for e in self.events]
+
+    def allowed_now(self):
+        if not self.event_lm:
+            return None
+        lo, hi = max(0, self.next_event - 1), min(len(self.event_lm), self.next_event + 2)
+        return {i for i in self.event_lm[lo:hi] if i is not None}
 
     def _count_crossings(self, p_prev, p_new):
         while self.next_event < len(self.events):
@@ -203,26 +224,33 @@ class DeadReckonSource:
         return self.last_est
 
     # --- correction -----------------------------------------------------------------
-    def associate(self, det, landmarks):
+    def associate(self, det, landmarks, allowed=None):
         """Which map gate is this detection? The one whose predicted bearing
         from the current estimate is closest to the observed one, inside a
         tolerance that grows with the time since the last fix, with the
         measured range (if any) consistent with the predicted one. None when
         nothing matches or two gates match about equally."""
-        return self.associate_scored(det, landmarks)[0]
+        return self.associate_scored(det, landmarks, allowed)[0]
 
-    def associate_scored(self, det, landmarks):
+    def associate_scored(self, det, landmarks, allowed=None):
         """associate() plus its score (angle error over tolerance, lower is
         better), so several blobs from one frame can be compared."""
         d_obs = cam.direction_body(det)
+        if getattr(det, "range_m", None) and det.range_m > 1.2 * self.max_fix_range_m:
+            self.last_reason = "far"
+            return None, None
         dt_fix = 0.0 if (self.t_last_fix is None or self.t_prev is None) else max(0.0, self.t_prev - self.t_last_fix)
         sigma = self.assoc_sigma_m + self.assoc_sigma_rate * min(dt_fix, 20.0)
         cands = []
         best_ang, best_tol, rng_fail = None, None, False
+        if allowed is None:
+            allowed = self.allowed_now()
         for i, lm in enumerate(landmarks):
+            if allowed is not None and i not in allowed:
+                continue                                    # the map says this gate cannot be the one in view
             d = np.array([lm[0] - self.p[0], lm[1] - self.p[1], lm[2] - self.p[2]])
             rng_pred = float(np.linalg.norm(d))
-            if rng_pred < 0.4:
+            if rng_pred < 0.4 or rng_pred > self.max_fix_range_m:
                 continue
             d_b = self.R.T @ (d / rng_pred)
             if d_b[0] <= 0.0:
@@ -252,21 +280,21 @@ class DeadReckonSource:
         self.last_reason = ""
         return cands[0][1], cands[0][0]
 
-    def observe_any(self, dets, landmarks):
+    def observe_any(self, dets, landmarks, allowed=None):
         """Several blobs from one frame (biggest first): fix on the one that
         matches a map gate best. The biggest blob is not always a gate, and
         in a hairpin the gate in view is not the next one. Returns
         (landmark index or None, residual m)."""
         best = None
         for det in dets or ():
-            i, score = self.associate_scored(det, landmarks)
+            i, score = self.associate_scored(det, landmarks, allowed)
             if i is not None and (best is None or score < best[0]):
                 best = (score, det)
         if best is None:
             self.unmatched += 1
             self.last_landmark = None
             return None, 0.0
-        return self.observe(best[1], landmarks)
+        return self.observe(best[1], landmarks, allowed)
 
     def apply_fix(self, det, gate_xyz) -> float:
         """Position fix from a sighting of the gate at gate_xyz. Returns the
@@ -321,11 +349,11 @@ class DeadReckonSource:
         self.fix_residual = float(np.hypot(r[0], r[1]))
         return self.fix_residual
 
-    def observe(self, det, landmarks):
+    def observe(self, det, landmarks, allowed=None):
         """A detection of an unknown gate: associate it, then fix on it.
         Returns (landmark index or None, residual m). A fix whose residual
         exceeds reject_m is undone and counted as rejected."""
-        i = self.associate(det, landmarks)
+        i = self.associate(det, landmarks, allowed)
         if i is None:
             self.unmatched += 1
             self.last_landmark = None
