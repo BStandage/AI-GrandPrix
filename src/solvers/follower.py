@@ -529,10 +529,10 @@ def autopilot(update: SensorUpdate) -> RCCommand:
         _POSES.push(t, update.world_pos)
         if t - _FIX["t_det"] >= 1.0 / 30.0:
             _FIX["t_det"] = t
-            det = _cam.detect_any(_POSES.at_delay(t), _GATE_LANDMARKS, t)
-            _DR["det"] = det
-            if det is not None:
-                idx, res = _SOURCE.observe(det, _GATE_LANDMARKS)
+            dets = _cam.detect_all(_POSES.at_delay(t), _GATE_LANDMARKS, t)
+            _DR["det"] = dets[0] if dets else None
+            if dets:
+                idx, res = _SOURCE.observe_any(dets, _GATE_LANDMARKS)
                 if idx is not None:
                     _FIX["last_res"] = res
                     _FIX["n"] += 1

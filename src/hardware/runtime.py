@@ -52,6 +52,7 @@ class CameraThread(threading.Thread):
         self.source = source
         self.fy = fy_px
         self.det = None
+        self.dets = []              # up to 3 blobs, biggest first, for the estimator to choose from
         self.frames = 0
         self.detections = 0
         self.fps = 0.0
@@ -62,6 +63,10 @@ class CameraThread(threading.Thread):
     def latest(self):
         with self._lock:
             return self.det
+
+    def latest_all(self):
+        with self._lock:
+            return list(self.dets)
 
     def stop(self):
         self._stop.set()
@@ -88,11 +93,10 @@ class CameraThread(threading.Thread):
             t = time.monotonic()
             self.frames += 1
             n_win += 1
-            dets = mask_to_detections(gate_mask(bgr), bgr.shape)
-            d = None
-            if dets:
-                g = dets[0]
-                h, w = bgr.shape[:2]
+            gs = mask_to_detections(gate_mask(bgr), bgr.shape)
+            out = []
+            h, w = bgr.shape[:2]
+            for g in gs[:3]:
                 area = float(g.area_frac or g.area / float(h * w))
                 rng = None
                 box = g.ring_bbox or g.bbox
@@ -101,10 +105,12 @@ class CameraThread(threading.Thread):
                     # square frame with a header board on top (organizer DVR,
                     # 2026-09-16), so its height is not the opening's size
                     rng = self.fy * GATE_OUTER_M / float(box[2])
-                d = Detection(offset_x=float(g.offset_x), offset_y=float(g.offset_y), area_frac=area, t=t, range_m=rng)
+                out.append(Detection(offset_x=float(g.offset_x), offset_y=float(g.offset_y), area_frac=area, t=t, range_m=rng))
+            if out:
                 self.detections += 1
             with self._lock:
-                self.det = d
+                self.dets = out
+                self.det = out[0] if out else None
             if t - t_win >= 1.0:
                 self.fps = n_win / (t - t_win)
                 t_win, n_win = t, 0
@@ -259,8 +265,9 @@ def main(argv=None) -> int:
             if est is None:
                 time.sleep(period); continue
             det = camera.latest() if camera else None
+            dets = camera.latest_all() if camera else []
             if det is not None and t - det.t > 0.25:
-                det = None
+                det, dets = None, []
             if args.pilot == "follower":
                 # state: integrate the FC's IMU on its attitude; altitude from
                 # the accel + baro filter fed by the FC's altitude
@@ -269,9 +276,9 @@ def main(argv=None) -> int:
                 est_dr = StateEstimate(p=dr.p.copy(), v=dr.v.copy(), R=est.R, yaw=est.yaw, omega=est.omega)
                 # a sighting: the estimator decides which gate it is (same code
                 # as the sim) and fixes on it; implausible fixes are dropped
-                if det is not None and t - t_fix >= 1.0 / 30.0:
+                if dets and t - t_fix >= 1.0 / 30.0:
                     t_fix = t
-                    idx, r = dr.observe(det, landmarks)
+                    idx, r = dr.observe_any(dets, landmarks)
                     if idx is not None:
                         fixes += 1; fix_res = r
                         est_dr.p[:] = dr.p; est_dr.v[:] = dr.v

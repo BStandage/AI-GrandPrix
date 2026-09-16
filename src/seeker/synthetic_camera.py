@@ -90,27 +90,37 @@ NOISE = dict(dropout=0.15,        # fraction of frames with no detection though 
 _rng = np.random.default_rng(int(os.environ.get("AIGP_SEED", "0")))
 
 
-def detect_any(world_pos, landmarks, t) -> Detection | None:
-    """The biggest ring in view of the camera, unlabeled, with the noise
-    model applied. `landmarks` are (x, y, z, heading) tuples of every gate."""
-    if NOISE_ON and _rng.random() < NOISE["false_pos"]:
-        return Detection(offset_x=float(_rng.uniform(-1, 1)), offset_y=float(_rng.uniform(-1, 1)),
-                         area_frac=0.01, t=t, range_m=float(_rng.uniform(2.0, 15.0)))
-    best = None
+def detect_all(world_pos, landmarks, t, max_n: int = 3) -> list:
+    """What a real detector returns for one frame: up to max_n unlabeled
+    blobs, biggest first, with the noise model applied: dropouts, offset
+    and range noise, and now and then a false positive that is the BIGGEST
+    blob (a lanyard, a logo). `landmarks` are (x, y, z, heading) of every gate."""
     t_frame = t - (NOISE["latency_s"] if NOISE_ON else 0.0)   # the frame is this old when consumed
+    dets = []
     for gx, gy, gz, gh in landmarks:
         d = detect(world_pos, gx, gy, gz, gh, t_frame)
-        if d is not None and (best is None or d.area_frac > best.area_frac):
-            best = d
-    if best is None:
-        return None
+        if d is not None:
+            dets.append(d)
+    dets.sort(key=lambda d: -d.area_frac)
+    dets = dets[:max_n]
     if NOISE_ON:
         if _rng.random() < NOISE["dropout"]:
-            return None
-        best.offset_x = float(np.clip(best.offset_x + _rng.normal(0.0, NOISE["sigma_offset"]), -1.0, 1.0))
-        best.offset_y = float(np.clip(best.offset_y + _rng.normal(0.0, NOISE["sigma_offset"]), -1.0, 1.0))
-        best.range_m = max(0.3, best.range_m * (1.0 + float(_rng.normal(0.0, NOISE["sigma_range"]))))
-    return best
+            dets = []
+        for d in dets:
+            d.offset_x = float(np.clip(d.offset_x + _rng.normal(0.0, NOISE["sigma_offset"]), -1.0, 1.0))
+            d.offset_y = float(np.clip(d.offset_y + _rng.normal(0.0, NOISE["sigma_offset"]), -1.0, 1.0))
+            d.range_m = max(0.3, d.range_m * (1.0 + float(_rng.normal(0.0, NOISE["sigma_range"]))))
+        if _rng.random() < NOISE["false_pos"]:
+            dets.insert(0, Detection(offset_x=float(_rng.uniform(-1, 1)), offset_y=float(_rng.uniform(-1, 1)),
+                                     area_frac=(dets[0].area_frac * 1.5 if dets else 0.01), t=t_frame,
+                                     range_m=float(_rng.uniform(2.0, 15.0))))
+    return dets[:max_n]
+
+
+def detect_any(world_pos, landmarks, t) -> Detection | None:
+    """The biggest blob of detect_all(), for consumers that take one."""
+    dets = detect_all(world_pos, landmarks, t)
+    return dets[0] if dets else None
 
 
 class PoseHistory:

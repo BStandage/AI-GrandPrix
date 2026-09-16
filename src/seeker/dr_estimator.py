@@ -209,6 +209,11 @@ class DeadReckonSource:
         tolerance that grows with the time since the last fix, with the
         measured range (if any) consistent with the predicted one. None when
         nothing matches or two gates match about equally."""
+        return self.associate_scored(det, landmarks)[0]
+
+    def associate_scored(self, det, landmarks):
+        """associate() plus its score (angle error over tolerance, lower is
+        better), so several blobs from one frame can be compared."""
         d_obs = cam.direction_body(det)
         dt_fix = 0.0 if (self.t_last_fix is None or self.t_prev is None) else max(0.0, self.t_prev - self.t_last_fix)
         sigma = self.assoc_sigma_m + self.assoc_sigma_rate * min(dt_fix, 20.0)
@@ -239,13 +244,29 @@ class DeadReckonSource:
         if not cands:
             self.last_reason = ("range" if rng_fail else
                                 f"angle {math.degrees(best_ang):.0f}>{math.degrees(best_tol):.0f}" if best_ang is not None else "none ahead")
-            return None
+            return None, None
         cands.sort()
         if len(cands) > 1 and cands[1][0] - cands[0][0] < 0.25:
             self.last_reason = "ambiguous"
-            return None
+            return None, None
         self.last_reason = ""
-        return cands[0][1]
+        return cands[0][1], cands[0][0]
+
+    def observe_any(self, dets, landmarks):
+        """Several blobs from one frame (biggest first): fix on the one that
+        matches a map gate best. The biggest blob is not always a gate, and
+        in a hairpin the gate in view is not the next one. Returns
+        (landmark index or None, residual m)."""
+        best = None
+        for det in dets or ():
+            i, score = self.associate_scored(det, landmarks)
+            if i is not None and (best is None or score < best[0]):
+                best = (score, det)
+        if best is None:
+            self.unmatched += 1
+            self.last_landmark = None
+            return None, 0.0
+        return self.observe(best[1], landmarks)
 
     def apply_fix(self, det, gate_xyz) -> float:
         """Position fix from a sighting of the gate at gate_xyz. Returns the
