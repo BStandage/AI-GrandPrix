@@ -37,18 +37,5 @@
   "a_lat_margin": 0.85,
   "toml": "config\\ladder\\vehicle_40s_cam35_120.toml",
   "plan": "out\\plans\\plan_LADDER_40s_cam35_120.json"
- },
- {
-  "tag": "35s_cam35_120",
-  "k": 0.625,
-  "model_s": 35.05,
-  "contacts": 0,
-  "min_margin_m": 0.35,
-  "tilt_deg": 63.1,
-  "v_max": 14.4,
-  "slew": 118.0,
-  "a_lat_margin": 0.89,
-  "toml": "config\\ladder\\vehicle_35s_cam35_120.toml",
-  "plan": "out\\plans\\plan_LADDER_35s_cam35_120.json"
  }
 ]

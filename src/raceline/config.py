@@ -56,7 +56,13 @@ _OPTIONAL = {
     # planner stops accelerating (pitch capped near look_tilt_deg) so the
     # camera can hold the gate; the sprint happens right after the previous
     # gate instead. 0 = off.
-    "limits": {"look_window_m": 0.0, "look_tilt_deg": 12.0},
+    "limits": {"look_window_m": 0.0, "look_tilt_deg": 12.0,
+               # BLIND TURNS: a crossing whose heading differs from the previous
+               # crossing's by more than blind_turn_deg is approached with the
+               # camera off the gate, so the estimate runs blind into it. Cap
+               # speed within blind_turn_window_m before such a crossing at
+               # v_blind_turn_mps (0 = off). One rule for every gate.
+               "blind_turn_deg": 90.0, "blind_turn_window_m": 6.0, "v_blind_turn_mps": 0.0},
 }
 
 

@@ -57,7 +57,10 @@ pwm_max   = 2000          # was 1600 (wobble-era cap, never measured); full rang
 curve_pwm = [1000, 1240, 1350, 1500, 1650, 1800, 2000]
 curve_acc = [0.0, 9.81, 16.2, 22.7, 31.1, 37.2, 37.5]
 
-[limits]                  # ceilings shared by planner AND follower
+[limits]
+v_blind_turn_mps     = 0.0    # blind turns: speed cap within blind_turn_window_m before a crossing whose heading
+blind_turn_window_m  = 6.0    # differs from the previous one by more than blind_turn_deg (the hairpin, the stack).
+blind_turn_deg       = 110.0  # The camera cannot hold such a gate on the way in; the estimate arrives blind.                  # ceilings shared by planner AND follower
 max_tilt_deg     = 41.562   # NO LIMIT (config validator caps at 89.5) (Brian, feature/rip): the thrust-vector budget is the only bound - at 90 the vertical thrust is zero, so the model allows it only for the instant the thrust vector affords, and the follower's mapping floor (0.5 g) caps the commanded tilt near 82.
                           # (~70 deg, TWR 2.9) applies when FIGHTING to stay
                           # level from a lift deficit - but when the drone is

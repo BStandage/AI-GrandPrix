@@ -436,6 +436,8 @@ for _e in PLAN["events"]:
     if _e.get("heading_rad") is not None and _key not in _seen_lm:
         _seen_lm.add(_key)
         _GATE_LANDMARKS.append((_e["x"], _e["y"], _e["z"], _e["heading_rad"]))
+if STATE_SOURCE == "deadreckon":
+    _SOURCE.set_landmarks(_GATE_LANDMARKS)      # the map says which gates can be in view
 _ALT = AltitudeLoop(CFG)
 _YAW = YawLoop(CFG)
 LAND_RATE_MPS = 1.0   # descent after the finish (see autopilot)
