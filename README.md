@@ -1,6 +1,6 @@
 # AI-GrandPrix
 
-Branch `feature/hardware-seeker`. Sim repo `elodin-sim-aigp` on `main`.
+Sim repo: `elodin-sim-aigp`, checked out next to this one.
 
 ## Status (2026-09-16)
 
