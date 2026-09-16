@@ -40,7 +40,11 @@ _PILOT = SeekerPilot(CFG, crossings_from_course(_COURSE), start_xy=(0.0, 0.0), l
                      seeker_cfg=SeekerConfig())
 
 _state = {"baro0": None, "z_prev": None, "t_prev": None, "vz": 0.0, "det": None,
-          "log": None, "writer": None, "n": 0}
+          "log": None, "writer": None, "n": 0, "z_f": None}
+# The sim's barometer carries ~0.1 m of noise per sample at 100 Hz: a raw
+# derivative is tens of m/s of garbage. Alpha-beta tracker (position gain
+# ALPHA, velocity gain BETA per sample) gives a usable z and vz.
+ALPHA, BETA = 0.15, 0.004
 DETECT_EVERY_S = 1.0 / 30.0
 _det_t = [-1.0]
 
@@ -97,13 +101,17 @@ def autopilot(update: SensorUpdate) -> RCCommand:
     yaw = math.atan2(R[1, 0], R[0, 0])
     if _state["baro0"] is None and update.baro_fresh:
         _state["baro0"] = float(update.baro)
-    z = float(update.baro) - (_state["baro0"] or 0.0)
-    if _state["t_prev"] is not None and t > _state["t_prev"] and update.baro_fresh:
+    z_meas = float(update.baro) - (_state["baro0"] or 0.0)
+    if _state["z_f"] is None:
+        _state["z_f"], _state["vz"], _state["t_prev"] = z_meas, 0.0, t
+    elif update.baro_fresh and t > _state["t_prev"]:
         dt = t - _state["t_prev"]
-        raw = (z - _state["z_prev"]) / dt
-        _state["vz"] += 0.3 * (raw - _state["vz"])      # light low-pass on the derivative
-    if update.baro_fresh:
-        _state["z_prev"], _state["t_prev"] = z, t
+        pred = _state["z_f"] + _state["vz"] * dt
+        r = z_meas - pred
+        _state["z_f"] = pred + ALPHA * r
+        _state["vz"] += (BETA / dt) * r
+        _state["t_prev"] = t
+    z = _state["z_f"]
     est = StateEstimate(p=np.array([0.0, 0.0, z]), v=np.array([0.0, 0.0, _state["vz"]]),
                         R=R, yaw=yaw, omega=None)
     det = _state["det"]
