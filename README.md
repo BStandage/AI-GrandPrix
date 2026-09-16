@@ -6,7 +6,7 @@ Sim repo: `elodin-sim-aigp`, checked out next to this one.
 
 - Course: `data/course_map.json` (published). 10 gates, gate 9 double, 23 crossings over 2 laps.
 - Follower flies a plan on dead reckoning: FC attitude and accel, baro altitude, camera fixes on any gate it can match to the map. No ground truth anywhere in the loop.
-- Sim, noisy detector, 20 deg camera: 60 s rung clean, 50 s rung clean. 40 s rung needs a 35 deg mount. plan_RACE fails.
+- Sim, noisy detector, 20 deg camera: 60 s and 50 s plans clean. The planner caps tilt from the camera geometry: 20 deg mount + 90 deg lens allows 49 s at best; 35 deg + 120 deg allows 35 s. plan_RACE fails.
 - Archer (from its blackbox): Betaflight 4.4.3, acc_1G 2048, baro yes, no mag, ANGLE mode.
 - Never flown on the real drone.
 
@@ -17,7 +17,7 @@ AIGP_STATE_SOURCE=deadreckon python -m raceline.batch_fly --timeout 300 ../out/p
 AIGP_STATE_SOURCE=deadreckon AIGP_CAM_TILT_DEG=35 AIGP_CAM_HFOV_DEG=120 python -m raceline.batch_fly ../out/plans/plan_LADDER_40s.json
 python -m raceline.batch_fly ../out/plans/plan_RACE.json          # ground truth
 python -m raceline.batch_fly --solver solvers.seeker --timeout 400 ../out/plans/plan_RACE.json   # fallback, ACRO only in sim
-python -m raceline.ladder --targets 60 50 40 35                     # rebuild rungs
+python -m raceline.ladder --targets 60 50 40 35 --cam-tilt 20 --cam-hfov 90   # plans the camera can fly: config/ladder/*_cam20_90
 python -m perception.video_probe ../event_files/archer_AIGP.mkv     # detector on the real video
 ```
 
