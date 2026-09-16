@@ -137,7 +137,10 @@ class TestSeekerBrain(unittest.TestCase):
         self.assertEqual(brain.phase, "SEEK")
         for _ in range(2000):
             brain.step(t, math.pi / 2, 1.35, 0.0, None); t += 0.02
-        self.assertEqual(brain.phase, "HOLD")
+        # never seeing the gate ends in a landing, not a wall
+        for _ in range(6000):
+            brain.step(t, math.pi / 2, 1.35, 0.0, None); t += 0.02
+        self.assertEqual(brain.phase, "LAND")
 
 
 if __name__ == "__main__":

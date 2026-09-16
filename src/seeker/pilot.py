@@ -18,12 +18,21 @@ import math
 from dataclasses import dataclass
 from typing import Optional, Sequence
 
-from raceline.rc_backend import AltitudeLoop, StateEstimate, YawLoop, angle_sticks
+import os
+
+from raceline.rc_backend import AltitudeLoop, StateEstimate, YawLoop, angle_sticks, attitude_sticks
 from seeker.brain import Command, Crossing, Detection, SeekerBrain, SeekerConfig
 
 T_DISARMED_END = 0.50
 T_ARM_IDLE_END = 0.55
-AUX2_ANGLE = 1800
+# Output stage. ANGLE (AIGP_ANGLE_MODE=1): tilt-angle sticks, the FC levels
+# itself - the hardware control shape. ACRO (default): the proven
+# thrust-vector attitude loop on est.R (rate sticks) - what the sim's SITL
+# flies stably; the sim's ANGLE mode still has an unresolved attitude-feed
+# problem (2026-09-16). The brain and every loop above this line are
+# identical in both.
+ANGLE_MODE = os.environ.get("AIGP_ANGLE_MODE", "0") == "1"
+AUX2_ANGLE = 1800 if ANGLE_MODE else 1500
 
 
 @dataclass
@@ -70,7 +79,11 @@ class SeekerPilot:
             return Sticks(arm=1000, throttle=1000, phase=cmd.phase, crossing=cmd.crossing, done=True)
         airborne = float(est.p[2]) >= self.cfg.follower.min_alt_translation_m
         throttle = self.alt.throttle(t, est, cmd.z_target, 0.0, airborne, baro_fresh, 0.0)
-        roll, pitch, ang = angle_sticks(self.cfg, est, cmd.a_des, self.alt.a_cmd)
+        if ANGLE_MODE:
+            roll, pitch, ang = angle_sticks(self.cfg, est, cmd.a_des, self.alt.a_cmd)
+        else:
+            roll, pitch, eb = attitude_sticks(self.cfg, est, cmd.a_des, self.alt.a_cmd)
+            ang = (float(eb[0]), float(eb[1]))
         yaw_stick = self.yaw.stick(est, cmd.yaw_target)
         return Sticks(throttle=int(throttle), roll=roll, pitch=pitch, yaw=yaw_stick,
                       arm=1800 if cmd.arm else 1000, phase=cmd.phase, crossing=cmd.crossing,

@@ -102,7 +102,9 @@ def cmd_rc_test(args) -> int:
         s = br.state()
         print(f"  FC echo (MSP_RC): {s.rc_echo[:8]}   rc {s.rc_hz:.0f} Hz  attitude {s.attitude_hz:.0f} Hz  "
               f"timeouts {s.link.timeouts}")
-        ok = len(s.rc_echo) >= 5 and abs(s.rc_echo[0] - 1500) < 30 and s.rc_echo[2] < 1050
+        # MSP_RC echo is roll, pitch, yaw, throttle, aux1, aux2 (FC internal order)
+        ok = (len(s.rc_echo) >= 6 and abs(s.rc_echo[msp.RC_ECHO_ROLL] - 1500) < 30
+              and s.rc_echo[msp.RC_ECHO_THROTTLE] < 1050 and s.rc_echo[msp.RC_ECHO_AUX1] < 1100)
         print("  echo matches:", "YES" if ok else "NO - check `map`, msp_override_channels_mask and the receiver type in diff all")
         for roll in (1300, 1700, 1500):
             for _ in range(int(0.5 * args.rc_hz)):
@@ -113,7 +115,7 @@ def cmd_rc_test(args) -> int:
         print("stale-command rule check: not calling set_rc for 1 s ...")
         time.sleep(1.0)
         s = br.state()
-        print(f"  bridge forced disarm channels: {s.stale_disarm}  FC echo throttle {s.rc_echo[2] if len(s.rc_echo) > 2 else '?'}")
+        print(f"  bridge forced disarm channels: {s.stale_disarm}  FC echo throttle {s.rc_echo[msp.RC_ECHO_THROTTLE] if len(s.rc_echo) > 3 else '?'}")
         return 0 if ok else 1
     finally:
         br.stop()

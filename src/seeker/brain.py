@@ -78,11 +78,13 @@ class SeekerConfig:
     v_creep_est_mps: float = 2.3       # cruise speed the tilt settles at (dead reckoning)
     speed_tau_s: float = 1.8           # first-order speed response toward cruise
     k_yaw: float = 0.6                 # yaw nudge (rad) per unit offset_x while tracking
+    yaw_nudge_max_rad: float = 0.15    # per-tick bound on that nudge
+    yaw_freeze_area_frac: float = 0.05 # gate this big: stop yawing at it, centre with roll only
     k_lat: float = 2.5                 # lateral accel (m/s^2) per unit offset_x
     commit_area_frac: float = 0.12     # ring this big = about to cross, camera can no longer aim
     commit_s: float = 1.6              # time to fly straight through after committing
     past_gate_m: float = 1.5           # where the drone is after COMMIT: this far past the opening
-    approach_m: float = 5.0            # the point in front of a gate a dogleg aims for
+    approach_m: float = 6.5            # the point in front of a gate a dogleg aims for
     direct_angle_rad: float = 1.05     # leg within this of the gate normal -> direct (60 deg)
     turn_in_place_rad: float = 0.5     # heading change above this -> stop first, then turn
     lost_s: float = 0.5                # detection gap in TRACK before falling back to SEEK
@@ -97,6 +99,9 @@ class SeekerConfig:
     stop_min_s: float = 0.4
     land_rate_mps: float = 0.6
     min_track_area_frac: float = 0.0004
+    max_blind_seeks: int = 3           # SEEK attempts per crossing without ever seeing it -> LAND
+    gate_clear_m: float = 2.6          # a transit passing closer than this to any gate centre detours
+    detour_m: float = 3.5              # ... via a point this far along the gate's bar axis
 
 
 @dataclass
@@ -135,6 +140,7 @@ class SeekerBrain:
         self.v_est = 0.0
         self.t_prev = None
         self.hold_then_seek = False
+        self.blind_seeks = 0            # SEEK timeouts on the current crossing
         self.done = False
 
     # --- geometry from the map ----------------------------------------------
@@ -150,8 +156,30 @@ class SeekerBrain:
         px, py = self.prev_xy(k)
         return math.hypot(c.x - px, c.y - py)
 
+    def _segment_clears_gates(self, p, q):
+        """The first gate whose centre lies within gate_clear_m of segment
+        p->q (excluding gates at p or q themselves), or None."""
+        px, py = p; qx, qy = q
+        dx, dy = qx - px, qy - py
+        L2 = dx * dx + dy * dy
+        seen = set()
+        for g in self.seq:
+            key = (round(g.x, 2), round(g.y, 2))
+            if key in seen:
+                continue
+            seen.add(key)
+            if math.hypot(g.x - px, g.y - py) < 1.0 or math.hypot(g.x - qx, g.y - qy) < 1.0:
+                continue
+            tt = 0.0 if L2 < 1e-9 else max(0.0, min(1.0, ((g.x - px) * dx + (g.y - py) * dy) / L2))
+            cx, cy = px + tt * dx, py + tt * dy
+            if math.hypot(g.x - cx, g.y - cy) < self.cfg.gate_clear_m and 0.0 < tt < 1.0:
+                return g
+        return None
+
     def plan_leg(self, k: int):
-        """('direct', heading) or ('dogleg', transit_heading, transit_len)."""
+        """('direct', heading) or ('dogleg', [(heading, length), ...]): a
+        transit to the approach point in front of the gate, routed around
+        any gate the straight line would clip."""
         c = self.seq[k]
         px, py = self.prev_xy(k)
         ax = c.x - self.cfg.approach_m * math.cos(c.heading_rad)
@@ -161,7 +189,27 @@ class SeekerBrain:
         h = math.atan2(dy, dx) if length > 0.5 else c.heading_rad
         if length < 1.0 or abs(wrap_pi(h - c.heading_rad)) < self.cfg.direct_angle_rad:
             return ("direct", math.atan2(c.y - py, c.x - px))
-        return ("dogleg", h, length)
+        pts = [(px, py), (ax, ay)]
+        for _ in range(3):                                 # insert via-points until clear
+            fixed = False
+            for i in range(len(pts) - 1):
+                g = self._segment_clears_gates(pts[i], pts[i + 1])
+                if g is None:
+                    continue
+                bx, by = -math.sin(g.heading_rad), math.cos(g.heading_rad)   # bar axis
+                # detour on the side of the segment's start point
+                sx, sy = pts[i][0] - g.x, pts[i][1] - g.y
+                side = 1.0 if (sx * bx + sy * by) >= 0 else -1.0
+                via = (g.x + side * self.cfg.detour_m * bx, g.y + side * self.cfg.detour_m * by)
+                pts.insert(i + 1, via)
+                fixed = True
+                break
+            if not fixed:
+                break
+        segs = []
+        for (x0, y0), (x1, y1) in zip(pts[:-1], pts[1:]):
+            segs.append((math.atan2(y1 - y0, x1 - x0), math.hypot(x1 - x0, y1 - y0)))
+        return ("dogleg", segs)
 
     def is_turnaround(self, k: int) -> bool:
         if k + 1 >= len(self.seq):
@@ -214,8 +262,8 @@ class SeekerBrain:
             else:
                 self._enter("SEEK", t)
         else:
-            self.transit = (plan[1], plan[2])
-            self._begin_turn(plan[1], "TRANSIT", t, yaw)
+            self.transit = list(plan[1])                   # remaining segments
+            self._begin_turn(self.transit[0][0], "TRANSIT", t, yaw)
 
     # --- the tick -------------------------------------------------------------------
     def step(self, t: float, yaw: float, z: float, vz: float,
@@ -268,13 +316,18 @@ class SeekerBrain:
             return Command((0.0, 0.0), c.z, self.turn_target, "TURN", k)
 
         if self.phase == "TRANSIT":
-            h, length = self.transit
+            h, length = self.transit[0]
             self.yaw_hold = h
             self.z_hold = c.z
             self._advance(t, G * math.tan(math.radians(cfg.cruise_tilt_deg)))
             if self.dist_est >= length:
-                self.hold_then_seek = True
-                self._begin_turn(c.heading_rad, "HOLD", t, yaw)
+                self.transit.pop(0)
+                self.dist_est = 0.0
+                if self.transit:
+                    self._begin_turn(self.transit[0][0], "TRANSIT", t, yaw)
+                else:
+                    self.hold_then_seek = True
+                    self._begin_turn(c.heading_rad, "HOLD", t, yaw)
                 return self.step(t, yaw, z, vz, det)
             return Command(self._fwd(h, cfg.cruise_tilt_deg), self.z_hold, h, "TRANSIT", k)
 
@@ -298,7 +351,13 @@ class SeekerBrain:
                 return self.step(t, yaw, z, vz, det)
             timeout = cfg.seek_timeout_scale * max(self.leg_length(k), cfg.approach_m) / cfg.v_creep_est_mps
             if t - self.t_phase > timeout:
-                self.hold_then_seek = False
+                self.blind_seeks += 1
+                if self.blind_seeks >= cfg.max_blind_seeks:
+                    # never saw this gate: stop flying into the unknown
+                    self.z_hold = z
+                    self._enter("LAND", t)
+                    return self.step(t, yaw, z, vz, det)
+                self.hold_then_seek = True
                 self._begin_turn(self.yaw_hold, "HOLD", t, yaw)
                 return self.step(t, yaw, z, vz, det)
             if abs(wrap_pi(yaw - self.yaw_hold)) < 0.35:
@@ -315,10 +374,15 @@ class SeekerBrain:
                 det = self.last_det
             self._advance(t, G * math.tan(math.radians(cfg.cruise_tilt_deg)))
             if det.area_frac >= cfg.commit_area_frac:
-                self.yaw_hold = yaw
+                self.yaw_hold = c.heading_rad                # cross along the opening's normal (the map knows it)
                 self._enter("COMMIT", t)
                 return self.step(t, yaw, z, vz, None)
-            yaw_t = yaw - cfg.k_yaw * det.offset_x          # gate right -> yaw right (negative)
+            if det.area_frac < cfg.yaw_freeze_area_frac:
+                nudge = max(-cfg.yaw_nudge_max_rad, min(cfg.yaw_nudge_max_rad, cfg.k_yaw * det.offset_x))
+                yaw_t = yaw - nudge                          # gate right -> yaw right (negative)
+            else:
+                # close: hold the nose on the opening's normal, centre with roll
+                yaw_t = c.heading_rad
             a_fwd = self._fwd(yaw, cfg.cruise_tilt_deg)
             a_lat = self._lateral(yaw, cfg.k_lat * det.offset_x)
             self.yaw_hold = yaw_t
@@ -330,6 +394,7 @@ class SeekerBrain:
                 return Command(self._fwd(self.yaw_hold, cfg.commit_tilt_deg), c.z, self.yaw_hold, "COMMIT", k)
             turnaround = self.is_turnaround(k)
             self.k += 1
+            self.blind_seeks = 0
             if self.k >= len(self.seq):
                 self.z_hold = z
                 self._enter("LAND", t)
