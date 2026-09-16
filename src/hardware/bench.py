@@ -14,6 +14,9 @@ rc-test    streams DISARMED sticks through the bridge and reads MSP_RC back:
            the roll stick +-200 and shows the echo.
 arm-test   arms for --seconds with throttle at minimum, reports the ARMED
            flag and the arming blockers, disarms. Requires --props-off.
+drift      heading drift at rest over --seconds (deg/min). With no
+           magnetometer the FC heading is gyro-integrated: this number is
+           how fast the map frame rotates under the estimator.
 
 Nothing here raises the throttle. `hover` is deliberately absent until
 the altitude source and the ANGLE-mode output exist.
@@ -42,7 +45,14 @@ def cmd_info(args) -> int:
         print(f"firmware    {fc.fc_variant()} {'.'.join(map(str, fc.fc_version()))}  board {fc.board_info()}")
         st = fc.status()
         print(f"cycle time  {st.cycle_time_us} us   cpu {st.cpu_load}%   i2c errors {st.i2c_errors}")
-        print(f"sensors     0x{st.sensors:04x}   armed {st.armed}   modes {', '.join(st.active_modes) or 'none'}")
+        names = [n for bit, n in ((1, "ACC"), (2, "BARO"), (4, "MAG"), (8, "GPS"), (16, "RANGEFINDER"), (32, "GYRO"))
+                 if st.sensors & bit]
+        print(f"sensors     0x{st.sensors:04x} {' '.join(names)}   armed {st.armed}   modes {', '.join(st.active_modes) or 'none'}")
+        if not st.sensors & 4:
+            print("            NO MAGNETOMETER: heading is gyro-integrated (arbitrary at boot, drifts). "
+                  "Use `hardware.runtime --map-north here` and measure `drift`.")
+        if not st.sensors & 2:
+            print("            NO BAROMETER: the runtime has no altitude. Do not fly.")
         print(f"arm blocks  {', '.join(st.arming_blockers) or 'none'}"
               + ("" if st.arming_disable_flags is not None else "  (flags not in this MSP_STATUS)"))
         try:
@@ -153,6 +163,34 @@ def cmd_arm_test(args) -> int:
         br.stop()
 
 
+def cmd_drift(args) -> int:
+    br = _open(args)
+    br.start()
+    try:
+        t0 = time.monotonic()
+        while br.state().attitude is None and time.monotonic() - t0 < 5.0:
+            time.sleep(0.05)
+        a0 = br.state().attitude
+        if a0 is None:
+            print("no attitude from the FC"); return 3
+        y0 = a0.yaw_deg
+        gz = []
+        print(f"heading {y0:.1f} deg; holding still for {args.seconds:.0f} s ...")
+        t_end = time.monotonic() + args.seconds
+        while time.monotonic() < t_end:
+            s = br.state()
+            if s.imu is not None:
+                gz.append(float(s.imu.gyro[2]))
+            time.sleep(0.05)
+        y1 = br.state().attitude.yaw_deg
+        d = (y1 - y0 + 180.0) % 360.0 - 180.0
+        print(f"heading {y1:.1f} deg: drift {d:+.2f} deg over {args.seconds:.0f} s = {d * 60.0 / args.seconds:+.2f} deg/min"
+              + (f"; gyro z mean {sum(gz) / len(gz):+.2f} deg/s" if gz else ""))
+        return 0
+    finally:
+        br.stop()
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[1],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -170,10 +208,12 @@ def main(argv=None) -> int:
     a = sub.add_parser("arm-test")
     a.add_argument("--props-off", action="store_true")
     a.add_argument("--seconds", type=float, default=3.0)
+    d = sub.add_parser("drift")
+    d.add_argument("--seconds", type=float, default=60.0)
     args = ap.parse_args(argv)
     try:
         return {"info": cmd_info, "telemetry": cmd_telemetry,
-                "rc-test": cmd_rc_test, "arm-test": cmd_arm_test}[args.cmd](args)
+                "rc-test": cmd_rc_test, "arm-test": cmd_arm_test, "drift": cmd_drift}[args.cmd](args)
     except msp.MspError as e:
         print(f"ERROR {e}")
         return 3

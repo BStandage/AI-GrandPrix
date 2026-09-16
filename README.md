@@ -1,7 +1,7 @@
 # Status and what to run
 
 Branch: `feature/hardware-seeker`. Sim repo: `elodin-sim-aigp` on `main`
-(Betaflight SITL 2026.6.0; the Archer runs 4.5.x).
+(Betaflight SITL 2026.6.0; the Archer runs 4.4.3, from its blackbox).
 
 ## Status (2026-09-16)
 
@@ -9,25 +9,34 @@ Branch: `feature/hardware-seeker`. Sim repo: `elodin-sim-aigp` on `main`
   10 gates, gate 9 is the double (code labels g0..g9, g8-top/g8-low).
   Two laps = 23 crossings. Start = the dashed line 7.3 m behind gate 1.
 - Sim, ground truth: `plan_RACE.json` clean in 29.55 s.
-- Sim, no position sensor (vision-aided dead reckoning: FC accel and
-  attitude, baro altitude, a position fix from every gate the camera
-  sees): 60 s rung 57.2 s clean, 40 s rung 40.6 s clean, 35 s rung and
-  plan_RACE fail with the 20 deg camera. With a 35 deg mount and a
-  120 deg lens: 35 s rung 36.6 s clean, plan_RACE 29.4 s clean.
-- Vision-only seeker (fallback, no plan, gate to gate): 215 s clean.
+- Sim, nothing the drone does not have: attitude, accel and the noisy
+  barometer from the IMU packet, ONE unlabeled detection per frame
+  (biggest ring in view, one frame old, 15 % dropouts, 0.5 deg and 10 %
+  range noise, 2 % false positives); the estimator picks the gate and
+  counts crossings itself. 20 deg camera: 60 s rung clean (57-61 s) in
+  3 of 5 runs, 50 s rung clean twice (49.0, 50.8 s). 35 deg mount with a
+  120 deg lens: 40 s rung clean twice (40.7, 41.0 s); plan_RACE fails.
+  Failures are a misjudged gate at the hairpin or the finish; the
+  estimator trace `out/flightlogs/dr_NNN.csv` shows which.
+- Vision-only seeker (fallback, no plan, gate to gate) under the same
+  detector: 9 of 23 crossings, hit the low stacked gate. Was 215 s clean
+  with a perfect detector and true altitude. Fly it in ACRO in the sim.
 - Hardware: `src/hardware/` runs the follower over MSP, rehearsed
   against the sim's SITL disarmed. It has never flown a real drone.
-  Unknowns to measure on site: camera mount tilt, focal length, real
-  detector thresholds, FC accel scale and signs, pitch sign, the compass
-  heading of map north.
+  Known from the Archer's own blackbox (`src/PQ_SPECS_INTAKE.md`):
+  Betaflight 4.4.3, acc_1G 2048, barometer present (2.5 cm noise), no
+  magnetometer logged, ANGLE mode flown. Still to measure on site: camera
+  tilt, focal length and field of view (`hardware.camcal`), detector
+  thresholds on the Orin camera, pitch sign, heading drift.
 
 ## Sim (Docker Desktop running; commands from `AI-GrandPrix/src`)
 
 ```
 python -m raceline.batch_fly ../out/plans/plan_LADDER_60s.json        # ground truth, watch the referee
+# AIGP_CAM_NOISE=0 makes the synthetic detector perfect (diagnostics only); AIGP_SEED=<n> reseeds it
 AIGP_STATE_SOURCE=deadreckon python -m raceline.batch_fly --timeout 300 ../out/plans/plan_LADDER_60s.json   # no position sensor
 AIGP_STATE_SOURCE=deadreckon AIGP_CAM_TILT_DEG=35 AIGP_CAM_HFOV_DEG=120 python -m raceline.batch_fly --timeout 300 ../out/plans/plan_RACE.json
-python -m raceline.batch_fly --solver solvers.seeker --angle --timeout 400 ../out/plans/plan_RACE.json      # vision-only fallback
+python -m raceline.batch_fly --solver solvers.seeker --timeout 400 ../out/plans/plan_RACE.json      # vision-only fallback (ACRO: the SITL's ANGLE attitude flips)
 python -m raceline.ladder --targets 60 50 40 35      # rebuild rungs; one midpoint: --k 0.4
 python race.py --plan-only                            # (repo root) new plan_NNN candidate; promote by copying over plan_RACE
 ```
@@ -48,14 +57,18 @@ python -m hardware.runtime --tcp 127.0.0.1:5761 --map-north 0 --pilot follower -
 python3 -m hardware.bench --port /dev/ttyTHS1 info                 # firmware, modes, arming blockers
 python3 -m hardware.bench --port /dev/ttyTHS1 rc-test --props-off  # FC echoes our sticks
 python3 -m hardware.bench --port /dev/ttyTHS1 arm-test --props-off # ARMED flag, then disarm
-python3 -m hardware.bench --port /dev/ttyTHS1 telemetry --hz 5 --seconds 20   # heading while pointing along gate 1 = --map-north
-python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north <deg> --cam-tilt <deg> --fy <px> --pilot follower --traj ../out/plans/plan_LADDER_60s.json --dry-run
-python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north <deg> --cam-tilt <deg> --fy <px> --pilot follower --traj ../out/plans/plan_LADDER_60s.json --arm
+python3 -m hardware.bench --port /dev/ttyTHS1 drift --seconds 60           # heading drift at rest, deg/min (no magnetometer = it drifts)
+python3 -m hardware.camcal --dist 6.0 --dz <m> --port /dev/ttyTHS1         # gate 6.0 m away, level: prints --fy --cam-hfov --cam-tilt
+python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north here --cam-tilt <deg> --fy <px> --cam-hfov <deg> --pilot follower --traj ../out/plans/plan_LADDER_60s.json --dry-run
+python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north here --cam-tilt <deg> --fy <px> --cam-hfov <deg> --pilot follower --traj ../out/plans/plan_LADDER_60s.json --arm
 ```
 
-Fallback, no plan: same runtime with `--pilot seeker`. Add
-`--pitch-nose-down-positive` if the bench telemetry reads pitch that way.
-Bench measurements and the order on the day: `src/PQ_PROCEDURE.md`.
+`--map-north here`: the drone sits on the start line pointing along gate 1
+when the runtime starts, and that heading becomes map north. Works with
+or without a magnetometer. Fallback, no plan: same runtime with
+`--pilot seeker`. Add `--pitch-nose-down-positive` if the bench telemetry
+reads pitch that way. Bench measurements and the order on the day:
+`src/PQ_PROCEDURE.md`.
 
 ## Race day order
 

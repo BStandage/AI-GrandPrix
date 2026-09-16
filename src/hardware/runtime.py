@@ -18,10 +18,10 @@ The on-drone runtime: camera -> detector -> state -> pilot -> flight controller.
                   the commands are printed and logged. Nothing can spin.
 --arm             the real thing.
 
-Day-1 inputs: --map-north (compass heading of the map's +y: point the drone
-along gate 1 on the start line and read the bench telemetry), --acc-lsb-per-g
-(MSP_RAW_IMU z at rest), --fy (camera focal length in pixels at the capture
-resolution, from the calibration or the lens spec), --cam-tilt (mount tilt).
+Day-1 inputs: --map-north (the FC heading of the map's +y; pass `here` with
+the drone on the start line pointing along gate 1 and the heading is read at
+startup, which also works with no magnetometer), --acc-lsb-per-g (measured
+at rest by default), --fy and --cam-tilt and --cam-hfov (from hardware.camcal).
 """
 
 from __future__ import annotations
@@ -96,8 +96,11 @@ class CameraThread(threading.Thread):
                 area = float(g.area_frac or g.area / float(h * w))
                 rng = None
                 box = g.ring_bbox or g.bbox
-                if box is not None and box[3] > 4:
-                    rng = self.fy * GATE_OUTER_M / float(box[3])          # pinhole: range = f * H / h_px
+                if box is not None and box[2] > 4:
+                    # pinhole: range = f * W / w_px. The WIDTH: the real gate is a
+                    # square frame with a header board on top (organizer DVR,
+                    # 2026-09-16), so its height is not the opening's size
+                    rng = self.fy * GATE_OUTER_M / float(box[2])
                 d = Detection(offset_x=float(g.offset_x), offset_y=float(g.offset_y), area_frac=area, t=t, range_m=rng)
                 self.detections += 1
             with self._lock:
@@ -121,11 +124,13 @@ def main(argv=None) -> int:
     ap.add_argument("--fy", type=float, default=1000.0, help="camera focal length in pixels at the capture resolution")
     ap.add_argument("--cam-tilt", type=float, default=20.0, help="camera mount tilt above body forward, deg")
     ap.add_argument("--cam-hfov", type=float, default=90.0, help="camera horizontal field of view, deg")
-    ap.add_argument("--map-north", type=float, required=True, help="compass heading of the map's +y axis (deg)")
+    ap.add_argument("--map-north", required=True,
+                    help="FC heading (deg) of the map's +y axis, or `here`: the drone is on the start line "
+                         "pointing along gate 1 and the heading is read at startup")
     ap.add_argument("--laps", type=int, default=2)
     ap.add_argument("--rc-hz", type=float, default=50.0)
     ap.add_argument("--acc-lsb-per-g", default="auto",
-                    help="raw accelerometer counts per g (512 on most boards, 256 on the SITL); "
+                    help="raw accelerometer counts per g (2048 on the Archer per its blackbox, 256 on the SITL); "
                          "'auto' measures |acc| over 1 s at rest before takeoff")
     ap.add_argument("--pitch-nose-down-positive", action="store_true")
     ap.add_argument("--angle-mode", action="store_true", default=True, help="ANGLE-mode sticks (default on)")
@@ -161,17 +166,19 @@ def main(argv=None) -> int:
 
     if args.pilot == "follower":
         import solvers.follower as fol
-        events = [(e["x"], e["y"], e["z"], e.get("heading_rad")) for e in fol.PLAN["events"]]
         dr = fol._SOURCE                                    # the DeadReckonSource the follower built
-        landmarks = fol._GATE_LANDMARKS
+        landmarks = fol._GATE_LANDMARKS                     # every gate: the estimator decides which one it sees
     else:
         from seeker.pilot import SeekerPilot, crossings_from_course
+        from seeker.dr_estimator import VerticalFilter
         pilot = SeekerPilot(cfg, crossings_from_course(course), start_xy=(0.0, 0.0), laps=args.laps, t0=time.monotonic())
         dr = None
+        vert = VerticalFilter()
+        t_vert = None
 
     bridge = FcBridge.open(port=args.port, tcp=args.tcp, baud=args.baud, rc_hz=args.rc_hz)
     bridge.start()
-    src = FcStateSource(bridge, map_north_heading_deg=args.map_north,
+    src = FcStateSource(bridge, map_north_heading_deg=0.0,
                         pitch_nose_up_positive=not args.pitch_nose_down_positive,
                         acc_lsb_per_g=512.0 if args.acc_lsb_per_g == "auto" else float(args.acc_lsb_per_g))
     camera = None if args.no_camera else CameraThread(args.camera, args.fy)
@@ -185,7 +192,20 @@ def main(argv=None) -> int:
         time.sleep(0.05)
     while bridge.state().altitude is None and time.monotonic() - t_wait < 5.0:
         time.sleep(0.05)
+    if bridge.state().altitude is None:
+        print("ERROR no MSP_ALTITUDE from the FC: no barometer, no altitude, nothing can fly"); bridge.stop(); return 3
     src.zero_altitude()
+    st0 = bridge.state().status
+    has_mag = bool(st0 and (st0.sensors & 0x04))
+    if args.map_north.strip().lower() == "here":
+        src.map_north_heading_deg = float(bridge.state().attitude.yaw_deg)
+        print(f"map north = FC heading now: {src.map_north_heading_deg:.1f} deg (the drone is on the start line pointing along gate 1)")
+    else:
+        src.map_north_heading_deg = float(args.map_north)
+        if not has_mag:
+            print("WARNING no magnetometer: the FC heading is gyro-integrated and restarts at an arbitrary value "
+                  "every boot, so a numeric --map-north is only valid in the boot it was read in. Use --map-north here.")
+    print(f"magnetometer: {'present' if has_mag else 'ABSENT (heading drifts: measure it with hardware.bench drift)'}")
     if args.acc_lsb_per_g == "auto":
         # the drone is level and still: |acc| is exactly 1 g in raw counts
         mags = []
@@ -242,27 +262,31 @@ def main(argv=None) -> int:
             if det is not None and t - det.t > 0.25:
                 det = None
             if args.pilot == "follower":
-                # state: integrate the FC's IMU on its attitude, baro for z
+                # state: integrate the FC's IMU on its attitude; altitude from
+                # the accel + baro filter fed by the FC's altitude
                 if src.accel_body is not None:
-                    dr.integrate(t, est.R, src.accel_body, float(est.p[2]), float(est.v[2]))
+                    dr.integrate(t, est.R, src.accel_body, float(est.p[2]), True)
                 est_dr = StateEstimate(p=dr.p.copy(), v=dr.v.copy(), R=est.R, yaw=est.yaw, omega=est.omega)
-                # a sighting -> fix on the next gate (the only one we expect in view),
-                # rejected if it implies a jump the estimate cannot plausibly have made
-                if det is not None and det.range_m is not None and t - t_fix >= 1.0 / 30.0 and dr.next_event < len(events):
-                    gx, gy, gz, _ = events[dr.next_event]
-                    p_before = dr.p[:2].copy()
-                    r = dr.apply_fix(det, (gx, gy, gz))
-                    if r > 4.0:                                      # implausible: undo
-                        dr.p[:2] = p_before
-                    else:
-                        fixes += 1; fix_res = r; t_fix = t
+                # a sighting: the estimator decides which gate it is (same code
+                # as the sim) and fixes on it; implausible fixes are dropped
+                if det is not None and t - t_fix >= 1.0 / 30.0:
+                    t_fix = t
+                    idx, r = dr.observe(det, landmarks)
+                    if idx is not None:
+                        fixes += 1; fix_res = r
                         est_dr.p[:] = dr.p; est_dr.v[:] = dr.v
                 rc = fol.step(t - t_start, est_dr, dr.next_event, True, "")
                 out = dict(throttle=rc.throttle, roll=rc.roll, pitch=rc.pitch, yaw=rc.yaw, arm=rc.arm, aux2=rc.aux2)
-                label = f"ev{dr.next_event}"
+                label = f"ev{dr.next_event}" + (f"/lm{dr.last_landmark}" if dr.last_landmark is not None else "")
                 done = rc.arm == 1000 and t - t_start > 5.0
                 est_log = est_dr
             else:
+                # altitude through the same accel + baro filter as the follower
+                dt_v = 0.0 if t_vert is None else max(0.0, min(0.05, t - t_vert))
+                t_vert = t
+                az_w = float((est.R @ src.accel_body)[2]) - 9.80665 if src.accel_body is not None else 0.0
+                z_f, vz_f = vert.update(dt_v, az_w, float(est.p[2]), True)
+                est.p[2] = z_f; est.v[2] = vz_f
                 sk = pilot.tick(t, est, det, baro_fresh=True)
                 out = dict(throttle=sk.throttle, roll=sk.roll, pitch=sk.pitch, yaw=sk.yaw, arm=sk.arm, aux2=sk.aux2)
                 label = sk.phase
@@ -287,7 +311,8 @@ def main(argv=None) -> int:
             if n % int(args.rc_hz) == 0:
                 log.flush()
                 print(f"t={t - t_start:6.1f} {label:7s} p=({est_log.p[0]:+5.1f},{est_log.p[1]:+5.1f},{est_log.p[2]:4.2f}) "
-                      f"yaw={math.degrees(est_log.yaw):5.0f} det={'%.2fm' % det.range_m if det and det.range_m else '-':>6} fixes={fixes} "
+                      f"yaw={math.degrees(est_log.yaw):5.0f} det={'%.2fm' % det.range_m if det and det.range_m else '-':>6} fixes={fixes}"
+                      + (f" rej={dr.rejected} unm={dr.unmatched} " if dr is not None else " ") +
                       f"stk=({out['roll']},{out['pitch']},{out['throttle']},{out['yaw']}) arm={out['arm']} "
                       f"link {s.attitude_hz:.0f}Hz/{s.link.last_rtt_ms:.0f}ms healthy={s.healthy}")
             if done:

@@ -24,12 +24,41 @@ Source: `docs/specs/20260818_PQ_Technical_Spec_0001.pdf` (the published course a
 - Version constraint as first stated: "2026.6.1 or earlier (MSP override
   breaks above)". **2026-09-15: asked "what Betaflight firmware is on the
   Archer, is there a fork?", the organizers sent configurator 10.10.0 and
-  no fork -> the drones are on stock Betaflight 4.5.x** (10.10.0 is the
+  no fork -> assumed 4.5.x; the blackbox says 4.4.3** (10.10.0 is the
   4.5 configurator and cannot talk to 2026.x firmware; the 2026.6.1
   figure was presumably the app). The sim's SITL stays on 2026.6.0: a
   4.5.5 SITL stalls in lockstep (sim branch `feature/betaflight-4.5`,
   parked). Every CLI setting we use exists in both. Install configurator
   10.10.0 from the GitHub release tag; it coexists with the 2026.6.1 app.
+
+### What the Archer's own logs say (organizer blackbox + DVR, received 2026-09-16)
+
+`event_files/` (not in git, 300 MB): four FPV DVR recordings (flat orbit,
+slow + fast orbit, step response, a clean two-lap run) and the matching
+Betaflight blackbox logs. Decoded with `orangebox` (pip). Facts, measured:
+
+- **Firmware: Betaflight 4.4.3 (8034950b5), target BF_BLOCK2, H743 board.**
+  Not 4.5.x. MSP API 1.45; everything the runtime uses (MSP_STATUS,
+  ATTITUDE, ALTITUDE, RAW_IMU, RC, SET_RAW_RC) exists there.
+- **acc_1G 2048** raw counts per g (measured at rest 2032-2039, 0.6 % off).
+  Rest offsets x +60, y +25 counts (about 1.7 deg of tilt or bias).
+- **Barometer present and logged** (baroAlt, cm): +-2.5 cm at rest. The
+  sim's 10 cm is four times worse.
+- **No magnetometer field in the log** (mag_hardware AUTO). Assume the
+  heading is gyro-integrated: `--map-north here`, and `bench drift`.
+- **ANGLE mode was flown** (flightModeFlags bit 0 set in the clean lap).
+  levelPID 50/50/75. Rates type BETAFLIGHT, rc_rate 55, rate 75, expo 0;
+  PIDs roll 40/50/48, pitch 54/68/61, yaw 80/55; looptime 125 us, PID
+  denom 2 (4 kHz); airmode ON, anti-gravity ON; CRSF receiver (serialrx 9);
+  motor 48..2047 DSHOT bidir, dyn idle.
+- Step-response flight: peak rates roll 448, pitch 973 deg/s. The manual
+  two-lap run: 84.7 s of log, throttle never above 1454, pitch rate under
+  350 deg/s.
+- DVR: analog 640x480 at 25 fps with the OSD burned in. The gates are
+  **red square frames with checkered sides and a header board on top**,
+  several in view at once. The HSV mask finds them in every frame (with
+  clutter: up to 23 blobs). Range is taken from the frame WIDTH (the
+  header makes the height wrong).
 
 ### FC <-> Jetson
 - **UART. TX: RC control commands (Jetson->FC). RX: IMU data (FC->Jetson).**
@@ -79,7 +108,7 @@ Source: `docs/specs/20260818_PQ_Technical_Spec_0001.pdf` (the published course a
       sustained speed runs. Still open: cage height, gates inside?, time
       limits.
 - [ ] Gate depth resolution (260 vs 140 mm).
-- [ ] Exact Betaflight 4.5.x patch level on the Archer, and the MSP
+- [x] Exact Betaflight version on the Archer: 4.4.3 (blackbox). Open: the MSP
       override setup in their `diff all`: which channels we may override
       (`msp_override_channels_mask`), whether arming stays on the
       pilot's transmitter, and what happens when our RC stream pauses.

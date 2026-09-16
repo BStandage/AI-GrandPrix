@@ -415,6 +415,7 @@ else:
     print("[RACELINE] state source: ground truth")
 _TRACKER = Tracker(PLAN, CFG)
 _FIX = {"n": 0, "last_res": 0.0, "t_det": -1.0, "err": 0.0}
+_POSES = _cam.PoseHistory(_cam.NOISE["latency_s"]) if STATE_SOURCE == "deadreckon" else None
 if STATE_SOURCE == "deadreckon":
     # the drone has no referee: the estimator advances the gate index itself
     # when its own position crosses the next opening's plane
@@ -484,6 +485,34 @@ def reset_state() -> None:
     _state.update(done_t=None, dbg_t=0.0, trace=None, trace_n=0)
 
 
+_DR = {"fh": None, "n": 0, "det": None}
+
+
+def _dr_trace(t, est, truth, truth_v):
+    """Sim-only: estimate vs truth at 100 Hz, for finding where drift comes from."""
+    _DR["n"] += 1
+    if _DR["n"] % 10:
+        return
+    if _DR["fh"] is None:
+        from raceline.config import AIGP_REPO
+        from raceline.planner import next_numbered
+        path = next_numbered(str(AIGP_REPO / "out" / "flightlogs" / "dr_XXX.csv"))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _DR["fh"] = open(path, "w", encoding="utf-8")
+        _DR["fh"].write("t,ev,x,y,z,tx,ty,tz,vx,vy,tvx,tvy,fixes,rej,unm,lm,res,det_area,det_range,reason" + chr(10))
+        print(f"[RACELINE] estimator trace -> {path}")
+    lm = _SOURCE.last_landmark
+    _DR["fh"].write(f"{t:.2f},{_SOURCE.next_event},{est.p[0]:.3f},{est.p[1]:.3f},{est.p[2]:.3f},"
+                    f"{truth[0]:.3f},{truth[1]:.3f},{truth[2]:.3f},{est.v[0]:.3f},{est.v[1]:.3f},"
+                    f"{truth_v[0]:.3f},{truth_v[1]:.3f},{_SOURCE.fixes},{_SOURCE.rejected},{_SOURCE.unmatched},"
+                    f"{'' if lm is None else lm},{_SOURCE.fix_residual:.3f},"
+                    f"{'' if _DR['det'] is None else '%.4f' % _DR['det'].area_frac},"
+                    f"{'' if _DR['det'] is None or not _DR['det'].range_m else '%.2f' % _DR['det'].range_m},"
+                    f"{_SOURCE.last_reason}" + chr(10))
+    if _DR["n"] % 1000 == 0:
+        _DR["fh"].flush()
+
+
 def autopilot(update: SensorUpdate) -> RCCommand:
     t = update.t
     if t < T_DISARMED_END:
@@ -493,24 +522,29 @@ def autopilot(update: SensorUpdate) -> RCCommand:
 
     est = _SOURCE.estimate(update)
     if STATE_SOURCE == "deadreckon":
-        # any known gate in view -> position fix (30 Hz like a camera). The map
-        # is trusted, so every gate is a landmark, not only the next one: during
-        # a hairpin the camera sees the gate it just left.
+        # the camera (30 Hz): ONE unlabeled detection of whatever ring is
+        # biggest in view, one frame old, with dropouts, noise and false
+        # positives; the estimator decides which gate it is and fixes on it.
+        # The same observe() runs on the Orin with the real detector.
+        _POSES.push(t, update.world_pos)
         if t - _FIX["t_det"] >= 1.0 / 30.0:
             _FIX["t_det"] = t
-            best = None
-            for gx, gy, gz, gh in _GATE_LANDMARKS:
-                det = _cam.detect(update.world_pos, gx, gy, gz, gh, t)
-                if det is not None and (best is None or det.area_frac > best[0].area_frac):
-                    best = (det, (gx, gy, gz))
-            if best is not None:
-                _FIX["last_res"] = _SOURCE.apply_fix(best[0], best[1])
-                _FIX["n"] += 1
-                est = _SOURCE.last_est
-                est.p[:] = _SOURCE.p
-                est.v[:] = _SOURCE.v
+            det = _cam.detect_any(_POSES.at_delay(t), _GATE_LANDMARKS, t)
+            _DR["det"] = det
+            if det is not None:
+                idx, res = _SOURCE.observe(det, _GATE_LANDMARKS)
+                if idx is not None:
+                    _FIX["last_res"] = res
+                    _FIX["n"] += 1
+                    est = _SOURCE.last_est
+                    est.p[:] = _SOURCE.p
+                    est.v[:] = _SOURCE.v
+        # truth is read here for the LOG ONLY (the DR err column and the
+        # sim-only estimator trace out/flightlogs/dr_NNN.csv)
         truth = np.asarray(update.world_pos[4:7], dtype=float)
+        truth_v = np.asarray(update.world_vel[3:6], dtype=float)
         _FIX["err"] = float(np.hypot(est.p[0] - truth[0], est.p[1] - truth[1]))
+        _dr_trace(t, est, truth, truth_v)
     # the gate index: the referee's in the sim, the estimator's own count under
     # dead reckoning (the drone has no referee); the trace logs the referee's
     next_event = _SOURCE.next_event if STATE_SOURCE == "deadreckon" else update.next_gate_index
@@ -661,7 +695,7 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
               f"xtrack={np.linalg.norm(_TRACKER.pos[i] - est.p):4.2f} "
               f"zt={z_target:4.2f} tilt={tilt_deg:3.0f} az={_ALT.a_cmd:+4.1f} "
               f"air={airborne} stk=({roll},{pitch},{throttle},{yaw_stick})"
-              + (f" DR err={_FIX['err']:.2f}m fixes={_FIX['n']} res={_FIX['last_res']:.2f}" if STATE_SOURCE == "deadreckon" else ""))
+              + (f" DR err={_FIX['err']:.2f}m fixes={_FIX['n']} rej={_SOURCE.rejected} unm={_SOURCE.unmatched} res={_FIX['last_res']:.2f}" if STATE_SOURCE == "deadreckon" else ""))
 
     return RCCommand(arm=1800, throttle=throttle, roll=roll, pitch=pitch,
                      yaw=yaw_stick, aux2=AUX2)

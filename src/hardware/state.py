@@ -54,8 +54,9 @@ class FcStateSource:
                  acc_signs=(1.0, 1.0, 1.0)):
         # MSP_RAW_IMU accel: Betaflight reports its sensor frame (x forward,
         # y left, z up; +1 g on z at rest). acc_lsb_per_g is the raw count of
-        # 1 g (512 on most boards, 256 on the SITL): read it at rest on the
-        # bench. acc_signs flips axes if the tilt test disagrees.
+        # 1 g (2048 on the Archer's blackbox header, 256 on the SITL): the
+        # runtime measures it at rest. acc_signs flips axes if the tilt test
+        # disagrees.
         self.acc_lsb_per_g = acc_lsb_per_g
         self.acc_signs = acc_signs
         self.bridge = bridge

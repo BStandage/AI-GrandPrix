@@ -114,7 +114,7 @@ Needs the `build-essential` from step 2. `git status` showing
 the submodule's target.h).
 
 **Firmware version matters.** The Archer's flight controller runs
-Betaflight 4.5.x (the organizers ship configurator 10.10.0, the 4.5
+Betaflight 4.4.3 (its blackbox header; the organizers ship configurator 10.10.0, the 4.x
 configurator). The sim's submodule stays on 2026.6.0: a 4.5.5 SITL
 stalls in lockstep (sim branch `feature/betaflight-4.5`, parked). After
 switching the submodule version, delete `betaflight/obj/` and

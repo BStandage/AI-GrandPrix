@@ -158,7 +158,7 @@ why - don't rediscover these:
 
 - **Firmware 2026.6.0 in the sim** (a 4.5.5 SITL stalls in lockstep;
   sim branch `feature/betaflight-4.5` is parked). The Archer runs
-  Betaflight 4.5.x - the organizers answered the firmware question with
+  Betaflight 4.4.3 (its own blackbox header) - the organizers answered the firmware question with
   configurator 10.10.0, which is the 4.5 configurator. Every CLI setting
   below exists in 4.5.5 under the same name.
 - **ACRO by default, ANGLE on AUX2 high (`angle_limit` 80), airmode OFF,
@@ -227,14 +227,14 @@ From the PQ spec (VADR-TS-004, 2026-08-18) plus the organizer FAQ answers
 | Track | **published 2026-09-15**: 85 x 165 ft (25.9 x 50.3 m), 10 gates flown 1..10, start on the dashed line behind gate 1 - `data/course_map.json`; 3 slots/day + a 5 x 5 m training cage; manual piloting allowed |
 | Gates | 2.70 m outer frame, 1.5 m opening; gate 9 is the double gate = ONE gate flown through twice (south through the top opening, back north through the low one; top height unpublished); depth 260 vs 140 mm under review |
 | Airframe | 8" Archer Block 2, 8x4.1 props (motors/ESCs/battery/weight TBD); 4 drones/team |
-| Flight controller | **Betaflight 4.5.x** (organizers ship configurator 10.10.0; exact patch level still to confirm) - full config access (rates/PIDs/filters), no reflashing; extract with CLI `diff all` on day 1 and save it twice |
+| Flight controller | **Betaflight 4.4.3, target BF_BLOCK2, H743** (from the blackbox; organizers ship configurator 10.10.0; exact patch level still to confirm) - full config access (rates/PIDs/filters), no reflashing; extract with CLI `diff all` on day 1 and save it twice |
 | FC <-> Jetson | **MSP over UART `/dev/ttyTHS1` @ 115200: RC commands down, IMU/attitude back, polled at 30-50 Hz - that's the entire interface** (no position). The organizers' words: not fast or deterministic enough to fly on; flight-rate loops stay inside Betaflight. |
 | Companion computer | NVIDIA Orin NX 16 GB on a Seeed A603, JetPack 6.2, 25 W mode, `ssh dcl@192.168.55.1` over the USB gadget, root via sudo; tools in `~/target/` (our code runs here) |
 | Camera path | IMX477 raw Bayer on CSI-2 -> `/dev/video0`; Argus ISP needs a display context (grey image over plain SSH is expected); no shared clock or trigger with the FC |
 | Camera | rolling-shutter Arducam, 1920x1080 @ 60 fps, exposure/gain controllable, Orin-side CLOCK_MONOTONIC timestamps; **intrinsics NOT provided** (we calibrate on-site); IMU pose in the airframe IS provided |
 | Humans | human-in-flight = disqualification |
 
-Open questions are tracked in `src/PQ_SPECS_INTAKE.md` (exact 4.5.x
+Open questions are tracked in `src/PQ_SPECS_INTAKE.md` (the
 version, the MSP override channel mask and failsafe behaviour, the
 double gate's second pass and top-opening height, gate depth) - treat
 anything not in the table above as unconfirmed.

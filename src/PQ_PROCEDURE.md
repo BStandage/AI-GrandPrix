@@ -32,21 +32,22 @@ python3 -m hardware.bench --port /dev/ttyTHS1 telemetry --hz 20 --seconds 20
 
 | Measure | How | Runtime flag |
 |---|---|---|
-| accel counts per g | `acc` z at rest (the runtime also measures it before takeoff) | `--acc-lsb-per-g` (default auto) |
+| accel counts per g | measured at rest by the runtime before takeoff | `--acc-lsb-per-g` (default auto) |
 | pitch sign | push the nose down; if pitch reads positive | `--pitch-nose-down-positive` |
-| map north | heading while pointing along gate 1 | `--map-north <deg>` |
-| camera tilt | horizon row in a level frame, or the mount angle | `--cam-tilt <deg>` (default 20) |
-| focal length | lens spec or a checkerboard | `--fy <px>` (default 1000) |
-| lens field of view | lens spec | `--cam-hfov <deg>` (default 90) |
+| map north | drone on the start line pointing along gate 1 when the runtime starts | `--map-north here` |
+| heading drift | `bench drift --seconds 60` at rest; `bench info` says if a MAG is present | none: know the number; over 1 deg/min fly only the 60 s rung |
+| focal length, field of view, tilt | `camcal --dist <m> --dz <m> --port /dev/ttyTHS1` on a real gate, drone level | `--fy`, `--cam-hfov`, `--cam-tilt` |
 
-7. Camera: `~/target/live-view-imu.py --msp /dev/ttyTHS1`, page at
-   http://192.168.55.1:8080/. Then the detector on a real gate: HSV
-   thresholds in `perception/detectors/hsv_classic.py` (used by `hardware/runtime.py`)
-   must find the ring and the range from ring size must match the tape.
-8. Dry run, props off, FC stays disarmed:
+7. Camera on a real gate, tape measure out: `python3 -m hardware.camcal
+   --dist 6.0 --dz <ring centre height minus lens height> --port
+   /dev/ttyTHS1`. No detection = fix the HSV thresholds in
+   `perception/detectors/hsv_classic.py` first. Repeat at 3 m and 10 m:
+   the printed range must match the tape at all three.
+8. Dry run, props off, FC stays disarmed, drone on the start line
+   pointing along gate 1:
 
 ```
-python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north <deg> --cam-tilt <deg> --fy <px> --pilot follower --traj ../out/plans/plan_LADDER_60s.json --dry-run
+python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north here --cam-tilt <deg> --fy <px> --cam-hfov <deg> --pilot follower --traj ../out/plans/plan_LADDER_60s.json --dry-run
 ```
 
    The log shows the estimate, the detections and the sticks it would
@@ -58,8 +59,9 @@ python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north <deg> --cam-tilt <de
 Set the mount as high as the lens allows: 30-35 deg up with a 120 deg
 lens (that geometry flies plan_RACE in the sim), about 25 deg with a
 90 deg lens. Measure the tilt after mounting and pass it as `--cam-tilt`.
-Range from the ring size is used for the fix; bearing alone is not
-enough today.
+The fix uses the bearing fully and the range from ring size at half
+weight; a detection with no range still corrects across the line of
+sight.
 
 ## Day 1: cage (manual piloting allowed)
 
@@ -70,7 +72,7 @@ enough today.
 4. First armed run: the 60 s rung in the cage or on the track.
 
 ```
-python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north <deg> --cam-tilt <deg> --fy <px> --pilot follower --traj ../out/plans/plan_LADDER_60s.json --arm
+python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north here --cam-tilt <deg> --fy <px> --cam-hfov <deg> --pilot follower --traj ../out/plans/plan_LADDER_60s.json --arm
 ```
 
 Fallback if the estimator cannot hold a fix: `--pilot seeker` (no plan,
