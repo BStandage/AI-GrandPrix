@@ -58,10 +58,12 @@ PLANS_DIR = REPO / "out" / "plans"
 # safe floor of the envelope (k = 0); the ceiling is the race config
 # THE LEVERS. k = 0 is the safe end, k = 1 is whatever the config says (the
 # race limits). Each rung is a full solve; the time is whatever comes out.
+# vz_up_max is NOT a lever: a climbing turn crosses off centre above about
+# 1.25 m/s whatever the speed (race_297 at 1.75), and the cap costs 1 s.
 FLOOR = {"max_tilt_deg": 20.0, "v_max_mps": 5.0,
-         "a_lat_rate_max": 40.0, "a_lat_margin": 0.7, "vz_up_max": 1.0}
+         "a_lat_rate_max": 40.0, "a_lat_margin": 0.7}
 SECTION_OF = {"max_tilt_deg": "limits", "v_max_mps": "limits",
-              "a_lat_rate_max": "limits", "a_lat_margin": "planner", "vz_up_max": "limits"}
+              "a_lat_rate_max": "limits", "a_lat_margin": "planner"}
 FRAME_MARGIN_M = 0.75 - 0.15     # half opening minus body radius
 
 # CAMERA-AWARE TILT CAP. A plan is only flyable on vision if the next gate

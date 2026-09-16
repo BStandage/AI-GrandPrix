@@ -32,10 +32,10 @@ AIGP_STATE_SOURCE=deadreckon AIGP_CAM_TILT_DEG=35 AIGP_CAM_HFOV_DEG=120 python -
 
 | k | model time | sim on vision |
 |---|---|---|
-| 0.2 | 63 s | |
-| 0.33 | 56 s | |
-| 0.5 | 47 s | |
-| 0.8 | 36 s | |
+| 0.2 | 63 s | not flown |
+| 0.33 | 56 s | 1 clean of 2, one sim stall |
+| 0.5 | 49 s | 2 clean of 3 (47 s) |
+| 0.8 | 36 s | not flown |
 | 1.0 | 30 s | fails |
 
 Binary search on k: top of the search is the safe end, bottom is k = 1.
