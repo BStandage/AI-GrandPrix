@@ -94,7 +94,7 @@ ATT_IDLE_SCALE = False     # superseded by THRUST_VECTOR_MODE (race_057: zero de
 THRUST_VECTOR_MODE = True  # throttle = |(a_h, g + a_z)|, tilt = its angle (see autopilot)
 VECTOR_FREEFALL_SHARE = 0.85   # a_z floor: -0.85 g (a quad cannot fall faster than g anyway)
 VECTOR_TILT_MAX_DEG = 60.0     # tilt cap when descending (gz small)
-ACC_LEAD_S = 0.10          # feedforward acceleration taken this far ahead along the plan (attitude lag compensation, see Tracker.step)
+ACC_LEAD_S = float(os.environ.get("AIGP_ACC_LEAD_S", "0.10"))   # feedforward acceleration taken this far ahead along the plan (attitude lag compensation, see Tracker.step)
 AZ_FF_GAIN = 0.0           # plan vertical-accel feedforward into the altitude loop: OFF - the calibrated replay fails the clean-flown plan_030 with it on (overshoots the top gate); untested in flight
 YAW_IDLE_BAND = 150        # PWM below hover_pwm under which no yaw is commanded (see autopilot)
 THRUST_BUDGET_SHARE = 1.0  # share of the motors' total specific thrust the follower may commit; vertical need first, horizontal gets the rest (see autopilot). 0 disables.
@@ -426,7 +426,7 @@ if STATE_SOURCE == "deadreckon":
 # instead (thrust-vector control does not care where the nose points),
 # handing back to the tracker's crossing heading inside 2 m of the gate.
 AIM_AT_GATE = os.environ.get("AIGP_YAW_AT_GATE", "1" if STATE_SOURCE == "deadreckon" else "0") == "1"
-AIM_HANDOFF_M = 2.0
+AIM_HANDOFF_M = float(os.environ.get("AIGP_AIM_HANDOFF_M", "2.0"))   # metres before the gate where the nose goes back to the crossing heading
 # unique gate landmarks (xyz + crossing heading) from the plan's events; the
 # stacked pair is two landmarks at one XY
 _GATE_LANDMARKS = []

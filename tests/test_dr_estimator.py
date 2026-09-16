@@ -246,6 +246,15 @@ class TestCrossingByFix(unittest.TestCase):
         self.assertGreater(src.p[1], 8.0)
         self.assertEqual(src.next_event, 1)
 
+    def test_a_counted_crossing_pulls_the_estimate_toward_the_centre(self):
+        src = DeadReckonSource(v_decay_s=0.0)
+        src.set_events([(0.0, 5.0, 1.35, math.pi / 2)])
+        src.p[:] = [1.0, 0.0, 1.35]; src.v[:] = [0.0, 2.0, 0.0]      # 1 m right of centre, inside the opening
+        for i in range(300):
+            src.integrate(i * 0.01, np.eye(3), [0, 0, G], 1.35)
+        self.assertEqual(src.next_event, 1)
+        self.assertLess(abs(src.p[0]), 0.45)                        # 1.0 * (1 - 0.6)
+
     def test_a_wide_miss_still_advances_the_count(self):
         src = DeadReckonSource(v_decay_s=0.0)
         src.set_events([(0.0, 5.0, 1.35, math.pi / 2), (0.0, 15.0, 1.35, math.pi / 2)])

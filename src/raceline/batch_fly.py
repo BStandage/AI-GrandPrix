@@ -73,7 +73,8 @@ def fly(plan_path: Path, timeout_s: float = 200.0, solver: str = "solvers.follow
     env.setdefault("AIGP_SEEKER_CFG", "{}")
     env.setdefault("AIGP_STATE_SOURCE", "ground_truth")
     for k, d in (("AIGP_CAM_TILT_DEG", "20"), ("AIGP_CAM_HFOV_DEG", "90"), ("AIGP_SEEKER_DET", "synthetic"),
-                 ("AIGP_CAM_NOISE", "1"), ("AIGP_SEED", "0")):
+                 ("AIGP_CAM_NOISE", "1"), ("AIGP_SEED", "0"), ("AIGP_CAM_RANGE_SIGMA", "0.10"),
+                 ("AIGP_YAW_AT_GATE", ""), ("AIGP_AIM_HANDOFF_M", "2.0"), ("AIGP_ACC_LEAD_S", "0.10")):
         env.setdefault(k, d)
     toml = config or plan_toml(plan_path)
     if toml is not None:
