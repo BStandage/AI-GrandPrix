@@ -6,30 +6,39 @@ Sim repo: `elodin-sim-aigp`, checked out next to this one.
 
 - Course: `data/course_map.json` (published). 10 gates, gate 9 double, 23 crossings over 2 laps.
 - Follower flies a plan on dead reckoning: FC attitude and accel, baro altitude, camera fixes on any gate it can match to the map. No ground truth anywhere in the loop.
-- Sim, noisy detector: `config/vehicle_cam35_120.toml` holds the camera and the envelope the estimator tolerates; `race.py --plan-only --config` solves the plan. 35 deg mount + 120 deg lens: 50 s plan clean 3 of 3 (flies in 50 s). Every crossing is a lateral fix; the climb rate is capped because a climbing turn crosses off centre.
+- Sim, noisy detector, 35 deg mount + 120 deg lens: the levers at about k = 0.4 flew clean 4 of 4 in 50 s. Every crossing is a lateral fix; the climb rate is a lever because a climbing turn crosses off centre.
 - Archer (from its blackbox): Betaflight 4.4.3, acc_1G 2048, baro yes, no mag, ANGLE mode.
 - Never flown on the real drone.
 
-## The race plan (50 s, 35 deg camera, 120 deg lens)
+## The plan: levers in, time out
 
-The camera and the flight envelope the estimator tolerates live in
-`config/vehicle_cam35_120.toml`. The planner solves the plan from it, no
-target time. Repo root:
-
-```
-python race.py --plan-only --config config/vehicle_cam35_120.toml --out out/plans/plan_CAM35_120.json
-```
-
-Fly it in the sim on vision, from `src` (Docker running):
+`config/vehicle_cam35_120.toml` holds the camera (35 deg mount, 120 deg
+lens; change to what `camcal` measures) and the five levers at their race
+values: tilt, attitude slew, lateral margin, top speed, climb rate. One
+number k moves all five between a safe floor (k = 0) and the race values
+(k = 1); the planner solves the line and the time is whatever comes out.
+From `src`:
 
 ```
-AIGP_STATE_SOURCE=deadreckon AIGP_CAM_TILT_DEG=35 AIGP_CAM_HFOV_DEG=120 python -m raceline.batch_fly --timeout 260 --config ../config/vehicle_cam35_120.toml ../out/plans/plan_CAM35_120.json
+python -m raceline.ladder --k 0.5 --config ../config/vehicle_cam35_120.toml
 ```
 
-Faster or slower: edit the envelope in that toml (`max_tilt_deg`,
-`a_lat_rate_max`, `a_lat_margin`, `v_max_mps`, `vz_up_max`), solve, fly
-three seeds (`AIGP_SEED=1 2 3`). A different camera: change `cam_tilt_deg`
-and `cam_hfov_deg` to what `camcal` measured, same two commands.
+writes `config/ladder/vehicle_k050.toml` and `out/plans/plan_LADDER_k050.json`
+and prints the model time. Fly that rung in the sim on vision (Docker running):
+
+```
+AIGP_STATE_SOURCE=deadreckon AIGP_CAM_TILT_DEG=35 AIGP_CAM_HFOV_DEG=120 python -m raceline.batch_fly --timeout 300 --config ../config/ladder/vehicle_k050.toml ../out/plans/plan_LADDER_k050.json
+```
+
+| k | model time | sim on vision |
+|---|---|---|
+| 0.2 | 63 s | |
+| 0.33 | 56 s | |
+| 0.5 | 47 s | |
+| 0.8 | 36 s | |
+| 1.0 | 30 s | fails |
+
+Binary search on k: top of the search is the safe end, bottom is k = 1.
 
 Other sim commands, from `src`:
 
@@ -49,8 +58,8 @@ python3 -m hardware.bench --port /dev/ttyTHS1 rc-test --props-off
 python3 -m hardware.bench --port /dev/ttyTHS1 arm-test --props-off
 python3 -m hardware.bench --port /dev/ttyTHS1 drift --seconds 60
 python3 -m hardware.camcal --dist 6.0 --dz <m> --port /dev/ttyTHS1        # prints --fy --cam-hfov --cam-tilt
-python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north here --cam-tilt <deg> --fy <px> --cam-hfov <deg> --pilot follower --config ../config/vehicle_cam35_120.toml --traj ../out/plans/plan_CAM35_120.json --dry-run
-python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north here --cam-tilt <deg> --fy <px> --cam-hfov <deg> --pilot follower --config ../config/vehicle_cam35_120.toml --traj ../out/plans/plan_CAM35_120.json --arm
+python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north here --cam-tilt <deg> --fy <px> --cam-hfov <deg> --pilot follower --config ../config/ladder/vehicle_k033.toml --traj ../out/plans/plan_LADDER_k033.json --dry-run
+python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north here --cam-tilt <deg> --fy <px> --cam-hfov <deg> --pilot follower --config ../config/ladder/vehicle_k033.toml --traj ../out/plans/plan_LADDER_k033.json --arm
 ```
 
 `--map-north here`: drone on the start line pointing along gate 1 when the runtime starts. `--pilot seeker` = fallback.
@@ -58,8 +67,8 @@ The pilot arms and flips MSP OVERRIDE and ANGLE on the radio; MSP owns the four 
 
 ## Race day
 
-1. First flight: the plan above with the envelope as committed (50 s in the sim).
-2. Clean twice: raise the envelope in the toml, solve, fly. Fail: lower it.
+1. Fly the lowest k that is clean in the sim. Clean twice, jump to the fastest k you brought.
+2. Fail, fly the midpoint. Each heat halves the interval.
 3. A complete slow run beats an incomplete fast one.
 
 ## Docs
