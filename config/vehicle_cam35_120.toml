@@ -186,7 +186,7 @@ v_gate_mps       = 20.0   # = v_max: a straight-through gate is just track,
                           # 2.0 -> 69.5 s, 2.5 -> 66.0 s, all 12/12 clean.
                           # 1.6 is the moderate pick; room to go higher.
 gate_window_m    = 2.0    # one uniform rule, never special-cased per gate
-vz_up_max        = 2.5   # VISION: climbing while turning steals thrust from the turn; at 2.5 the stack top was crossed 0.35 m off even on ground truth   # flown clean (race_053); 3.0 and 3.5 fail the calibrated replay at g10-top
+vz_up_max        = 1.25   # VISION: climbing while turning steals thrust from the turn; at 2.5 the stack top was crossed 0.35 m off even on ground truth   # flown clean (race_053); 3.0 and 3.5 fail the calibrated replay at g10-top
                           # 6-7 m/s forward the drone managed 2.0-2.2 m/s with the
                           # motors at 100% (35 m/s^2 commanded) and arrived 0.4 m
                           # low; 8.1 m/s is the hover climb ceiling, not the one at
