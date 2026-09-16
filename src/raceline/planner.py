@@ -1726,10 +1726,30 @@ def _speed_profile(P: np.ndarray, s: np.ndarray, cfg: VehicleConfig,
     # Braking, drag is free deceleration on top of the brake budget.
     a_thrust = cfg.a_lat_full() * THRUST_SHARE
     Tz = T[:, 2]
+    # LOOK WINDOW (sprint, then look): inside look_window_m before each
+    # crossing the forward budget is capped so the total pitch stays near
+    # look_tilt_deg, which keeps the next gate in the camera. Crossing
+    # samples are found in event order, first passage after the previous
+    # one (the path overlaps itself across laps).
+    look_m = float(getattr(lim, "look_window_m", 0.0) or 0.0)
+    a_look_cap = np.full(n, np.inf)
+    if look_m > 0.0:
+        a_look = G * math.tan(math.radians(float(getattr(lim, "look_tilt_deg", 12.0))))
+        i_prev = 0
+        for k, c in enumerate(centers):
+            d = np.linalg.norm(P[i_prev:] - c[None, :], axis=1)
+            j = i_prev + int(np.flatnonzero(d < float(d.min()) + 0.5)[0])
+            if k > 0:                        # not the start gate: it is dead ahead on the start line
+                back = (s[j] - s)
+                win = (back > 0.0) & (back <= look_m)
+                a_look_cap[win] = np.minimum(a_look_cap[win], a_look)
+            i_prev = j
     v = v_lim.copy()
     v[0] = 0.0
     for i in range(n - 1):
         budget = max(0.1, min(lim.a_accel_max, a_thrust - cfg.a_drag(v[i])))
+        if a_look_cap[i] < np.inf:
+            budget = max(0.1, min(budget, a_look_cap[i] - cfg.a_drag(v[i])))
         aa = a_avail(budget, v[i], kappa[i]) - G * Tz[i]
         aa = max(0.1, aa)
         v[i + 1] = min(v_lim[i + 1], math.sqrt(v[i] * v[i] + 2 * aa * ds))

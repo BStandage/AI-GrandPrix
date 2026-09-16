@@ -52,6 +52,11 @@ _SCHEMA = {
 _OPTIONAL = {
     "vehicle": {"drag_quad_z": None},   # None -> same as drag_quad (isotropic)
     "follower": {"angle_limit_deg": 80.0},   # Betaflight `angle_limit` when flying ANGLE mode (AIGP_ANGLE_MODE=1)
+    # LOOK WINDOW: within look_window_m of arc length before each crossing the
+    # planner stops accelerating (pitch capped near look_tilt_deg) so the
+    # camera can hold the gate; the sprint happens right after the previous
+    # gate instead. 0 = off.
+    "limits": {"look_window_m": 0.0, "look_tilt_deg": 12.0},
 }
 
 
