@@ -52,6 +52,10 @@ ARMING_DISABLE_FLAGS = [
     "DSHOT_BBANG", "NO_ACC_CAL", "MOTOR_PROTO", "ARMSWITCH",
 ]
 
+# Betaflight box ids in permanent order; MSP_STATUS flightModeFlags bit i = box i active
+# (only the first few are stable across versions; enough to see ARM / ANGLE / HORIZON)
+FLIGHT_MODE_BOXES = ["ARM", "ANGLE", "HORIZON", "MAG", "HEADFREE", "PASSTHRU", "FAILSAFE", "GPSRESCUE"]
+
 RC_CENTER = 1500
 RC_MIN = 1000
 RC_MAX = 2000
@@ -226,6 +230,14 @@ class Status:
     cpu_load: int
     arming_disable_flags: Optional[int] = None
     armed: bool = False
+
+    @property
+    def active_modes(self) -> list[str]:
+        return [n for i, n in enumerate(FLIGHT_MODE_BOXES) if self.flight_mode_flags & (1 << i)]
+
+    @property
+    def angle_mode(self) -> bool:
+        return bool(self.flight_mode_flags & 2)
 
     @property
     def arming_blockers(self) -> list[str]:

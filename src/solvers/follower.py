@@ -74,6 +74,7 @@ _TRAJ_PATH = os.environ.get("AIGP_TRAJ")
 # aux 1 = ANGLE on AUX2 1700-2100, angle_limit 80). Default off = acro.
 ANGLE_MODE = os.environ.get("AIGP_ANGLE_MODE", "0") == "1"
 AUX2 = 1800 if ANGLE_MODE else 1500
+print(f"[RACELINE] control mode: {'ANGLE (aux2 1800, tilt-angle sticks)' if ANGLE_MODE else 'ACRO (rate sticks)'}")
 if not _TRAJ_PATH:
     raise RuntimeError(
         "solvers.follower needs AIGP_TRAJ=/path/to/plan.json "

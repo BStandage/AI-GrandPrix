@@ -42,7 +42,7 @@ def cmd_info(args) -> int:
         print(f"firmware    {fc.fc_variant()} {'.'.join(map(str, fc.fc_version()))}  board {fc.board_info()}")
         st = fc.status()
         print(f"cycle time  {st.cycle_time_us} us   cpu {st.cpu_load}%   i2c errors {st.i2c_errors}")
-        print(f"sensors     0x{st.sensors:04x}   armed {st.armed}")
+        print(f"sensors     0x{st.sensors:04x}   armed {st.armed}   modes {', '.join(st.active_modes) or 'none'}")
         print(f"arm blocks  {', '.join(st.arming_blockers) or 'none'}"
               + ("" if st.arming_disable_flags is not None else "  (flags not in this MSP_STATUS)"))
         try:
