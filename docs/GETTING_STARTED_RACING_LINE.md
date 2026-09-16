@@ -305,8 +305,9 @@ race.cmd
                        AIGP_TRAJ=<plan>, AIGP_VEHICLE_TOML=<config>
   v
 [6] EVERY PHYSICS TICK (the actual flying, src/solvers/follower.py)
-                       sensors -> StateSource (ground truth today,
-                                  estimator on the real drone)
+                       sensors -> StateSource (ground truth by default;
+                                  AIGP_STATE_SOURCE=deadreckon = the
+                                  drone's estimator)
                        -> Tracker: progress along the line is INTEGRATED
                           (velocity projected on the path tangent, then a
                           local nearest-point refinement - a plain global

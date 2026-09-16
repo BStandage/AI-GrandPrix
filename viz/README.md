@@ -1,4 +1,4 @@
-# viz/ — PQ1OHGP 3D course viewer
+# viz/ - PQ1OHGP 3D course viewer
 
 `course_viewer.html` is a fully self-contained page (no build step, no
 dependencies beyond Google Fonts): a hand-rolled canvas 3D renderer with
@@ -42,7 +42,7 @@ Everything else (camera, spline bridge, HUD) reads from those constants.
 
 ## Deploying (e.g. Vercel)
 
-It is one static file — rename to `index.html` in a folder and
+It is one static file - rename to `index.html` in a folder and
 `vercel deploy`, or point a Vercel project at this directory with no
 framework/build command. No server code, no env vars.
 
