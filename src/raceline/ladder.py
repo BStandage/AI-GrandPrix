@@ -56,10 +56,12 @@ LADDER_DIR = REPO / "config" / "ladder"
 PLANS_DIR = REPO / "out" / "plans"
 
 # safe floor of the envelope (k = 0); the ceiling is the race config
+# THE LEVERS. k = 0 is the safe end, k = 1 is whatever the config says (the
+# race limits). Each rung is a full solve; the time is whatever comes out.
 FLOOR = {"max_tilt_deg": 20.0, "v_max_mps": 5.0,
-         "a_lat_rate_max": 40.0, "a_lat_margin": 0.7}
+         "a_lat_rate_max": 40.0, "a_lat_margin": 0.7, "vz_up_max": 1.0}
 SECTION_OF = {"max_tilt_deg": "limits", "v_max_mps": "limits",
-              "a_lat_rate_max": "limits", "a_lat_margin": "planner"}
+              "a_lat_rate_max": "limits", "a_lat_margin": "planner", "vz_up_max": "limits"}
 FRAME_MARGIN_M = 0.75 - 0.15     # half opening minus body radius
 
 # CAMERA-AWARE TILT CAP. A plan is only flyable on vision if the next gate
