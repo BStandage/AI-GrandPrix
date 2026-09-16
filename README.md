@@ -36,6 +36,7 @@ python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north here --cam-tilt <deg
 ```
 
 `--map-north here`: drone on the start line pointing along gate 1 when the runtime starts. `--pilot seeker` = fallback.
+The pilot arms and flips MSP OVERRIDE and ANGLE on the radio; MSP owns the four sticks only (`set msp_override_channels_mask = 15`, CLI, once). The pilot can always take the sticks back.
 
 ## Race day
 

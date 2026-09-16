@@ -14,9 +14,13 @@ The on-drone runtime: camera -> detector -> state -> pilot -> flight controller.
                   estimator counts its own gate crossings; the nose aims at
                   the next gate. ANGLE-mode sticks (AIGP_ANGLE_MODE=1).
 --pilot seeker    the fallback: gate to gate on heading, baro and detections.
---dry-run         everything runs, the FC receives DISARMED neutral sticks,
-                  the commands are printed and logged. Nothing can spin.
---arm             the real thing.
+--dry-run         everything runs, the FC receives neutral sticks, the
+                  commands are printed and logged. Nothing can spin.
+--arm             the real thing. MSP override covers the four sticks only
+                  (msp_override_channels_mask = 15): the PILOT arms, flips
+                  MSP OVERRIDE and ANGLE on the transmitter, and can take the
+                  sticks back or disarm at any moment. The runtime waits for
+                  ARMED + MSP OVERRIDE before the plan clock starts.
 
 Day-1 inputs: --map-north (the FC heading of the map's +y; pass `here` with
 the drone on the start line pointing along gate 1 and the heading is read at
@@ -249,8 +253,20 @@ def main(argv=None) -> int:
     w.writerow(["t", "phase_or_event", "x", "y", "z", "vx", "vy", "vz", "yaw_deg", "det_x", "det_y", "det_area", "det_range",
                 "fixes", "fix_res", "throttle", "roll", "pitch", "yaw", "arm", "att_hz", "rtt_ms", "timeouts", "cam_fps", "vbat"])
     print(f"log -> {log_path}")
-    print("DRY RUN: commands computed and logged; the FC receives DISARMED neutral sticks" if args.dry_run
-          else "ARMED RUN: arming in 0.5 s")
+    if args.dry_run:
+        print("DRY RUN: commands computed and logged; the FC receives neutral sticks")
+    else:
+        print("LIVE: waiting for the pilot. Throttle low, ARM, then MSP OVERRIDE on (and ANGLE). "
+              "The plan clock starts when the FC reports both.")
+        while True:
+            st = bridge.state().status
+            bridge.set_rc(throttle=1000, roll=1500, pitch=1500, yaw=1500, arm=1000, aux2=1500)
+            if st is not None and st.armed and st.msp_override:
+                print(f"armed, MSP OVERRIDE on, modes {', '.join(st.active_modes)}: flying")
+                break
+            time.sleep(0.05)
+        if not bridge.state().status.angle_mode and not args.acro:
+            print("WARNING ANGLE mode is not active on the FC: the sticks are angle sticks. Flip the ANGLE switch.")
 
     period = 1.0 / args.rc_hz
     t_start = time.monotonic()
@@ -326,7 +342,10 @@ def main(argv=None) -> int:
                 print("run complete: disarmed")
                 break
             if not s.healthy and args.arm:
-                print("FC link unhealthy: the bridge is holding the disarm channels; stopping")
+                print("FC link unhealthy: throttle is being held at minimum; pilot, take over")
+                break
+            if args.arm and s.status is not None and s.status.box_names and not s.status.msp_override:
+                print("MSP OVERRIDE switched off: the pilot has the sticks; stopping")
                 break
             time.sleep(max(0.0, period - (time.monotonic() - t)))
     except KeyboardInterrupt:

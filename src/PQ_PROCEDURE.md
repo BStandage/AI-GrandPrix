@@ -17,7 +17,12 @@ course and the Orin quickstart PDFs are alongside it.
 2. `sudo ~/target/bringup-check.sh`, then `ls /dev/video0`.
 3. `sudo ~/target/msp/setup_jetson_uart.sh --apply` once per board.
 4. Save the Betaflight `diff all` to the laptop AND the Jetson before any
-   change. Read `map`, `msp_override_channels_mask`, the failsafe.
+   change. Then in the CLI (organizer memo, 2026-09-16): `map` must say
+   AETR1234; `aux` shows which switches carry ARM (mode 0), MSP OVERRIDE
+   (mode 50) and ANGLE; then `set msp_override_channels_mask = 15` and
+   `save`. The default 11 leaves THROTTLE on the radio. With 15 MSP owns
+   the four sticks only: the pilot arms, flips override and ANGLE, and can
+   take the sticks back or disarm at any time. Our runtime cannot.
 5. Our link, from `AI-GrandPrix/src` (needs pyserial, numpy, opencv):
 
 ```
@@ -74,6 +79,10 @@ sight.
 ```
 python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north here --cam-tilt <deg> --fy <px> --cam-hfov <deg> --pilot follower --traj ../out/plans/plan_LADDER_60s.json --arm
 ```
+
+   The runtime waits. Pilot: throttle low, ARM, MSP OVERRIDE on, ANGLE on.
+   The plan starts when the FC reports armed and override. Abort = pilot
+   flips override off (sticks come back) or disarms.
 
 Fallback if the estimator cannot hold a fix: `--pilot seeker` (no plan,
 gate to gate on the camera, 60-90 s laps in the sim).
