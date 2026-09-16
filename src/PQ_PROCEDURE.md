@@ -47,7 +47,19 @@ Before the cage, with the drone on the bench and props OFF:
 7. Decide the capture path (Argus needs an EGL context: headless X
    session at boot, or raw V4L2 + own debayer/AE) and prove it survives a
    reboot without a monitor.
-8. `sudo shutdown -h now`, wait for the LED, then pull power. Never yank.
+8. Bench numbers the runtime needs (write them down): `hardware.bench
+   telemetry` at rest for the accelerometer z (raw counts per g; the runtime
+   also measures it itself before takeoff), the pitch sign when the nose is
+   pushed down, the compass heading while pointing along gate 1, the camera
+   mount tilt (horizon row in a level frame), the lens focal length in
+   pixels (calibration or the lens spec). They are the runtime's
+   `--acc-lsb-per-g`, `--pitch-nose-down-positive`, `--map-north`,
+   `--cam-tilt`, `--fy`.
+9. Dry run on the bench, props off: `python3 -m hardware.runtime --port
+   /dev/ttyTHS1 --map-north <deg> --pilot follower --traj
+   ../out/plans/plan_LADDER_60s.json --dry-run`. The FC stays disarmed; the
+   log shows the estimator, the detections and the sticks it would send.
+10. `sudo shutdown -h now`, wait for the LED, then pull power. Never yank.
 
 ## Day 1 - before ANY mapping or racing (FAQ-driven, 2026-08-28)
 
