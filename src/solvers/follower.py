@@ -39,8 +39,32 @@ from raceline.rc_backend import (   # noqa: E402  (the shared proven loops)
     AltitudeLoop, GroundTruthSource, StateEstimate, YawLoop, attitude_sticks)
 
 # Arming phases, matching the baseline's Betaflight handshake.
-T_DISARMED_END = 0.50
-T_ARM_IDLE_END = 0.75
+T_DISARMED_END = 0.50   # 0.30 tried twice (2026-09-10, race_137 with the boot-grace hold in place): Betaflight never armed, the drone sat on the ground for the whole run - the arm request must come later than 0.3 s after the first RC frame regardless of the boot grace
+T_ARM_IDLE_END = 0.55   # 0.75 -> 0.55 (2026-09-10): the arm takes at 0.50, the motors only need a few frames at idle before throttle-up
+
+# RETRY DEBOUNCE: consecutive control ticks the nearest-point search must read
+# "past the gate" before a retry actually fires. At the 1000 Hz PID rate this
+# is ~20 ms - long enough to reject a single noisy tick, short enough to still
+# react fast to a real miss. Needed because the real sim's control-loop timing
+# jitters (measured "cannot achieve real-time" on the SAME run that showed a
+# clean 12/12 in the fixed-dt kinematic replay, sim_lite) - an unlatched,
+# single-tick check can flicker past/not-past the gate boundary under that
+# jitter even when sim_lite (perfectly even dt, no jitter) never sees it,
+# which reads to a pilot as the drone backing off and re-trying the same gate
+# repeatedly instead of flying through once.
+RETRY_CONFIRM_TICKS = 20
+
+# MAX RETRIES PER GATE: if a gate frame is ever physically touched, the
+# referee (pq_course.RaceTracker) sets crashed=True and PERMANENTLY stops
+# crediting any crossing for the rest of the run (a real-world DQ rule) - but
+# it never tells the follower this happened (SensorUpdate/next_gate_index has
+# no crashed flag at all). Left unbounded, the follower keeps treating that
+# same now-uncreditable gate as "next" forever and retries it endlessly -
+# THIS is the infinite back-and-forth. After this many confirmed misses on
+# the SAME gate, stop fighting it: drop the gate cap and let the drone keep
+# flying the rest of the planned path smoothly instead of oscillating in
+# place with no possible payoff.
+MAX_RETRIES_PER_GATE = 3
 
 _TRAJ_PATH = os.environ.get("AIGP_TRAJ")
 if not _TRAJ_PATH:
@@ -49,6 +73,23 @@ if not _TRAJ_PATH:
         "(produce one with `python -m raceline.planner`, or use race.py)")
 
 CFG = load_config(os.environ.get("AIGP_VEHICLE_TOML"))
+BRAKE_LOOKAHEAD_T = 0.0    # s of anticipation for a planned brake at terminal speed
+                           # (see Tracker.step). OFF: the replay loses g7 with
+                           # 0.15 (loop entry speed), and the plan brakes into
+                           # the g3-g4 arc at only 3.5 m/s^2 anyway.
+BRAKE_LA_SHARE0 = 0.7      # anticipation starts once drag holds this share of the tilt (v > ~8 m/s)
+CARROT_CROSS_ONLY = True   # position term = cross-track offset to the carrot only (see Tracker.step)
+ATT_IDLE_SCALE = False     # superseded by THRUST_VECTOR_MODE (race_057: zero demand at idle fell cleanly but drifted 2 m). scale the horizontal demand by the collective below hover (see autopilot)
+THRUST_VECTOR_MODE = True  # throttle = |(a_h, g + a_z)|, tilt = its angle (see autopilot)
+VECTOR_FREEFALL_SHARE = 0.85   # a_z floor: -0.85 g (a quad cannot fall faster than g anyway)
+VECTOR_TILT_MAX_DEG = 60.0     # tilt cap when descending (gz small)
+ACC_LEAD_S = 0.10          # feedforward acceleration taken this far ahead along the plan (attitude lag compensation, see Tracker.step)
+AZ_FF_GAIN = 0.0           # plan vertical-accel feedforward into the altitude loop: OFF - the calibrated replay fails the clean-flown plan_030 with it on (overshoots the top gate); untested in flight
+YAW_IDLE_BAND = 150        # PWM below hover_pwm under which no yaw is commanded (see autopilot)
+THRUST_BUDGET_SHARE = 1.0  # share of the motors' total specific thrust the follower may commit; vertical need first, horizontal gets the rest (see autopilot). 0 disables.
+NO_OVERSPEED_PUSH = True   # at/above plan speed, no forward along-track push (see Tracker.step)
+OVERSPEED_SHARE0 = 0.5     # ...but only where drag already holds this share of the tilt (v > ~6.9 m/s); the 3.5 m/s loops keep their pull-through
+PRIORITY_CLAMP = True      # clamp keeps the cross-track component, trims along-track
 PLAN = plan_io.load_plan(_TRAJ_PATH)
 print(f"[RACELINE] plan {os.path.basename(_TRAJ_PATH)}: "
       f"{len(PLAN['events'])} events, {PLAN['s_arr'][-1]:.0f} m, "
@@ -65,6 +106,10 @@ class Tracker:
         self.pos = plan["pos"]
         self.vel = plan["vel"]
         self.acc = plan["acc"]
+        # nose heading per sample when the plan carries one (held across
+        # the stacked-pair cusp, blended back to the tangent after it)
+        self.yaw_arr = plan.get("yaw_arr")
+        self.hold_arr = plan.get("hold_arr")   # True inside a reversal fold (the stack)
         self.n = len(self.s)
         self.cfg = cfg
         # arc position of every crossing event: the tracker may never run
@@ -72,6 +117,12 @@ class Tracker:
         # at the g7 hairpin the search walked onto the lap-2 branch and the
         # drone 'finished' a lap the referee never saw)
         self.event_s = [e["s"] for e in plan["events"]]
+        # Gate center + required crossing heading, straight from the course
+        # geometry (when the plan carries it - older plans without
+        # heading_rad fall back to the smoothed-spline proxy below).
+        self.event_xyz = [(e.get("x"), e.get("y"), e.get("z"))
+                          for e in plan["events"]]
+        self.event_heading = [e.get("heading_rad") for e in plan["events"]]
         ds = np.diff(self.s)
         self._ds = float(np.median(ds))
         # Forward search window. Kept SHORT so the nearest-point search can
@@ -83,6 +134,10 @@ class Tracker:
     def reset(self):
         self.idx = 0
         self.started = False
+        self._miss_streak = 0    # consecutive ticks reading "past the gate"
+        self._retry_gate = -1    # which event the retry counter below is for
+        self._retry_count = 0    # confirmed retries fired for _retry_gate
+        self._abandoned = set()  # gates given up on - cap dropped for these
 
     def _advance(self, p: np.ndarray, next_event: int) -> int:
         """Monotonic nearest-sample search, forward window, CAPPED at the
@@ -115,26 +170,80 @@ class Tracker:
                 a_des = f.kp_pos * err0[:2] - f.kd_pos * est.v[:2]
                 return a_des, float(self.pos[0][2]), 0.0, None, False
 
-        i = self._advance(est.p, next_event)
+        # Once we've given up on a gate (see MAX_RETRIES_PER_GATE below),
+        # stop capping progress at it - fly the rest of the course.
+        capped_event = next_event if next_event not in self._abandoned else -1
+        i = self._advance(est.p, capped_event)
         s_here = float(self.s[i])
 
         # RETRY: past the next unscored gate without credit (a miss) the
         # gate cap would deadlock us against it forever. Re-approach: target
-        # the path 2.5 m BEFORE the opening and cross it again - the ordered
+        # a point 2.5 m BEFORE the opening and cross it again - the ordered
         # referee accepts late crossings, so a near-miss costs seconds, not
         # the race. General rule, no per-gate anything.
-        if 0 <= next_event < len(self.event_s):
+        #
+        # DEBOUNCED: the nearest-point search above is re-run every tick, and
+        # under real control-loop jitter (not present in the fixed-dt sim_lite
+        # replay) it can flicker across the s_ev+0.5 line for a tick or two
+        # without a genuine miss - an unlatched check fires a full "back up
+        # and re-approach" on that single flicker, which is what reads as the
+        # drone repeatedly backing off and re-trying the same gate. Require
+        # the miss to persist for RETRY_CONFIRM_TICKS before acting on it.
+        if 0 <= capped_event < len(self.event_s):
             s_ev = self.event_s[next_event]
-            if s_here > s_ev + 0.5:
-                j = self._at_s(max(0.0, s_ev - 2.5))
-                self.idx = j
-                a_des = (1.5 * f.kp_pos * (self.pos[j][:2] - est.p[:2])
-                         - f.kd_pos * est.v[:2])
-                a_max = self.cfg.a_lat_full()
-                n = float(np.hypot(a_des[0], a_des[1]))
-                if n > a_max:
-                    a_des *= a_max / n
-                return (a_des, float(self.pos[j][2]), 0.0, None, False)
+            past_gate = s_here > s_ev + 0.5
+            self._miss_streak = self._miss_streak + 1 if past_gate else 0
+            if past_gate and self._miss_streak >= RETRY_CONFIRM_TICKS:
+                self._miss_streak = 0
+                if self._retry_gate != next_event:
+                    self._retry_gate, self._retry_count = next_event, 0
+                self._retry_count += 1
+                if self._retry_count > MAX_RETRIES_PER_GATE:
+                    # Confirmed misses on this SAME gate, repeatedly, after
+                    # already re-approaching along its own crossing normal
+                    # each time - further retries won't succeed where these
+                    # didn't (most likely a frame touch already froze scoring
+                    # for the rest of the run, per the RaceTracker rule).
+                    # Give up on it: fall through to normal tracking below
+                    # with the gate cap dropped, instead of oscillating here
+                    # forever with zero chance of credit.
+                    self._abandoned.add(next_event)
+                else:
+                    j = self._at_s(max(0.0, s_ev - 2.5))
+                    self.idx = j
+                    heading = self.event_heading[next_event]
+                    if heading is not None:
+                        # Re-approach ALONG THE GATE'S OWN CROSSING NORMAL,
+                        # not 2.5 m back along the smoothed spline's
+                        # arc-length. On a sharp turn the spline sample there
+                        # can sit on the WRONG leg of the turn (measured: at
+                        # a gate that reverses course, the arc-length retry
+                        # point landed on the inbound leg, well off the
+                        # gate's actual approach line - a straight-line pull
+                        # from there can never thread the opening). A point
+                        # on the gate's own normal is ALWAYS lined up for a
+                        # straight shot through the opening, on any course
+                        # geometry.
+                        gx, gy, gz = self.event_xyz[next_event]
+                        nx, ny = math.cos(heading), math.sin(heading)
+                        tx, ty, tz = gx - 2.5 * nx, gy - 2.5 * ny, gz
+                    else:   # older plan without heading_rad: old proxy
+                        tx, ty, tz = self.pos[j][0], self.pos[j][1], self.pos[j][2]
+                    a_des = (1.5 * f.kp_pos * (np.array([tx, ty]) - est.p[:2])
+                             - f.kd_pos * est.v[:2])
+                    a_max = self.cfg.a_lat_full()
+                    n = float(np.hypot(a_des[0], a_des[1]))
+                    if n > a_max:
+                        a_des *= a_max / n
+                    # Face the re-approach direction instead of freezing the
+                    # nose: a None yaw here left the drone's heading locked
+                    # from whatever it was doing when the miss was detected,
+                    # which on a sharp-turn gate points the camera/frame away
+                    # from the opening on every retry. Aim at the point
+                    # we're actually flying to.
+                    yaw_des = (math.atan2(a_des[1], a_des[0])
+                               if n > 0.05 else None)
+                    return (a_des, float(tz), 0.0, yaw_des, False)
 
         # RECOVERY: far off the line, plan feedforward is poison (it kept a
         # stalled drone hovering at a stable equilibrium 11 m off-course).
@@ -165,21 +274,109 @@ class Tracker:
         # velocity fed future speed-ups too early, cut corners, and arrived
         # at the stacked-gate climb at 4.9 m/s where the plan said 3);
         # position target from the carrot ahead
-        a_des = (self.acc[i][:2]
-                 + f.kp_pos * (self.pos[ic][:2] - est.p[:2])
-                 + f.kd_pos * (self.vel[i][:2] - est.v[:2]))
+        # Drag compensation: the plan's acc is NET of the measured drag
+        # ([vehicle] drag_*), so the thrust the loop must ask for is that
+        # plus the drag the plant takes back at this speed. Without it the
+        # kd term had to carry 9 m/s^2 of drag at 6 m/s as a permanent
+        # 2.3 m/s velocity deficit (race_029: every straight 1-6 m/s under
+        # plan). Along the CURRENT velocity - that is the direction the
+        # plant applies it.
+        v_h = float(np.hypot(est.v[0], est.v[1]))
+        a_drag_ff = ((self.cfg.a_drag(v_h) / v_h) * est.v[:2]
+                     if v_h > 0.3 else np.zeros(2))
+        e_pos = self.pos[ic][:2] - est.p[:2]
+        v_plan_here = float(np.hypot(self.vel[i][0], self.vel[i][1]))
+        # CROSS-TRACK ONLY position term (race_038): the carrot sits
+        # lookahead_t*v ahead ALONG the path, so kp * that distance is a
+        # permanent forward push (10-11 m/s^2 at kp 4, 8.7 m/s) that
+        # cancelled the speed loop's braking (kd -7) on the g3-g4 entry: the
+        # drone crossed g4 at 8.7 against a plan of 6.7 and ran outside
+        # from there to g6's post. Along-track position has no meaning for
+        # a speed-profile follower; the speed loop owns it.
+        if CARROT_CROSS_ONLY and v_h > 0.5:
+            u = est.v[:2] / v_h
+            # ...and measured to the NEAREST path point, not the carrot: on
+            # an arc the carrot's chord points inward, and at kp 4 that pull
+            # cut every arc 0.3 m inside and g7 by 0.85 m in replay. The
+            # carrot keeps its jobs for altitude and yaw below.
+            e_pos = self.pos[i][:2] - est.p[:2]
+            e_pos = e_pos - float(np.dot(e_pos, u)) * u
+        # Speed target: the plan speed HERE, except that an upcoming brake
+        # is anticipated (never a speed-up: chasing the carrot's speed fed
+        # accelerations too early and cut corners). The anticipation is
+        # the time the attitude needs to swing the thrust vector from
+        # "holding speed against drag" to "braking", so it scales with
+        # the drag share of the tilt: BRAKE_LOOKAHEAD_T at terminal
+        # speed, nothing in the slow loops (where replay showed it costs).
+        v_tgt = self.vel[i][:2]
+        share = self.cfg.a_drag(v_h) / self.cfg.a_lat_full()
+        t_la = BRAKE_LOOKAHEAD_T * max(0.0, (share - BRAKE_LA_SHARE0)
+                                       / max(1.0 - BRAKE_LA_SHARE0, 1e-6))
+        ib = self._at_s(s_here + t_la * v_h)
+        vb = float(np.hypot(self.vel[ib][0], self.vel[ib][1]))
+        vi = float(np.hypot(v_tgt[0], v_tgt[1]))
+        if vb < vi and vi > 1e-6:
+            v_tgt = v_tgt * (vb / vi)
+        # LEAD the feedforward: the attitude answers ~0.1 s late, so the
+        # plan's acceleration is taken ACC_LEAD_S ahead along the path
+        # (race_053: 0.3-0.5 m wide in every fast arc, banking for where
+        # the drone was). The cross-track and speed terms stay at the
+        # nearest point.
+        # ...but not inside a reversal fold: leading there hands the drone
+        # the pull-out push while it is still at the top of the stack, it
+        # holds 20-40 deg of tilt through the drop, the attitude
+        # corrections at idle throttle make lift and it hangs (race_055).
+        in_fold = self.hold_arr is not None and bool(self.hold_arr[i])
+        self.in_fold = in_fold    # the vertical feedforward is applied only here (race_063: on the takeoff climb it overshot g0's top bar)
+        i_ff = self._at_s(s_here + ACC_LEAD_S * v_h) if (ACC_LEAD_S > 0.0 and not in_fold) else i
+        a_ctrl = (self.acc[i_ff][:2] + f.kp_pos * e_pos
+                  + f.kd_pos * (v_tgt - est.v[:2]))
+        # No forward push once AT plan speed: the carrot's along-track
+        # part (kp * lookahead, 3.6 m/s^2 at 9.9 m/s) otherwise drives the
+        # drone past the plan; with the drag feedforward it summed to
+        # 27.7 on the g2-g3 straight, pinned the tilt at 68 deg and
+        # delivered the drone to the g4 turn at 9.9 m/s with no authority
+        # left (race_031). Only the forward NET component is cut, only
+        # when not slower than the plan - the loop entries, where the
+        # drone is below plan speed, keep the pull-through (removing it
+        # there cost +0.13..0.4 m at g7 in replay).
+        drag_share = self.cfg.a_drag(v_h) / self.cfg.a_lat_full()
+        if (NO_OVERSPEED_PUSH and v_h > 0.5 and v_h >= v_plan_here
+                and drag_share >= OVERSPEED_SHARE0):
+            u = est.v[:2] / v_h
+            fwd = float(np.dot(a_ctrl, u))
+            if fwd > 0.0:
+                a_ctrl = a_ctrl - fwd * u
+        a_des = a_ctrl + a_drag_ff
+        # Priority clamp: the ONE thrust vector is bounded by max tilt.
+        # A uniform scale-down took the turn away together with the
+        # brake (race_031, 3 m wide). Keep the cross-track component
+        # (never go wide), give the along-track component what is left
+        # (go slow instead).
         a_max = self.cfg.a_lat_full()
-        norm = float(np.hypot(a_des[0], a_des[1]))
-        if norm > a_max:
-            a_des *= a_max / norm
+        if PRIORITY_CLAMP and v_h > 0.5:
+            u = est.v[:2] / v_h
+            n_ = np.array([-u[1], u[0]])
+            cross = max(-a_max, min(a_max, float(np.dot(a_des, n_))))
+            room = math.sqrt(max(a_max * a_max - cross * cross, 0.0))
+            along = max(-room, min(room, float(np.dot(a_des, u))))
+            a_des = along * u + cross * n_
+        else:
+            norm = float(np.hypot(a_des[0], a_des[1]))
+            if norm > a_max:
+                a_des *= a_max / norm
 
         z_target = float(self.pos[ic][2])
         vz_ff = float(self.vel[ic][2])
+        self.az_ff = float(self.acc[ic][2]) if self.acc.shape[1] > 2 else 0.0
 
         iy = self._at_s(s_here + f.yaw_lookahead_m)
-        tvec = self.vel[iy]
-        txy = math.hypot(tvec[0], tvec[1])
-        yaw_des = math.atan2(tvec[1], tvec[0]) if txy > 0.3 else None
+        if self.yaw_arr is not None:
+            yaw_des = float(self.yaw_arr[iy])
+        else:
+            tvec = self.vel[iy]
+            txy = math.hypot(tvec[0], tvec[1])
+            yaw_des = math.atan2(tvec[1], tvec[0]) if txy > 0.3 else None
 
         done = (self.s[-1] - s_here < 1.0
                 and float(np.linalg.norm(self.pos[-1] - est.p)) < 1.5)
@@ -194,14 +391,51 @@ _SOURCE = GroundTruthSource()
 _TRACKER = Tracker(PLAN, CFG)
 _ALT = AltitudeLoop(CFG)
 _YAW = YawLoop(CFG)
-_state = {"done_t": None, "dbg_t": 0.0}
+LAND_RATE_MPS = 1.0   # descent after the finish (see autopilot)
+_state = {"done_t": None, "dbg_t": 0.0, "trace": None, "trace_n": 0}
+
+# Per-tick trace, decimated to TRACE_EVERY ticks (~100 Hz at the 1 kHz
+# control rate), flushed every second so a crash still leaves the file.
+# The 1 Hz heartbeat below cannot resolve a 2 s altitude ring; this can.
+TRACE_EVERY = 10
+TRACE_COLS = ("t,s,gate,x,y,z,vx,vy,vz,z_target,vz_ff,ax_des,ay_des,"
+              "cos_tilt,wx,wy,a_z_cmd,thrust_cmd,roll,pitch,throttle,yaw,"
+              "m_mean,m_min,m_max\n")
+
+
+def _motor_stats(update) -> str:
+    """mean,min,max of Betaflight's normalized motor outputs (sim only)."""
+    m = getattr(update, "motors", None)
+    if m is None or len(m) == 0:
+        return "nan,nan,nan"
+    return f"{float(np.mean(m)):.3f},{float(np.min(m)):.3f},{float(np.max(m)):.3f}"
+
+
+def _trace_open():
+    if os.environ.get("AIGP_NO_TRACE"):
+        return None
+    try:
+        from raceline.config import AIGP_REPO
+        from raceline.planner import next_numbered
+        path = next_numbered(str(AIGP_REPO / "out" / "flightlogs"
+                                 / "race_XXX.csv"))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fh = open(path, "w", encoding="utf-8")
+        fh.write(TRACE_COLS)
+        print(f"[RACELINE] trace -> {path}")
+        return fh
+    except OSError as e:          # never let logging ground the pilot
+        print(f"[RACELINE] trace disabled: {e}")
+        return None
 
 
 def reset_state() -> None:
     _TRACKER.reset()
     _ALT.reset()
     _YAW.reset()
-    _state.update(done_t=None, dbg_t=0.0)
+    if _state["trace"] is not None:
+        _state["trace"].close()
+    _state.update(done_t=None, dbg_t=0.0, trace=None, trace_n=0)
 
 
 def autopilot(update: SensorUpdate) -> RCCommand:
@@ -215,28 +449,133 @@ def autopilot(update: SensorUpdate) -> RCCommand:
     a_des, z_target, vz_ff, yaw_des, done = _TRACKER.step(
         est, update.next_gate_index)
 
-    if done:
+    if done or _state["done_t"] is not None:
+        # LATCHED: once the last crossing is credited the race is over. The
+        # old 1 s idle-and-disarm dropped the drone from 1.1 m; on the ground
+        # the tracker's recovery branch took over and slid it into g0's frame
+        # (race_143, contact 2.7 s after the finish). Hold the park point and
+        # descend at LAND_RATE_MPS, disarm on the deck.
         if _state["done_t"] is None:
             _state["done_t"] = t
-        if t - _state["done_t"] > 1.0:
-            return RCCommand(arm=1000, throttle=1000)   # land/disarm
+        dt_done = t - _state["done_t"]
+        f = CFG.follower
+        park = _TRACKER.pos[-1]
+        a_des = f.kp_pos * (park[:2] - est.p[:2]) - f.kd_pos * est.v[:2]
+        z_target = max(0.0, float(park[2]) - LAND_RATE_MPS * dt_done)
+        vz_ff = -LAND_RATE_MPS if z_target > 0.0 else 0.0
+        if est.p[2] < 0.10 and dt_done > 0.5:
+            return RCCommand(arm=1000, throttle=1000)
 
     airborne = est.p[2] >= CFG.follower.min_alt_translation_m
     throttle = _ALT.throttle(update.t, est, z_target, vz_ff, airborne,
-                             update.baro_fresh)
+                             update.baro_fresh,
+                             (AZ_FF_GAIN * getattr(_TRACKER, 'az_ff', 0.0)) if getattr(_TRACKER, 'in_fold', False) else 0.0)
+    # THRUST-VECTOR BUDGET, vertical first (Brian, race_044): the motors
+    # make T_MAX of specific thrust in total. The altitude loop states its
+    # vertical need (g + a_cmd); the horizontal gets what is left inside
+    # THRUST_BUDGET_SHARE * T_MAX, and the tilt clamp (75 deg) only bounds
+    # it further. On a level straight that is ~73 deg and 11 m/s; when
+    # altitude needs thrust (climb, stack pull-out, a sagging corner) the
+    # tilt pulls back by itself. At a fixed 75 deg clamp the horizontal
+    # alone took 36.6 of 37.5 and the drone sank 1.44 -> 0.58 m into g5.
+    if airborne and THRUST_BUDGET_SHARE > 0.0:
+        th_z = 9.81 + float(_ALT.a_cmd)
+        t_cap = THRUST_BUDGET_SHARE * float(max(CFG.thrust.curve_acc))
+        h_cap = math.sqrt(max(t_cap * t_cap - th_z * th_z, 0.0))
+        v_h = float(np.hypot(est.v[0], est.v[1]))
+        if v_h > 0.5:
+            u = est.v[:2] / v_h
+            n_ = np.array([-u[1], u[0]])
+            cross = max(-h_cap, min(h_cap, float(np.dot(a_des[:2], n_))))
+            room = math.sqrt(max(h_cap * h_cap - cross * cross, 0.0))
+            along = max(-room, min(room, float(np.dot(a_des[:2], u))))
+            a_des = np.array([*(along * u + cross * n_), *a_des[2:]]) if len(a_des) > 2 else along * u + cross * n_
+        else:
+            nrm = float(np.hypot(a_des[0], a_des[1]))
+            if nrm > h_cap:
+                a_des = a_des * (h_cap / nrm)
+    # No attitude demand the motors cannot honour (race_056): through the
+    # stack's drop the throttle sits at idle while the follower still asks
+    # 30-60 deg of tilt for the reversal push; the mixer makes lift out of
+    # the roll/pitch corrections (motor mean 0.1-0.4 at throttle 1000) and
+    # the drone falls at half of g. Below hover the horizontal demand
+    # scales with the collective the mixer has; at idle it is zero and the
+    # drone falls at g; the full push returns with the throttle.
+    if airborne and ATT_IDLE_SCALE:
+        span = float(CFG.thrust.hover_pwm - 1000)
+        frac = max(0.0, min(1.0, (float(throttle) - 1000.0) / max(span, 1.0)))
+        if frac < 1.0:
+            a_des = a_des * frac
+    # COHERENT THRUST VECTOR (race_057): the throttle is the magnitude of the
+    # vector the follower wants, (a_h, g + a_z) with a_z clipped at 85% of
+    # free fall, and the tilt is its angle. Through the stack's drop that is
+    # ~10 m/s^2 at ~75 deg: the drone still falls at ~8 m/s^2 AND keeps its
+    # horizontal authority, riding on a real collective instead of idle.
+    # Idle throttle with zero demand fell cleanly but drifted 2 m off the
+    # line with no way to correct (race_057, stack 2.5 s); idle throttle
+    # with a demand made lift out of the corrections (race_056, float).
+    az_eff = float(_ALT.a_cmd)
+    if airborne and THRUST_VECTOR_MODE:
+        az_eff = max(az_eff, -VECTOR_FREEFALL_SHARE * 9.81)
+        gz = 9.81 + az_eff
+        a_h = float(np.hypot(a_des[0], a_des[1]))
+        # tilt cap in descent: a wrong-direction horizontal demand at 80 deg
+        # is a sideways shove at pull-out (races 046, 051)
+        # the cap applies while DESCENDING only (race_059: applied always it
+        # held the straights to 17 m/s^2 of drag and 8 m/s)
+        # ...and only in a REAL descent (vertical thrust below half of hover):
+        # any slightly negative altitude demand on a straight (riding a few
+        # cm high) put the cap on at a reduced gz and held the drag
+        # feedforward to 13 m/s^2 - race_060 lost 1.5 m/s on every straight
+        max_h = gz * math.tan(math.radians(VECTOR_TILT_MAX_DEG)) if gz < 0.5 * 9.81 else float("inf")
+        if a_h > max_h and a_h > 1e-6:
+            a_des = a_des * (max_h / a_h)
+            a_h = max_h
+        t_mag = math.sqrt(a_h * a_h + gz * gz)
+        throttle = int(round(CFG.pwm_for_thrust(t_mag)))
     roll = pitch = yaw_stick = 1500
     if airborne:
-        roll, pitch, eb = attitude_sticks(CFG, est, a_des)
+        roll, pitch, eb = attitude_sticks(CFG, est, a_des, az_eff)
         yaw_stick = _YAW.stick(est, yaw_des)
+        # No yaw demand when the motors cannot deliver it: through the
+        # stack the throttle sits at minimum for ~1 s and the yaw loop kept
+        # 60-140 PWM on the stick for a 30 deg error it could never close.
+        # Betaflight then lifts two motors to make the torque, the mean
+        # motor output stays at 0.2-0.4 instead of idle, and the drone
+        # hangs 0.6 s at 3.7 m (race_039-041). Below hover minus
+        # YAW_IDLE_BAND the stick stays centred; the heading is held
+        # again as soon as there is throttle to hold it with.
+        if throttle < CFG.thrust.hover_pwm - YAW_IDLE_BAND:
+            yaw_stick = 1500
+    cos_tilt = float(est.R[2, 2])
+    _state["trace_n"] += 1
+    if _state["trace_n"] == 1:
+        _state["trace"] = _trace_open()
+    fh = _state["trace"]
+    if fh is not None and _state["trace_n"] % TRACE_EVERY == 0:
+        w = est.omega if est.omega is not None else (0.0, 0.0, 0.0)
+        fh.write(f"{t:.3f},{_TRACKER.s[_TRACKER.idx]:.2f},"
+                 f"{update.next_gate_index},"
+                 f"{est.p[0]:.3f},{est.p[1]:.3f},{est.p[2]:.3f},"
+                 f"{est.v[0]:.3f},{est.v[1]:.3f},{est.v[2]:.3f},"
+                 f"{z_target:.3f},{vz_ff:.3f},{a_des[0]:.2f},{a_des[1]:.2f},"
+                 f"{cos_tilt:.3f},{w[0]:.2f},{w[1]:.2f},"
+                 f"{_ALT.a_cmd:.2f},{_ALT.thrust:.2f},"
+                 f"{roll},{pitch},{throttle},{yaw_stick},"
+                 f"{_motor_stats(update)}\n")
     # heartbeat ALWAYS prints - a crash below 1 m used to go silent for
     # 23 s while the drone skidded 140 m (measured); crashes must narrate
     if t - _state["dbg_t"] >= 1.0:
         _state["dbg_t"] = t
+        if fh is not None:
+            fh.flush()
         i = _TRACKER.idx
+        tilt_deg = math.degrees(math.acos(max(-1.0, min(1.0, cos_tilt))))
         print(f"[RL] t={t:5.1f} s={_TRACKER.s[i]:6.1f} "
               f"p=({est.p[0]:+5.1f},{est.p[1]:+5.1f},{est.p[2]:4.2f}) "
               f"v={np.linalg.norm(est.v):4.2f} "
               f"xtrack={np.linalg.norm(_TRACKER.pos[i] - est.p):4.2f} "
+              f"zt={z_target:4.2f} tilt={tilt_deg:3.0f} az={_ALT.a_cmd:+4.1f} "
               f"air={airborne} stk=({roll},{pitch},{throttle},{yaw_stick})")
 
     return RCCommand(arm=1800, throttle=throttle, roll=roll, pitch=pitch,

@@ -1,4 +1,0 @@
-trial,entry_speed_target,entry_speed_actual,bank_rad,forward_distance,lateral_offset,longitudinal_offset,outcome
-feas_v4_bank0.5,4.0,7.5588149886343645,0.5,15.0,0.0,-0.0,floor
-feas_v7_bank0.5,7.0,,0.5,15.0,,,floor
-feas_v9_bank0.5,9.0,9.013462900359997,0.5,15.0,3.4828725383901564,14.503945906171346,completed

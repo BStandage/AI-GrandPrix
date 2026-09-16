@@ -1,0 +1,78 @@
+@startuml pipeline
+title AI-GrandPrix race pipeline (as of 2026-09-10)
+skinparam shadowing false
+skinparam linetype ortho
+skinparam nodesep 30
+skinparam ranksep 40
+skinparam defaultFontName Arial
+skinparam rectangle {
+  BackgroundColor #F7F7F7
+  BorderColor #444444
+}
+skinparam note {
+  BackgroundColor #FFFBE6
+  BorderColor #999999
+}
+
+package "1. PLAN (offline, AI-GrandPrix)" as PLAN {
+  rectangle "python race.py --plan-only" as RACEPY
+  rectangle "raceline/course.py\nload_course()\ndata/course_map.json" as COURSE
+  rectangle "raceline/planner.py\nplan(cfg)\n- per-gate anchors (rules)\n- Catmull-Rom spline\n- 3D thrust-vector speed profile" as PLANNER
+  rectangle "config/vehicle.toml\nplant limits + follower gains" as TOML
+  rectangle "raceline/line_opt.py\noptimize()\nREPAIR ONLY: runs iff the rule\nplan touches a gate frame" as LINEOPT
+  rectangle "raceline/render_plan.py" as RENDER
+  rectangle "out/plans/plan_NNN.json + .png" as PLANJSON
+}
+
+package "2. PROMOTE (manual)" as PROMO {
+  rectangle "copy plan_NNN.json/.png\n-> out/plans/plan_RACE.json/.png\n(the ONLY plan the sim flies)" as PLANRACE
+}
+
+package "3. VALIDATE (offline, scratch tools - not in repo yet)" as VAL {
+  rectangle "twin_plan.py + replay_events.py\nkinematic follower replay vs referee\ngate geometry: 25/25 or not" as REPLAY
+}
+
+package "4. FLY (elodin-sim-aigp, Docker)" as FLY {
+  rectangle "run_race_docker.cmd [solver]\ndocker compose up" as LAUNCH
+  rectangle "docker/entrypoint.sh\n- uv sync\n- eeprom regen if configure_betaflight.py hash changed\n- AIGP_TRAJ = plan_RACE.json (else newest plan_*.json)\n- toml = plan's config_path" as ENTRY
+  rectangle "uv run elodin run sim/main.py\nRACE_SOLVER=solvers.follower" as ELODIN
+  rectangle "solvers/follower.py\n- Tracker: nearest-point cross-track, speed loop,\n  drag + accel feedforward\n- thrust-vector budget (vertical first)\n- attitude_sticks (tilt vs g + a_z), AltitudeLoop, YawLoop" as FOLLOWER
+  rectangle "Betaflight SITL\n(eeprom.bin: stock PIDs, FF off, ACTUAL linear rates)" as BF
+  rectangle "referee (sim/main.py)\ngates, contacts, laps" as REF
+  rectangle "out/flightlogs/race_NNN.csv\nrace_result_000.json" as LOGS
+}
+
+package "5. ANALYSE (ad-hoc scripts this session)" as ANA {
+  rectangle "per-gate model vs flown\nloop decompositions\ntracking error vs demand" as ANALYSIS
+}
+
+RACEPY --> COURSE
+RACEPY --> PLANNER
+TOML --> PLANNER
+COURSE --> PLANNER
+PLANNER --> LINEOPT : frame contact > 0
+PLANNER --> RENDER : frame contact == 0
+LINEOPT --> RENDER
+RENDER --> PLANJSON
+PLANJSON --> PLANRACE
+PLANRACE --> REPLAY
+REPLAY --> LAUNCH : 25/25
+LAUNCH --> ENTRY
+ENTRY --> ELODIN
+ELODIN --> FOLLOWER : imports from AI-GrandPrix/src
+PLANRACE -[norank]-> FOLLOWER : AIGP_TRAJ at import
+TOML -[norank]-> FOLLOWER
+FOLLOWER --> BF : RC sticks (UDP)
+BF -[norank]-> ELODIN : motors
+ELODIN --> REF
+REF --> LOGS
+LOGS --> ANALYSIS
+ANALYSIS -[norank,#555555,dashed]-> TOML : change a limit or gain
+ANALYSIS -[norank,#555555,dashed]-> PLANNER : change a rule or constant
+
+note bottom of LINEOPT
+  Not a line search. Fired once today (plan_010),
+  never flown. The global line optimizer
+  discussed on 2026-09-10 does not exist yet.
+end note
+@enduml

@@ -37,9 +37,17 @@ the render). Sim env setup: `docs/ELODIN_SIM_SETUP.md`.
   The sim tracker's `race_result` is the run record; only real flight
   proves anything.
 - Reference points: the stop-and-center pilot, 24/24 in 225.3 s over 2
-  laps (2026-08-27); the current stack, 12/12 in 40.33 s single-lap with
-  zero contacts (2026-08-29). Race length = `[planner] laps` (dev
-  default 1).
+  laps (estimate map, 2026-08-27); the current stack, **23/23 in
+  29.55 s** over 2 laps with zero contacts on the published map
+  (race_160, 2026-09-15). Race length = `[planner] laps` (default 2 =
+  23 events: start g0 + 11 crossings per lap).
+- The course is PUBLISHED (`data/course_map.json`, organizer table of
+  2026-09-15; the 2026-08-27 overhead estimate is kept as
+  `data/course_map_overhead_estimate.json`). Labels are traversal order:
+  gK = organizer gate K+1, g8 = the double gate (top opening south at
+  4.05 m - an estimate, unpublished - then the low opening north), g9 =
+  gate 10. The drone starts on the dashed line 7.3 m behind gate 1
+  (`meta.start`); the sim spawns there.
 
 ## What lives where
 
@@ -48,7 +56,11 @@ the render). Sim env setup: `docs/ELODIN_SIM_SETUP.md`.
 | Tuning surface | `config/vehicle.toml` (strict loader: typos fail loudly) |
 | Planner | `src/raceline/planner.py` |
 | Follower (solver) | `src/solvers/follower.py`, `RACE_SOLVER=solvers.follower` |
-| Line optimizer | `src/raceline/line_opt.py` (`--free` = learned crossing poses) |
+| Line optimizer | `src/raceline/line_opt.py` (`--free` = learned crossing poses, needs scipy) |
+| Line search (the working one) | `src/raceline/line_search.py` - per-crossing knobs searched against the model with the calibrated replay as guard; its outputs are the seed dicts at the top of `planner.py` |
+| Batch validation | `src/raceline/batch_fly.py` - flies plans through the Docker sim and tabulates the referee (`cd src` first) |
+| Speed ladder | `src/raceline.ladder` -> `config/ladder/vehicle_<T>s.toml` + `out/plans/plan_LADDER_<T>s.json`, centred crossings, for race-day binary search |
+| Course map | `data/course_map.json` (published), loader `src/common/course_map.py`, 3D viewer `viz/course_viewer.html` |
 | RC backend (shared loops) | `src/raceline/rc_backend.py` |
 | One-command loop | `race.py` |
 | Course bridge | `src/raceline/course.py` (imports the sim repo's `sim.pq_course`) |
@@ -62,8 +74,9 @@ diagonal blend to cruise, so the profile accelerates from the first
 meter. Then anchors per crossing (`center +- standoff*normal`) with a
 two-value standoff: the base value normally, the larger
 `anchor_standoff_turn_m` on both sides of any junction whose actual
-TRAVEL turns more than `turn_angle_deg` (covers the g10 out-and-back and
-the g7 switchback with one rule). The path is a STRAIGHT segment through
+TRAVEL turns more than `turn_angle_deg` (covers the g8 out-and-back and
+the g5 switchback with one rule; labels are traversal order on the
+published map, g0 = organizer gate 1, gK = gate K+1). The path is a STRAIGHT segment through
 every opening (pre -> center -> post is linear - the hole is never
 curved) with centripetal Catmull-Rom between gates. The base planner
 crosses along each gate's normal; `line_opt --free` may LEARN the
@@ -78,8 +91,8 @@ Timestamps and feedforward accel fall out.
 
 Every plan run prints the CHECK line: the speed-profile minimum and where
 it sits. A near-zero minimum somewhere unexpected means a bad plan -
-fix the plan, don't tune the follower around it. (The known-real minimums are the g7
-switchback and the g10 stack: the course genuinely reverses there.)
+fix the plan, don't tune the follower around it. (The known-real minimums are the g5
+switchback and the g8 stack: the course genuinely reverses there.)
 
 ## How the follower flies it
 
@@ -127,7 +140,8 @@ receives **IMU data** back - nothing else. So the stack splits cleanly:
 | Planner + plan JSON | unchanged | **unchanged** (new course map in, plan out) |
 | Follower `Tracker` | unchanged | **unchanged** (pure: state + plan -> desired accel/yaw) |
 | Follower `StateSource` | ground-truth pose from the sim | **swapped**: estimator on FC IMU (UART) + camera gate fixes |
-| RC output | `RCCommand` -> sim bridge packets | **swapped**: same channel values written to the FC over UART (Betaflight <= 2026.6.1) |
+| RC output | `RCCommand` -> sim bridge packets | **swapped**: same channel values sent as MSP RC frames over `/dev/ttyTHS1` at 115200 (Betaflight 4.5.x on the Archer; organizer libraries `~/target/msp/msp.py`, `msp_rc.py`) |
+| Attitude loop | our thrust-vector loop at 1 kHz on ground truth (ACRO) | **open decision**: MSP is polled at 30-50 Hz, and the organizers say flight-rate loops belong inside Betaflight -> ANGLE mode with angle setpoints from us is the candidate; the follower needs that output variant |
 | Scoring | `sim/pq_course.RaceTracker` | the organizers' clock |
 
 The two "swapped" rows are deliberately thin adapters - that was the

@@ -1,7 +1,19 @@
 > ## Team members: start here
 >
 > Everything below this box is the organizers' original dev-kit readme
-> (the OLD Windows sim era). Our current stack races in the **elodin sim**:
+> (the OLD Windows sim era). Our current stack races in the **elodin sim**
+> on the organizers' **published** September course.
+>
+> **Where things stand (2026-09-15):** `data/course_map.json` is the
+> organizer's published gate table (10 gates, 85 x 165 ft, gate 9 is the
+> double; code labels are traversal order, g0 = gate 1, g8 = the double).
+> The sim flies it clean: 23/23 crossings in 29.55 s over two laps
+> (`out/plans/plan_RACE.json`). A speed ladder (`raceline.ladder`) builds
+> slower, centred-crossing plans for race-day binary search. The Archer's
+> flight controller is Betaflight 4.5.x; the sim's SITL is being pinned to
+> 4.5.5 (sim branch `feature/betaflight-4.5`). Nothing flies on hardware
+> yet: the MSP bridge, the ANGLE-mode output and the estimator are the
+> open work.
 >
 > | You want to... | Go to |
 > |---|---|
@@ -11,10 +23,18 @@
 > | Write or tune a solver | `src/solvers/README.md` |
 > | Understand the stack's design | `docs/RACING_LINE_STACK.md` |
 > | Know what's banned before planning | `RESTRICTIONS.md` (read it first) |
-> | September physical-race facts | `src/PQ_SPECS_INTAKE.md`, `src/PQ_PROCEDURE.md` |
+> | September physical-race facts, the published course, the Orin board | `src/PQ_SPECS_INTAKE.md` |
+> | Day-0 / day-1 procedure and the race-day binary search | `src/PQ_PROCEDURE.md` |
+> | The course in 3D | `viz/course_viewer.html` (keep private until after the qualifier) |
 >
-> Tune ONLY `config/vehicle.toml`. Race with `race.cmd`. Old tape-era code
-> lives in `src/_archive/` - reference, not a starting point.
+> Tune ONLY `config/vehicle.toml`. Race with `race.cmd` (or `python race.py`
+> from the repo root). The `raceline.*` modules run from `src/`:
+> `cd src && python -m raceline.batch_fly ../out/plans/plan_RACE.json`.
+> The tape-era code (pilots, tape tools, MAVLink comms, the old runtime)
+> and the overhead-image map extractor were removed on 2026-09-15; git
+> history has them. Plans made on the pre-publication course estimate are
+> archived under `out/plans/archive_20260915_estimate_map/`. Organizer
+> spec PDFs live in `docs/specs/`.
 
 ## AI Grand Prix (AI-GP) Development Kit
 Conceived by Anduril founder Palmer Luckey and partnered with the Drone Champions League (DCL), Neros Technologies, and JobsOhio, AI-GP is a premier autonomous drone racing competition.
