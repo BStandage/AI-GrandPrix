@@ -18,9 +18,15 @@ import numpy as np
 from raceline.rc_backend import rot_from_quat
 from seeker.brain import Detection
 
-CAM_TILT_RAD = math.radians(20.0)
-HALF_TAN_X = 1.0          # 320 / 320
-HALF_TAN_Y = 0.5625       # 180 / 320
+import os
+
+# Camera geometry. Defaults = the spec camera (640x360, fx 320, 20 deg up).
+# Override to study a different mount / lens: AIGP_CAM_TILT_DEG=35
+# AIGP_CAM_HFOV_DEG=120 (vertical FOV follows the 16:9 sensor).
+CAM_TILT_RAD = math.radians(float(os.environ.get("AIGP_CAM_TILT_DEG", "20")))
+_HFOV = math.radians(float(os.environ.get("AIGP_CAM_HFOV_DEG", "90")))
+HALF_TAN_X = math.tan(_HFOV / 2.0)              # 1.0 for 90 deg
+HALF_TAN_Y = HALF_TAN_X * 9.0 / 16.0            # 0.5625 for the spec camera
 GATE_OUTER_M = 2.7
 FACING_LIMIT_RAD = math.radians(60.0)
 
