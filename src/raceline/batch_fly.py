@@ -70,6 +70,8 @@ def fly(plan_path: Path, timeout_s: float = 200.0, solver: str = "solvers.follow
     env = dict(os.environ)
     env["RACE_SOLVER"] = solver
     env["AIGP_ANGLE_MODE"] = "1" if angle_mode else "0"
+    env.setdefault("AIGP_SEEKER_CFG", "{}")
+    env.setdefault("AIGP_STATE_SOURCE", "ground_truth")
     toml = config or plan_toml(plan_path)
     if toml is not None:
         trel = toml.resolve().relative_to(AIGP_REPO.resolve())

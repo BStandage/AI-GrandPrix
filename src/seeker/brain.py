@@ -59,6 +59,7 @@ class Detection:
     offset_y: float       # -1 top .. +1 bottom
     area_frac: float      # ring area as a fraction of the frame
     t: float              # time the frame was taken
+    range_m: float | None = None   # range estimate when the detector has one
 
 
 @dataclass
@@ -80,8 +81,10 @@ class SeekerConfig:
     k_yaw: float = 0.6                 # yaw nudge (rad) per unit offset_x while tracking
     yaw_nudge_max_rad: float = 0.15    # per-tick bound on that nudge
     yaw_freeze_area_frac: float = 0.05 # gate this big: stop yawing at it, centre with roll only
-    k_lat: float = 2.5                 # lateral accel (m/s^2) per unit offset_x
-    commit_area_frac: float = 0.12     # ring this big = about to cross, camera can no longer aim
+    k_lat: float = 4.0                 # lateral accel (m/s^2) per unit offset_x
+    commit_area_frac: float = 0.16     # ring this big = about to cross, camera can no longer aim
+    track_slow_gain: float = 1.5       # forward tilt scales by max(0.3, 1 - gain*|offset_x|): off-axis = slow down
+    yaw_freeze_offset: float = 0.25    # freeze the yaw nudge only when the gate is this centred
     commit_s: float = 1.6              # time to fly straight through after committing
     past_gate_m: float = 1.5           # where the drone is after COMMIT: this far past the opening
     approach_m: float = 6.5            # the point in front of a gate a dogleg aims for
@@ -377,13 +380,14 @@ class SeekerBrain:
                 self.yaw_hold = c.heading_rad                # cross along the opening's normal (the map knows it)
                 self._enter("COMMIT", t)
                 return self.step(t, yaw, z, vz, None)
-            if det.area_frac < cfg.yaw_freeze_area_frac:
+            if det.area_frac < cfg.yaw_freeze_area_frac or abs(det.offset_x) > cfg.yaw_freeze_offset:
                 nudge = max(-cfg.yaw_nudge_max_rad, min(cfg.yaw_nudge_max_rad, cfg.k_yaw * det.offset_x))
                 yaw_t = yaw - nudge                          # gate right -> yaw right (negative)
             else:
-                # close: hold the nose on the opening's normal, centre with roll
+                # close and centred: hold the nose on the opening's normal, centre with roll
                 yaw_t = c.heading_rad
-            a_fwd = self._fwd(yaw, cfg.cruise_tilt_deg)
+            slow = max(0.3, 1.0 - cfg.track_slow_gain * abs(det.offset_x))
+            a_fwd = self._fwd(yaw, cfg.cruise_tilt_deg * slow)
             a_lat = self._lateral(yaw, cfg.k_lat * det.offset_x)
             self.yaw_hold = yaw_t
             return Command((a_fwd[0] + a_lat[0], a_fwd[1] + a_lat[1]), c.z, yaw_t, "TRACK", k)

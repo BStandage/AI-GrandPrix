@@ -395,8 +395,39 @@ class Tracker:
 # RC backend (proven loops from solver/pq_waypoints.py, gains from the toml)
 # ---------------------------------------------------------------------------
 
-_SOURCE = GroundTruthSource()
+# STATE SOURCE. ground_truth (default): the sim's exact pose - the number the
+# real drone does not have. deadreckon: vision-aided dead reckoning
+# (seeker.dr_estimator): IMU integrated on the attitude, barometer for
+# altitude, and a position fix from every sighting of the next gate (in the
+# sim the sighting comes from the synthetic camera). This is the state
+# source the Archer flies on.
+STATE_SOURCE = os.environ.get("AIGP_STATE_SOURCE", "ground_truth")
+if STATE_SOURCE == "deadreckon":
+    from seeker.dr_estimator import DeadReckonSource
+    from seeker import synthetic_camera as _cam
+    _SOURCE = DeadReckonSource()
+    print("[RACELINE] state source: vision-aided DEAD RECKONING (no ground-truth position)")
+else:
+    _SOURCE = GroundTruthSource()
+    print("[RACELINE] state source: ground truth")
 _TRACKER = Tracker(PLAN, CFG)
+_FIX = {"n": 0, "last_res": 0.0, "t_det": -1.0, "err": 0.0}
+# YAW POLICY. The plan's yaw follows the path tangent, which points the
+# camera away from the gate through a hairpin exactly when the estimator
+# needs to see it. With dead reckoning the nose aims at the next gate
+# instead (thrust-vector control does not care where the nose points),
+# handing back to the tracker's crossing heading inside 2 m of the gate.
+AIM_AT_GATE = os.environ.get("AIGP_YAW_AT_GATE", "1" if STATE_SOURCE == "deadreckon" else "0") == "1"
+AIM_HANDOFF_M = 2.0
+# unique gate landmarks (xyz + crossing heading) from the plan's events; the
+# stacked pair is two landmarks at one XY
+_GATE_LANDMARKS = []
+_seen_lm = set()
+for _e in PLAN["events"]:
+    _key = (round(_e["x"], 2), round(_e["y"], 2), round(_e["z"], 2))
+    if _e.get("heading_rad") is not None and _key not in _seen_lm:
+        _seen_lm.add(_key)
+        _GATE_LANDMARKS.append((_e["x"], _e["y"], _e["z"], _e["heading_rad"]))
 _ALT = AltitudeLoop(CFG)
 _YAW = YawLoop(CFG)
 LAND_RATE_MPS = 1.0   # descent after the finish (see autopilot)
@@ -454,8 +485,32 @@ def autopilot(update: SensorUpdate) -> RCCommand:
         return RCCommand(arm=1800, throttle=1000, aux2=AUX2)
 
     est = _SOURCE.estimate(update)
+    if STATE_SOURCE == "deadreckon":
+        # any known gate in view -> position fix (30 Hz like a camera). The map
+        # is trusted, so every gate is a landmark, not only the next one: during
+        # a hairpin the camera sees the gate it just left.
+        if t - _FIX["t_det"] >= 1.0 / 30.0:
+            _FIX["t_det"] = t
+            best = None
+            for gx, gy, gz, gh in _GATE_LANDMARKS:
+                det = _cam.detect(update.world_pos, gx, gy, gz, gh, t)
+                if det is not None and (best is None or det.area_frac > best[0].area_frac):
+                    best = (det, (gx, gy, gz))
+            if best is not None:
+                _FIX["last_res"] = _SOURCE.apply_fix(best[0], best[1])
+                _FIX["n"] += 1
+                est = _SOURCE.last_est
+                est.p[:] = _SOURCE.p
+                est.v[:] = _SOURCE.v
+        truth = np.asarray(update.world_pos[4:7], dtype=float)
+        _FIX["err"] = float(np.hypot(est.p[0] - truth[0], est.p[1] - truth[1]))
     a_des, z_target, vz_ff, yaw_des, done = _TRACKER.step(
         est, update.next_gate_index)
+    if AIM_AT_GATE and not done and 0 <= update.next_gate_index < len(_TRACKER.event_xyz):
+        gx, gy, _gz = _TRACKER.event_xyz[update.next_gate_index]
+        dxg, dyg = gx - float(est.p[0]), gy - float(est.p[1])
+        if math.hypot(dxg, dyg) > AIM_HANDOFF_M:
+            yaw_des = math.atan2(dyg, dxg)
 
     if done or _state["done_t"] is not None:
         # LATCHED: once the last crossing is credited the race is over. The
@@ -587,7 +642,8 @@ def autopilot(update: SensorUpdate) -> RCCommand:
               f"v={np.linalg.norm(est.v):4.2f} "
               f"xtrack={np.linalg.norm(_TRACKER.pos[i] - est.p):4.2f} "
               f"zt={z_target:4.2f} tilt={tilt_deg:3.0f} az={_ALT.a_cmd:+4.1f} "
-              f"air={airborne} stk=({roll},{pitch},{throttle},{yaw_stick})")
+              f"air={airborne} stk=({roll},{pitch},{throttle},{yaw_stick})"
+              + (f" DR err={_FIX['err']:.2f}m fixes={_FIX['n']} res={_FIX['last_res']:.2f}" if STATE_SOURCE == "deadreckon" else ""))
 
     return RCCommand(arm=1800, throttle=throttle, roll=roll, pitch=pitch,
                      yaw=yaw_stick, aux2=AUX2)

@@ -45,8 +45,13 @@ CFG = load_config(os.environ.get("AIGP_VEHICLE_TOML"))
 DET_SOURCE = os.environ.get("AIGP_SEEKER_DET", "synthetic")
 LAPS = int(os.environ.get("AIGP_LAPS", "2"))
 _COURSE = course_bridge.load_course(laps=LAPS)
+# Seeker tuning overrides: AIGP_SEEKER_CFG='{"cruise_tilt_deg": 14, "turn_in_place_rad": 1.0}'
+import json as _json
+_SCFG = SeekerConfig(**_json.loads(os.environ.get("AIGP_SEEKER_CFG", "{}")))
+print(f"[SEEKER] config: tilt {_SCFG.cruise_tilt_deg} deg, v_creep {_SCFG.v_creep_est_mps} m/s, "
+      f"turn-in-place > {_SCFG.turn_in_place_rad:.2f} rad, scan {_SCFG.scan_before_seek_s} s, commit {_SCFG.commit_s} s")
 _PILOT = SeekerPilot(CFG, crossings_from_course(_COURSE), start_xy=(0.0, 0.0), laps=LAPS,
-                     seeker_cfg=SeekerConfig())
+                     seeker_cfg=_SCFG)
 
 _state = {"baro0": None, "z_prev": None, "t_prev": None, "vz": 0.0, "det": None,
           "log": None, "writer": None, "n": 0, "z_f": None}
