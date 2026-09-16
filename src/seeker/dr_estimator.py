@@ -47,6 +47,34 @@ class DeadReckonSource:
         self.fix_residual = 0.0
         self.R = np.eye(3)
         self.last_est = None
+        self.events = []             # (x, y, z, heading) crossings in run order
+        self.next_event = 0          # our own gate count: advances on our own crossings
+        self.crossing_lat_m = 1.5    # generous: the estimate is what we have
+        self.crossing_z_m = 1.2
+
+    def set_events(self, events):
+        self.events = [(float(x), float(y), float(z), None if h is None else float(h)) for x, y, z, h in events]
+        self.next_event = 0
+
+    def _count_crossings(self, p_prev, p_new):
+        while self.next_event < len(self.events):
+            gx, gy, gz, gh = self.events[self.next_event]
+            if gh is None:
+                return
+            nx, ny = math.cos(gh), math.sin(gh)
+            s0 = (p_prev[0] - gx) * nx + (p_prev[1] - gy) * ny
+            s1 = (p_new[0] - gx) * nx + (p_new[1] - gy) * ny
+            if not (s0 < 0.0 <= s1):
+                return
+            f = s0 / (s0 - s1)
+            cx = p_prev[0] + (p_new[0] - p_prev[0]) * f
+            cy = p_prev[1] + (p_new[1] - p_prev[1]) * f
+            cz = p_prev[2] + (p_new[2] - p_prev[2]) * f
+            lat = -(cx - gx) * ny + (cy - gy) * nx
+            if abs(lat) <= self.crossing_lat_m and abs(cz - gz) <= self.crossing_z_m:
+                self.next_event += 1
+            else:
+                return
 
     # --- prediction -------------------------------------------------------------
     def integrate(self, t: float, R: np.ndarray, accel_body, z: float, vz: float):
@@ -62,10 +90,13 @@ class DeadReckonSource:
         if self.v_decay_s > 0:                          # bounded drift when no fixes arrive
             self.v[0] -= self.v[0] * dt / self.v_decay_s
             self.v[1] -= self.v[1] * dt / self.v_decay_s
+        p_prev = self.p.copy()
         self.p[0] += self.v[0] * dt
         self.p[1] += self.v[1] * dt
         self.p[2] = z
         self.v[2] = vz
+        if self.events:
+            self._count_crossings(p_prev, self.p)
 
     def estimate(self, u) -> StateEstimate:
         """Sim SensorUpdate -> StateEstimate."""
