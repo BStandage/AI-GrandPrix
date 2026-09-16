@@ -1,93 +1,87 @@
-# Race day: what to run, and for what
+# Status and what to run
 
-**The honest state.** The on-drone runtime exists (`src/hardware/`,
-`src/seeker/`) and has run end to end against the sim's Betaflight over
-MSP, disarmed; it has never flown a real drone. It is the race stack on
-**vision-aided dead reckoning**: the follower flies a plan on a position
-integrated from the FC's IMU and attitude, altitude from the barometer,
-and a position fix from every gate the camera sees, with the nose aimed
-at the next gate. In the sim (synthetic camera, no ground-truth position)
-that flies the 60 s and 40 s ladder rungs clean, and with a 35 deg camera
-mount and a 120 deg lens the full race plan in 29.4 s. A vision-only
-gate-seeker is the fallback. What the drone must supply on the day and the
-sim cannot: the real detector's bearing and range, the camera mount
-angle, the FC's IMU scale and signs, the compass heading of the map's
-north. Each has a bench step below or in `src/PQ_PROCEDURE.md`.
+Branch: `feature/hardware-seeker`. Sim repo: `elodin-sim-aigp` on `main`
+(Betaflight SITL 2026.6.0; the Archer runs 4.5.x).
 
-**Which branch.** All current work is on `chore/dead-code` (it contains
-`feature/pubmap-29s`, the two-lap stack on the published map, and the
-docs branch) until those merge into `main`. In the sim repo, `main` is
-the validated sim on Betaflight 2026.6.0; `feature/betaflight-4.5` is the
-Archer's firmware generation and is validated when its step tests and
-one race are clean.
+## Status (2026-09-16)
 
-**Which plan.** `out/plans/plan_RACE.json` is the race plan, always. It is
-the only plan the launchers pick up by default. The speed-ladder rungs are
-`out/plans/plan_LADDER_<T>s.json`, each with its own toml
-`config/ladder/vehicle_<T>s.toml`. Numbered plans `plan_NNN.json` are
-candidates; promote one by copying it over `plan_RACE.json` and `.png`.
+- Course: `data/course_map.json` is the organizer's published table.
+  10 gates, gate 9 is the double (code labels g0..g9, g8-top/g8-low).
+  Two laps = 23 crossings. Start = the dashed line 7.3 m behind gate 1.
+- Sim, ground truth: `plan_RACE.json` clean in 29.55 s.
+- Sim, no position sensor (vision-aided dead reckoning: FC accel and
+  attitude, baro altitude, a position fix from every gate the camera
+  sees): 60 s rung 57.2 s clean, 40 s rung 40.6 s clean, 35 s rung and
+  plan_RACE fail with the 20 deg camera. With a 35 deg mount and a
+  120 deg lens: 35 s rung 36.6 s clean, plan_RACE 29.4 s clean.
+- Vision-only seeker (fallback, no plan, gate to gate): 215 s clean.
+- Hardware: `src/hardware/` runs the follower over MSP, rehearsed
+  against the sim's SITL disarmed. It has never flown a real drone.
+  Unknowns to measure on site: camera mount tilt, focal length, real
+  detector thresholds, FC accel scale and signs, pitch sign, the compass
+  heading of map north.
 
-| I want to... | Run (from the repo shown) | What it flies |
-|---|---|---|
-| Fly the race plan and WATCH it | sim repo: `run_race_docker.cmd` | `plan_RACE.json` (newest `plan_*.json` if it is missing), the toml recorded in the plan, 2 laps, `solvers.follower`. Opens the editor. |
-| Fly a specific plan headless (a ladder rung, a candidate, several in a row) | `cd src` then `python -m raceline.batch_fly ../out/plans/plan_LADDER_60s.json` | The plan you name, with the toml it records (`--config <toml>` overrides). Prints the referee table: gates, contacts, time. |
-| Same, from WSL without Docker | `python race.py --traj out/plans/plan_RACE.json` (add `--config config/ladder/vehicle_60s.toml` for a rung) | The plan you name. **Without `--traj` race.py REPLANS from the toml and flies a new numbered plan, not the race plan.** |
-| Build the ladder rungs | `cd src` then `python -m raceline.ladder --targets 60 50 40 35`; a midpoint: `--k 0.4` | Writes the rung tomls and plans. Model times, centred crossings, zero contacts. |
-| Make a new race-plan candidate | `python race.py --plan-only` | Writes `out/plans/plan_NNN.json` + `.png` and prints the CHECK lines. Frame contacts must be 0. |
-| Read a run | `out/flightlogs/race_NNN.csv` (100 Hz trace) and the sim repo's `race_result_NNN.json` | Gates scored, first frame contact, lap times. |
-| Fly the VISION SEEKER in the sim (no position, no plan: camera + heading + baro) | `cd src` then `python -m raceline.batch_fly --solver solvers.seeker --angle ../out/plans/plan_RACE.json` | The published course gate by gate on the HSV detector in ANGLE mode; the plan only sets the lap count. Trace in `out/flightlogs/seeker_NNN.csv`. This is the race-day pilot. |
-| Fly a PLAN in the sim in ANGLE mode (the hardware control shape) | `cd src` then `python -m raceline.batch_fly --angle ../out/plans/plan_LADDER_60s.json` | Tilt-angle sticks, the FC levels itself; needed before any plan is trusted on the drone. |
-| Fly a PLAN on the ARCHER (the race stack, vision-aided dead reckoning) | on the Orin, `cd src` then `python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north <deg> --pilot follower --traj ../out/plans/plan_LADDER_60s.json --dry-run`, then `--arm` | The follower flies the plan on a position integrated from the FC's IMU and fixed by every gate the camera sees; ANGLE-mode sticks over MSP. Same rungs as the sim ladder. `--map-north` = compass heading of the map's +y (point the drone along gate 1 on the start line, read the bench telemetry). Dry run streams disarmed sticks and logs what it would do. |
-| Fly the SEEKER on the ARCHER (fallback: no plan, gate to gate) | `python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north <deg> --pilot seeker --arm` | Heading, baro and detections only. Slow. Use if the estimator misbehaves. |
-| Rehearse the Orin runtime against the sim's flight controller | sim running, then `python -m hardware.runtime --tcp 127.0.0.1:5761 --map-north 0 --pilot follower --traj ../out/plans/plan_LADDER_60s.json --no-camera --dry-run` | Real MSP link, real attitude/IMU/baro from the SITL, the estimator and follower ticking; disarmed. |
-| Talk to a flight controller (the sim's SITL) | sim running, then `cd src` and `python -m hardware.bench --tcp 127.0.0.1:5761 info` (or `telemetry --hz 20`) | Firmware identity, arming blockers, attitude at the link rate. Read-only; the race keeps flying. |
-| Talk to the Archer's flight controller (bench, props OFF) | on the Orin: `python3 -m hardware.bench --port /dev/ttyTHS1 info`, then `rc-test --props-off`, then `arm-test --props-off` | Proves the RC path end to end (the FC echoes our sticks back), then arms with throttle at minimum and disarms. Nothing raises the throttle. |
+## Sim (Docker Desktop running; commands from `AI-GrandPrix/src`)
 
-**The order on the day** (`src/PQ_PROCEDURE.md`): fly the slowest rung
-(60 s). Clean twice, fly the fastest rung you brought. Fails, fly the
-midpoint (`--k`). Only after the 35 s rung has held twice does
-`plan_RACE.json` get a slot. A complete slow run outranks every incomplete
-fast one.
+```
+python -m raceline.batch_fly ../out/plans/plan_LADDER_60s.json        # ground truth, watch the referee
+AIGP_STATE_SOURCE=deadreckon python -m raceline.batch_fly --timeout 300 ../out/plans/plan_LADDER_60s.json   # no position sensor
+AIGP_STATE_SOURCE=deadreckon AIGP_CAM_TILT_DEG=35 AIGP_CAM_HFOV_DEG=120 python -m raceline.batch_fly --timeout 300 ../out/plans/plan_RACE.json
+python -m raceline.batch_fly --solver solvers.seeker --angle --timeout 400 ../out/plans/plan_RACE.json      # vision-only fallback
+python -m raceline.ladder --targets 60 50 40 35      # rebuild rungs; one midpoint: --k 0.4
+python race.py --plan-only                            # (repo root) new plan_NNN candidate; promote by copying over plan_RACE
+```
+
+Watch a flight instead: sim repo `run_race_docker.cmd` (flies plan_RACE).
+Traces: `out/flightlogs/race_NNN.csv`, sim repo `race_result_NNN.json`.
+
+## Rehearse the drone runtime against the sim (sim running, from `src`)
+
+```
+python -m hardware.bench --tcp 127.0.0.1:5761 info
+python -m hardware.runtime --tcp 127.0.0.1:5761 --map-north 0 --pilot follower --traj ../out/plans/plan_LADDER_60s.json --no-camera --dry-run
+```
+
+## Archer (on the Orin, props OFF until the last line; from `AI-GrandPrix/src`)
+
+```
+python3 -m hardware.bench --port /dev/ttyTHS1 info                 # firmware, modes, arming blockers
+python3 -m hardware.bench --port /dev/ttyTHS1 rc-test --props-off  # FC echoes our sticks
+python3 -m hardware.bench --port /dev/ttyTHS1 arm-test --props-off # ARMED flag, then disarm
+python3 -m hardware.bench --port /dev/ttyTHS1 telemetry --hz 5 --seconds 20   # heading while pointing along gate 1 = --map-north
+python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north <deg> --cam-tilt <deg> --fy <px> --pilot follower --traj ../out/plans/plan_LADDER_60s.json --dry-run
+python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north <deg> --cam-tilt <deg> --fy <px> --pilot follower --traj ../out/plans/plan_LADDER_60s.json --arm
+```
+
+Fallback, no plan: same runtime with `--pilot seeker`. Add
+`--pitch-nose-down-positive` if the bench telemetry reads pitch that way.
+Bench measurements and the order on the day: `src/PQ_PROCEDURE.md`.
+
+## Race day order
+
+1. 60 s rung. Clean twice, fly the fastest rung you brought.
+2. Fails, fly the midpoint (`raceline.ladder --k`).
+3. plan_RACE only after the 35 s rung has held twice.
+4. A complete slow run outranks every incomplete fast one.
+
+## Where to read next
+
+| You want to... | Go to |
+|---|---|
+| Bench numbers, day-1 measurements, the 15 min slot | `src/PQ_PROCEDURE.md` |
+| The published course, the Orin board, firmware facts | `src/PQ_SPECS_INTAKE.md` |
+| Set up the sim and fly a first race | `docs/GETTING_STARTED_RACING_LINE.md` |
+| Betaflight, MSP, ANGLE vs ACRO | `docs/WHAT_IS_BETAFLIGHT.md` |
+| How the stack is built | `docs/RACING_LINE_STACK.md` |
+| Write or tune a solver | `src/solvers/README.md` |
+| What is banned before planning | `RESTRICTIONS.md` |
+
+Tune only `config/vehicle.toml`. Organizer PDFs: `docs/specs/`. Plans made
+on the old estimated map: `out/plans/archive_20260915_estimate_map/`.
 
 ---
 
-> ## Team members: start here
->
-> Everything below this box is the organizers' original dev-kit readme
-> (the OLD Windows sim era). Our current stack races in the **elodin sim**
-> on the organizers' **published** September course.
->
-> **Where things stand (2026-09-15):** `data/course_map.json` is the
-> organizer's published gate table (10 gates, 85 x 165 ft, gate 9 is the
-> double; code labels are traversal order, g0 = gate 1, g8 = the double).
-> The sim flies it clean: 23/23 crossings in 29.55 s over two laps
-> (`out/plans/plan_RACE.json`). A speed ladder (`raceline.ladder`) builds
-> slower, centred-crossing plans for race-day binary search. The Archer's
-> flight controller is Betaflight 4.5.x; the sim's SITL is being pinned to
-> 4.5.5 (sim branch `feature/betaflight-4.5`). Nothing flies on hardware
-> yet: the MSP bridge, the ANGLE-mode output and the estimator are the
-> open work.
->
-> | You want to... | Go to |
-> |---|---|
-> | Just WATCH a flight, zero setup | Docker Desktop + `run_race_docker.cmd` in the sim repo (nothing else needed) |
-> | Get set up and fly your first race | `docs/GETTING_STARTED_RACING_LINE.md` |
-> | Understand drones/Betaflight from zero | `docs/WHAT_IS_BETAFLIGHT.md` |
-> | Write or tune a solver | `src/solvers/README.md` |
-> | Understand the stack's design | `docs/RACING_LINE_STACK.md` |
-> | Know what's banned before planning | `RESTRICTIONS.md` (read it first) |
-> | September physical-race facts, the published course, the Orin board | `src/PQ_SPECS_INTAKE.md` |
-> | Day-0 / day-1 procedure and the race-day binary search | `src/PQ_PROCEDURE.md` |
-> | The course in 3D | `viz/course_viewer.html` (keep private until after the qualifier) |
->
-> Tune ONLY `config/vehicle.toml`. Race with `race.cmd` (or `python race.py`
-> from the repo root). The `raceline.*` modules run from `src/`:
-> `cd src && python -m raceline.batch_fly ../out/plans/plan_RACE.json`.
-> The tape-era code (pilots, tape tools, MAVLink comms, the old runtime)
-> and the overhead-image map extractor were removed on 2026-09-15; git
-> history has them. Plans made on the pre-publication course estimate are
-> archived under `out/plans/archive_20260915_estimate_map/`. Organizer
-> spec PDFs live in `docs/specs/`.
+Everything below is the organizers' original dev-kit readme.
 
 ## AI Grand Prix (AI-GP) Development Kit
 Conceived by Anduril founder Palmer Luckey and partnered with the Drone Champions League (DCL), Neros Technologies, and JobsOhio, AI-GP is a premier autonomous drone racing competition.

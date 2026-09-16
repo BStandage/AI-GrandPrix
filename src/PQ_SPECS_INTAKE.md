@@ -26,9 +26,10 @@ Source: `docs/specs/20260818_PQ_Technical_Spec_0001.pdf` (the published course a
   Archer, is there a fork?", the organizers sent configurator 10.10.0 and
   no fork -> the drones are on stock Betaflight 4.5.x** (10.10.0 is the
   4.5 configurator and cannot talk to 2026.x firmware; the 2026.6.1
-  figure was presumably the app). The sim's SITL is pinned to 4.5.5 on
-  the sim branch `feature/betaflight-4.5`. Install configurator 10.10.0
-  from the GitHub release tag; it coexists with the 2026.6.1 app.
+  figure was presumably the app). The sim's SITL stays on 2026.6.0: a
+  4.5.5 SITL stalls in lockstep (sim branch `feature/betaflight-4.5`,
+  parked). Every CLI setting we use exists in both. Install configurator
+  10.10.0 from the GitHub release tag; it coexists with the 2026.6.1 app.
 
 ### FC <-> Jetson
 - **UART. TX: RC control commands (Jetson->FC). RX: IMU data (FC->Jetson).**
