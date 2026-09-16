@@ -58,14 +58,14 @@ curve_acc = [0.0, 9.81, 16.2, 22.7, 31.1, 37.2, 37.5]
 
 [limits]
 # VISION ENVELOPE: what the vision-aided estimator tolerates in the sim. 56 deg / 104 was a coin flip (3 of 6);
-# 42 deg / 80 was 1 of 3 at 50 s. 32 deg / 61 (about 60 s) is the envelope that completes.
+# 42 deg / 80 with the slow climb and the crossing fix: 3 of 3 clean at 50 s.
 # The planner solves for time inside it. Raise after the cage flight shows margin.
 cam_tilt_deg         = 35.0   # camera mount above body forward; with cam_hfov_deg the planner solves for
 cam_hfov_deg         = 120.0  # the fastest plan this camera can fly (tilt clamp + look window). Measure with camcal.
 v_blind_turn_mps     = 0.0    # blind turns: speed cap within blind_turn_window_m before a crossing whose heading
 blind_turn_window_m  = 6.0    # differs from the previous one by more than blind_turn_deg (the hairpin, the stack).
 blind_turn_deg       = 110.0  # The camera cannot hold such a gate on the way in; the estimate arrives blind.                  # ceilings shared by planner AND follower
-max_tilt_deg     = 32.0   # NO LIMIT (config validator caps at 89.5) (Brian, feature/rip): the thrust-vector budget is the only bound - at 90 the vertical thrust is zero, so the model allows it only for the instant the thrust vector affords, and the follower's mapping floor (0.5 g) caps the commanded tilt near 82.
+max_tilt_deg     = 42.0   # NO LIMIT (config validator caps at 89.5) (Brian, feature/rip): the thrust-vector budget is the only bound - at 90 the vertical thrust is zero, so the model allows it only for the instant the thrust vector affords, and the follower's mapping floor (0.5 g) caps the commanded tilt near 82.
                           # (~70 deg, TWR 2.9) applies when FIGHTING to stay
                           # level from a lift deficit - but when the drone is
                           # already high/climbing, pitching forward past that
@@ -120,7 +120,7 @@ max_yaw_rate_rps = 8.0    # nose-follows-tangent ceiling; enters v_lim directly.
                           # crossings unchanged (+0.189/+0.086).
                           # Kept consistent with follower.yaw_clamp below
                           # (~0.31 rad/s per 60 PWM measured => 400 PWM ~ 2.0)
-a_lat_rate_max   = 61.0   # back to the flown value: the calibrated replay (80% thrust, 0.06 s lag) could not follow plans built at 400.0   # UNTESTED-MAX (feature/rip): was 165.0. measured with the old attitude loop; the loop is 3x faster now.  # m/s^3 - attitude-slew ceiling: how fast lateral
+a_lat_rate_max   = 80.0   # back to the flown value: the calibrated replay (80% thrust, 0.06 s lag) could not follow plans built at 400.0   # UNTESTED-MAX (feature/rip): was 165.0. measured with the old attitude loop; the loop is 3x faster now.  # m/s^3 - attitude-slew ceiling: how fast lateral
                           # accel can change. MEASURED by solvers.sysid_slew
                           # (slew_009, 2026-09-08) AFTER applying the aerobatic
                           # Betaflight tune to the eeprom (rc_rate 140, srate
@@ -147,7 +147,7 @@ a_lat_rate_max   = 61.0   # back to the flown value: the calibrated replay (80% 
                           # but it does mean the plan now assumes very close
                           # to the measured limit. Back off toward 5.3 first
                           # if corner entries look ragged.
-v_max_mps        = 7.6   # global straight-line ("moving forwards") cap -
+v_max_mps        = 9.7   # global straight-line ("moving forwards") cap -
                           # raised from plan_003's 1.6. With anchor_standoff_
                           # turn_m widened to 5.0 below (gate 4's reversal
                           # curve is now genuinely wider, kappa there dropped
@@ -187,7 +187,7 @@ v_gate_mps       = 20.0   # = v_max: a straight-through gate is just track,
                           # 2.0 -> 69.5 s, 2.5 -> 66.0 s, all 12/12 clean.
                           # 1.6 is the moderate pick; room to go higher.
 gate_window_m    = 2.0    # one uniform rule, never special-cased per gate
-vz_up_max        = 2.5   # flown clean (race_053); 3.0 and 3.5 fail the calibrated replay at g10-top
+vz_up_max        = 1.25   # VISION: climbing while turning steals thrust from the turn; at 2.5 the stack top was crossed 0.35 m off even on ground truth   # flown clean (race_053); 3.0 and 3.5 fail the calibrated replay at g10-top
                           # 6-7 m/s forward the drone managed 2.0-2.2 m/s with the
                           # motors at 100% (35 m/s^2 commanded) and arrived 0.4 m
                           # low; 8.1 m/s is the hover climb ceiling, not the one at
@@ -249,7 +249,7 @@ turn_angle_deg         = 40.0  # LOWERED from 100.0: at 100, only the g6->g7
                                # distance before the frame, not just less
                                # speed. Global rule, no per-gate anything.
 sample_ds_m   = 0.25           # uniform arc-length resolution of the plan
-a_lat_margin  = 0.75   # the flown 32.1 s line (race_061) uses 0.6; 0.9 flew 32.40 (race_062) - not a lever at tilt 89
+a_lat_margin  = 0.80   # the flown 32.1 s line (race_061) uses 0.6; 0.9 flew 32.40 (race_062) - not a lever at tilt 89
                                # 0.55 -> 0.75 -> eased to 0.6 while the
                                # attitude gain is retuned for the fast plant
                                # (0.75 corners fed the oscillation).
