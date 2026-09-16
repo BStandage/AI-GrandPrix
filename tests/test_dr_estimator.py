@@ -140,6 +140,23 @@ class TestAssociation(unittest.TestCase):
         self.assertEqual(self.src.p[0], 0.0)
 
 
+class TestSeveralBlobs(unittest.TestCase):
+    def test_the_matching_blob_wins_over_a_bigger_false_positive(self):
+        src = DeadReckonSource()
+        src.R = R_yaw(math.pi / 2)
+        src.p[:] = [0.0, 0.0, 1.35]
+        src.integrate(0.0, src.R, [0, 0, G], 1.35)
+        junk = Detection(offset_x=0.8, offset_y=0.8, area_frac=0.05, t=0.0, range_m=3.0)   # biggest, matches nothing
+        real = sighting_from(src.R, [0.3, 0.0, 1.35], LANDMARKS[0][:3])                     # gate 0, truth 0.3 m east
+        idx, r = src.observe_any([junk, real], LANDMARKS)
+        self.assertEqual(idx, 0)
+        self.assertGreater(src.p[0], 0.1)
+        self.assertEqual(src.unmatched, 0)
+        idx, r = src.observe_any([junk], LANDMARKS)
+        self.assertIsNone(idx)
+        self.assertEqual(src.unmatched, 1)
+
+
 class TestFixes(unittest.TestCase):
     def test_fix_pulls_position_to_the_gate_geometry(self):
         src = DeadReckonSource(fix_gain=1.0, vel_gain=0.0, along_weight=1.0)

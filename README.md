@@ -16,8 +16,9 @@ Branch: `feature/hardware-seeker`. Sim repo: `elodin-sim-aigp` on `main`
   counts crossings itself. 20 deg camera, final code: 60 s rung clean
   in 2 of 3 runs (59.2, 59.4 s; the third hit gate 2 in a sim that had
   slowed to a crawl), 50 s rung clean twice (49.0, 50.8 s). 35 deg mount
-  with a 120 deg lens: 40 s rung clean twice (40.7, 41.0 s); plan_RACE
-  fails.
+  with a 120 deg lens: 40 s rung clean in 2 of 3 (40.7, 41.0 s);
+  plan_RACE fails. The detector hands over its three biggest blobs and
+  the estimator takes the one that fits a map gate.
   Failures are a misjudged gate at the hairpin or the finish; the
   estimator trace `out/flightlogs/dr_NNN.csv` shows which.
 - Vision-only seeker (fallback, no plan, gate to gate) under the same
