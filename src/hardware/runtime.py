@@ -196,9 +196,13 @@ def main(argv=None) -> int:
                 mags.append(math.sqrt(sum(float(v) ** 2 for v in st.imu.acc)))
             time.sleep(0.02)
         if mags:
-            src.acc_lsb_per_g = float(np.median(mags))
-            print(f"accelerometer: {src.acc_lsb_per_g:.0f} raw counts per g measured at rest "
-                  f"({len(mags)} samples, spread {max(mags) - min(mags):.0f})")
+            med, spread = float(np.median(mags)), max(mags) - min(mags)
+            if spread < 0.1 * med:
+                src.acc_lsb_per_g = med
+                print(f"accelerometer: {med:.0f} raw counts per g measured at rest ({len(mags)} samples, spread {spread:.0f})")
+            else:
+                print(f"WARNING accelerometer not at rest (median {med:.0f}, spread {spread:.0f}): keeping "
+                      f"{src.acc_lsb_per_g:.0f} counts per g. Put the drone down still and restart, or pass --acc-lsb-per-g.")
     s = bridge.state()
     e0 = src.estimate()
     print(f"FC link: attitude {s.attitude_hz:.0f} Hz, rc {s.rc_hz:.0f} Hz, rtt {s.link.last_rtt_ms:.1f} ms; "
