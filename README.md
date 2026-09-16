@@ -1,15 +1,18 @@
 # Race day: what to run, and for what
 
-**The honest state.** The only thing that can be commanded to fly today is
-the simulator. The on-drone runtime is being built in `src/hardware/`:
-the flight-controller link exists (`hardware.msp`, `hardware.bridge`,
-`hardware.bench`: MSP over the Orin's UART or the sim SITL's TCP port,
-RC out at 50 Hz, attitude/IMU/altitude/battery in, stale-command and
-link-outage disarm rules, tested against a fake FC). Still missing: the
-ANGLE-mode output for the follower, the estimator, and the runtime loop
-that ties camera, estimator, follower and bridge together. When it
-exists it takes the same two inputs as the sim: a plan JSON and a
-vehicle toml.
+**The honest state.** The on-drone runtime exists (`src/hardware/`,
+`src/seeker/`) and has run end to end against the sim's Betaflight over
+MSP, disarmed; it has never flown a real drone. It is the race stack on
+**vision-aided dead reckoning**: the follower flies a plan on a position
+integrated from the FC's IMU and attitude, altitude from the barometer,
+and a position fix from every gate the camera sees, with the nose aimed
+at the next gate. In the sim (synthetic camera, no ground-truth position)
+that flies the 60 s and 40 s ladder rungs clean, and with a 35 deg camera
+mount and a 120 deg lens the full race plan in 29.4 s. A vision-only
+gate-seeker is the fallback. What the drone must supply on the day and the
+sim cannot: the real detector's bearing and range, the camera mount
+angle, the FC's IMU scale and signs, the compass heading of the map's
+north. Each has a bench step below or in `src/PQ_PROCEDURE.md`.
 
 **Which branch.** All current work is on `chore/dead-code` (it contains
 `feature/pubmap-29s`, the two-lap stack on the published map, and the
@@ -34,7 +37,9 @@ candidates; promote one by copying it over `plan_RACE.json` and `.png`.
 | Read a run | `out/flightlogs/race_NNN.csv` (100 Hz trace) and the sim repo's `race_result_NNN.json` | Gates scored, first frame contact, lap times. |
 | Fly the VISION SEEKER in the sim (no position, no plan: camera + heading + baro) | `cd src` then `python -m raceline.batch_fly --solver solvers.seeker --angle ../out/plans/plan_RACE.json` | The published course gate by gate on the HSV detector in ANGLE mode; the plan only sets the lap count. Trace in `out/flightlogs/seeker_NNN.csv`. This is the race-day pilot. |
 | Fly a PLAN in the sim in ANGLE mode (the hardware control shape) | `cd src` then `python -m raceline.batch_fly --angle ../out/plans/plan_LADDER_60s.json` | Tilt-angle sticks, the FC levels itself; needed before any plan is trusted on the drone. |
-| Fly the seeker on the ARCHER | on the Orin, `cd src` then `python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north <deg> --dry-run`, then `--arm` | Camera -> detector -> seeker -> MSP. `--map-north` = compass heading of the map's +y (point the drone along gate 1 on the start line and read the bench telemetry). Dry run streams disarmed sticks and prints what it would do. |
+| Fly a PLAN on the ARCHER (the race stack, vision-aided dead reckoning) | on the Orin, `cd src` then `python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north <deg> --pilot follower --traj ../out/plans/plan_LADDER_60s.json --dry-run`, then `--arm` | The follower flies the plan on a position integrated from the FC's IMU and fixed by every gate the camera sees; ANGLE-mode sticks over MSP. Same rungs as the sim ladder. `--map-north` = compass heading of the map's +y (point the drone along gate 1 on the start line, read the bench telemetry). Dry run streams disarmed sticks and logs what it would do. |
+| Fly the SEEKER on the ARCHER (fallback: no plan, gate to gate) | `python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north <deg> --pilot seeker --arm` | Heading, baro and detections only. Slow. Use if the estimator misbehaves. |
+| Rehearse the Orin runtime against the sim's flight controller | sim running, then `python -m hardware.runtime --tcp 127.0.0.1:5761 --map-north 0 --pilot follower --traj ../out/plans/plan_LADDER_60s.json --no-camera --dry-run` | Real MSP link, real attitude/IMU/baro from the SITL, the estimator and follower ticking; disarmed. |
 | Talk to a flight controller (the sim's SITL) | sim running, then `cd src` and `python -m hardware.bench --tcp 127.0.0.1:5761 info` (or `telemetry --hz 20`) | Firmware identity, arming blockers, attitude at the link rate. Read-only; the race keeps flying. |
 | Talk to the Archer's flight controller (bench, props OFF) | on the Orin: `python3 -m hardware.bench --port /dev/ttyTHS1 info`, then `rc-test --props-off`, then `arm-test --props-off` | Proves the RC path end to end (the FC echoes our sticks back), then arms with throttle at minimum and disarms. Nothing raises the throttle. |
 

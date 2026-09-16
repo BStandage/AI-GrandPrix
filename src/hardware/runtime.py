@@ -124,7 +124,9 @@ def main(argv=None) -> int:
     ap.add_argument("--map-north", type=float, required=True, help="compass heading of the map's +y axis (deg)")
     ap.add_argument("--laps", type=int, default=2)
     ap.add_argument("--rc-hz", type=float, default=50.0)
-    ap.add_argument("--acc-lsb-per-g", type=float, default=512.0)
+    ap.add_argument("--acc-lsb-per-g", default="auto",
+                    help="raw accelerometer counts per g (512 on most boards, 256 on the SITL); "
+                         "'auto' measures |acc| over 1 s at rest before takeoff")
     ap.add_argument("--pitch-nose-down-positive", action="store_true")
     ap.add_argument("--angle-mode", action="store_true", default=True, help="ANGLE-mode sticks (default on)")
     ap.add_argument("--acro", action="store_true", help="rate sticks through our attitude loop instead of ANGLE mode")
@@ -171,7 +173,7 @@ def main(argv=None) -> int:
     bridge.start()
     src = FcStateSource(bridge, map_north_heading_deg=args.map_north,
                         pitch_nose_up_positive=not args.pitch_nose_down_positive,
-                        acc_lsb_per_g=args.acc_lsb_per_g)
+                        acc_lsb_per_g=512.0 if args.acc_lsb_per_g == "auto" else float(args.acc_lsb_per_g))
     camera = None if args.no_camera else CameraThread(args.camera, args.fy)
     if camera:
         camera.start()
@@ -184,6 +186,19 @@ def main(argv=None) -> int:
     while bridge.state().altitude is None and time.monotonic() - t_wait < 5.0:
         time.sleep(0.05)
     src.zero_altitude()
+    if args.acc_lsb_per_g == "auto":
+        # the drone is level and still: |acc| is exactly 1 g in raw counts
+        mags = []
+        t_cal = time.monotonic()
+        while time.monotonic() - t_cal < 1.0:
+            st = bridge.state()
+            if st.imu is not None:
+                mags.append(math.sqrt(sum(float(v) ** 2 for v in st.imu.acc)))
+            time.sleep(0.02)
+        if mags:
+            src.acc_lsb_per_g = float(np.median(mags))
+            print(f"accelerometer: {src.acc_lsb_per_g:.0f} raw counts per g measured at rest "
+                  f"({len(mags)} samples, spread {max(mags) - min(mags):.0f})")
     s = bridge.state()
     e0 = src.estimate()
     print(f"FC link: attitude {s.attitude_hz:.0f} Hz, rc {s.rc_hz:.0f} Hz, rtt {s.link.last_rtt_ms:.1f} ms; "
