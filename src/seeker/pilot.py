@@ -61,6 +61,9 @@ class SeekerPilot:
         self.yaw = YawLoop(cfg)
         self.t0 = t0
         self.last: Optional[Command] = None
+        self.zt = None                 # slew-limited altitude target
+        self.t_zt = None
+        self.zt_rate_mps = 1.2         # a step target (takeoff, the stacked gate) would overshoot on a lagging vz
 
     @property
     def done(self) -> bool:
@@ -78,7 +81,12 @@ class SeekerPilot:
         if cmd.done:
             return Sticks(arm=1000, throttle=1000, phase=cmd.phase, crossing=cmd.crossing, done=True)
         airborne = float(est.p[2]) >= self.cfg.follower.min_alt_translation_m
-        throttle = self.alt.throttle(t, est, cmd.z_target, 0.0, airborne, baro_fresh, 0.0)
+        if self.zt is None:
+            self.zt, self.t_zt = float(est.p[2]), t
+        dz_max = self.zt_rate_mps * max(0.0, min(0.1, t - self.t_zt))
+        self.t_zt = t
+        self.zt += max(-dz_max, min(dz_max, cmd.z_target - self.zt))
+        throttle = self.alt.throttle(t, est, self.zt, 0.0, airborne, baro_fresh, 0.0)
         if ANGLE_MODE:
             roll, pitch, ang = angle_sticks(self.cfg, est, cmd.a_des, self.alt.a_cmd)
         else:
@@ -87,7 +95,7 @@ class SeekerPilot:
         yaw_stick = self.yaw.stick(est, cmd.yaw_target)
         return Sticks(throttle=int(throttle), roll=roll, pitch=pitch, yaw=yaw_stick,
                       arm=1800 if cmd.arm else 1000, phase=cmd.phase, crossing=cmd.crossing,
-                      z_target=cmd.z_target, yaw_target=cmd.yaw_target, a_des=cmd.a_des,
+                      z_target=self.zt, yaw_target=cmd.yaw_target, a_des=cmd.a_des,
                       tilt_deg=ang)
 
 

@@ -82,6 +82,8 @@ class SeekerConfig:
     yaw_nudge_max_rad: float = 0.15    # per-tick bound on that nudge
     yaw_freeze_area_frac: float = 0.05 # gate this big: stop yawing at it, centre with roll only
     k_lat: float = 4.0                 # lateral accel (m/s^2) per unit offset_x
+    k_lat_d: float = 1.2               # ... per unit offset_x per second (bearing rate = lateral
+                                       # speed over range: damps the drift a COMMIT then flies blind with)
     commit_area_frac: float = 0.16     # ring this big = about to cross, camera can no longer aim
     track_slow_gain: float = 1.5       # forward tilt scales by max(0.3, 1 - gain*|offset_x|): off-axis = slow down
     yaw_freeze_offset: float = 0.25    # freeze the yaw nudge only when the gate is this centred
@@ -229,6 +231,18 @@ class SeekerBrain:
     def _fwd(self, yaw: float, tilt_deg: float) -> tuple:
         a = G * math.tan(math.radians(tilt_deg))
         return (a * math.cos(yaw), a * math.sin(yaw))
+
+    def _bearing_rate(self, det) -> float:
+        """d(offset_x)/dt over the detections seen in TRACK, low-passed."""
+        prev = getattr(self, "_x_prev", None)
+        if prev is not None and det.t > prev[1] and det.t - prev[1] < 0.5:
+            raw = (det.offset_x - prev[0]) / (det.t - prev[1])
+            self._x_rate = 0.5 * getattr(self, "_x_rate", 0.0) + 0.5 * max(-3.0, min(3.0, raw))
+        elif prev is None or det.t - prev[1] >= 0.5:
+            self._x_rate = 0.0
+        if prev is None or det.t != prev[1]:
+            self._x_prev = (det.offset_x, det.t)
+        return getattr(self, "_x_rate", 0.0)
 
     def _lateral(self, yaw: float, a_right: float) -> tuple:
         return (a_right * math.sin(yaw), -a_right * math.cos(yaw))   # body +y is left
@@ -388,7 +402,8 @@ class SeekerBrain:
                 yaw_t = c.heading_rad
             slow = max(0.3, 1.0 - cfg.track_slow_gain * abs(det.offset_x))
             a_fwd = self._fwd(yaw, cfg.cruise_tilt_deg * slow)
-            a_lat = self._lateral(yaw, cfg.k_lat * det.offset_x)
+            x_rate = self._bearing_rate(det)
+            a_lat = self._lateral(yaw, cfg.k_lat * det.offset_x + cfg.k_lat_d * x_rate)
             self.yaw_hold = yaw_t
             return Command((a_fwd[0] + a_lat[0], a_fwd[1] + a_lat[1]), c.z, yaw_t, "TRACK", k)
 

@@ -74,3 +74,64 @@ def direction_body(det: Detection) -> np.ndarray:
     cam_up = np.array([-math.sin(CAM_TILT_RAD), 0.0, math.cos(CAM_TILT_RAD)])
     d = cam_fwd - x_img * cam_left - y_img * cam_up
     return d / np.linalg.norm(d)
+
+
+# --- what a real detector returns: ONE unlabeled detection, imperfect --------
+# The consumers must not know which gate it is (the estimator associates it
+# from its own position, exactly as on the Orin). AIGP_CAM_NOISE=0 turns the
+# imperfections off; the defaults are the stress case the stack is validated
+# under, not a measurement of the real detector.
+NOISE_ON = os.environ.get("AIGP_CAM_NOISE", "1") != "0"
+NOISE = dict(dropout=0.15,        # fraction of frames with no detection though a gate is in view
+             sigma_offset=0.01,   # image offset noise, fraction of the half frame (~0.5 deg)
+             sigma_range=0.10,    # range noise, fraction of the range
+             false_pos=0.02,      # fraction of frames returning a detection of nothing
+             latency_s=1.0 / 30)  # the frame is one period old when it is consumed
+_rng = np.random.default_rng(int(os.environ.get("AIGP_SEED", "0")))
+
+
+def detect_any(world_pos, landmarks, t) -> Detection | None:
+    """The biggest ring in view of the camera, unlabeled, with the noise
+    model applied. `landmarks` are (x, y, z, heading) tuples of every gate."""
+    if NOISE_ON and _rng.random() < NOISE["false_pos"]:
+        return Detection(offset_x=float(_rng.uniform(-1, 1)), offset_y=float(_rng.uniform(-1, 1)),
+                         area_frac=0.01, t=t, range_m=float(_rng.uniform(2.0, 15.0)))
+    best = None
+    t_frame = t - (NOISE["latency_s"] if NOISE_ON else 0.0)   # the frame is this old when consumed
+    for gx, gy, gz, gh in landmarks:
+        d = detect(world_pos, gx, gy, gz, gh, t_frame)
+        if d is not None and (best is None or d.area_frac > best.area_frac):
+            best = d
+    if best is None:
+        return None
+    if NOISE_ON:
+        if _rng.random() < NOISE["dropout"]:
+            return None
+        best.offset_x = float(np.clip(best.offset_x + _rng.normal(0.0, NOISE["sigma_offset"]), -1.0, 1.0))
+        best.offset_y = float(np.clip(best.offset_y + _rng.normal(0.0, NOISE["sigma_offset"]), -1.0, 1.0))
+        best.range_m = max(0.3, best.range_m * (1.0 + float(_rng.normal(0.0, NOISE["sigma_range"]))))
+    return best
+
+
+class PoseHistory:
+    """Keeps recent poses so a detection can be synthesized from the pose
+    of `latency_s` ago, the way a real frame is already old when it is used."""
+
+    def __init__(self, latency_s: float):
+        self.latency_s = latency_s if NOISE_ON else 0.0
+        self.buf = []
+
+    def push(self, t, world_pos):
+        self.buf.append((float(t), np.array(world_pos, dtype=float)))
+        while len(self.buf) > 1 and self.buf[1][0] <= t - self.latency_s - 0.05:
+            self.buf.pop(0)
+
+    def at_delay(self, t):
+        want = t - self.latency_s
+        best = self.buf[0][1] if self.buf else None
+        for tt, wp in self.buf:
+            if tt <= want:
+                best = wp
+            else:
+                break
+        return best

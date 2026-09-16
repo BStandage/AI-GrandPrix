@@ -1,23 +1,28 @@
 """
 Vision-aided dead reckoning: the state source that lets the follower fly a
-plan with no position sensor.
+plan with no position sensor. One code path for the sim and the Orin.
 
     src = DeadReckonSource()
-    est = src.estimate(update)                 # every tick (sim SensorUpdate)
-    src.apply_fix(det, gate_xyz)               # whenever a gate is in view
+    src.integrate(t, R, accel_body, z_meas)    # every tick: attitude, raw accel, baro
+    src.observe(det, landmarks)                # every detection: which gate, then a fix
+    est = src.estimate(update)                 # sim only: wraps integrate on a SensorUpdate
 
-Between gate sightings the horizontal position is integrated from the
-accelerometer rotated by the attitude (specific force minus gravity),
-altitude and vertical speed come from the barometer, heading from the
-attitude. Every sighting of a known gate gives a position fix: the gate's
-map position minus the sighting's range along its bearing. The fix is
-blended in, and the velocity is nudged toward what the fixes imply, so
-drift never grows beyond one leg.
+Inputs, all of which the flight controller and the camera provide:
+    R           body FLU -> world rotation (FC attitude, heading in the map frame)
+    accel_body  specific force in body FLU, m/s^2 (FC raw accel, scaled)
+    z_meas      barometric altitude above the takeoff point (FC baro)
+    det         a Detection: image offsets, apparent size, range from size
 
-Sim mode reads the sim's SensorUpdate (accel, attitude quaternion, and
-ground-truth altitude/vario as the stand-in for the FC's filtered
-barometer). The hardware source will feed the same class from
-hardware.state.FcStateSource: attitude, raw accel, altitude, vario.
+Horizontal position is integrated from the accelerometer rotated by the
+attitude (specific force minus gravity). Altitude and vertical speed come
+from a complementary filter of the vertical accel and the barometer
+(VerticalFilter), never from the sim's truth. A detection is matched to
+the map gate whose predicted bearing from the current estimate is
+closest (associate); the fix is the gate's map position minus the range
+along the observed bearing, blended in across the line of sight at
+`fix_gain` and along it at `fix_gain * along_weight` because the range is
+the least trusted number. A fix that implies an implausible jump is dropped.
+The estimator counts its own gate crossings.
 """
 
 from __future__ import annotations
@@ -32,25 +37,88 @@ from seeker import synthetic_camera as cam
 G = 9.80665
 
 
+class VerticalFilter:
+    """Altitude and vertical speed from the vertical accel and the barometer.
+
+    Critically damped observer at `w` rad/s: z' = vz + 2w r, vz' = az + w^2 r,
+    with a slow accel-bias state so a wrong accel scale does not run away.
+    Feed it every tick; the baro correction only applies on fresh samples."""
+
+    def __init__(self, w: float = 3.0, bias_gain: float = 0.5, lift_m: float = 0.25):
+        self.w = w
+        self.bias_gain = bias_gain
+        self.lift_m = lift_m
+        self.z = None
+        self.vz = 0.0
+        self.bias = 0.0
+        self.airborne = False       # latched once the baro has read above lift_m for 3 samples
+        self._lift_n = 0
+
+    def update(self, dt: float, az_world: float, z_meas: float | None, fresh: bool = True) -> tuple:
+        if self.z is None:
+            if z_meas is None:
+                return 0.0, 0.0
+            self.z, self.vz = float(z_meas), 0.0
+            return self.z, self.vz
+        if not self.airborne:
+            # on the ground the accelerometer is not trusted (contact, and the
+            # sim reads free fall while settling): first-order baro track, vz 0
+            if fresh and z_meas is not None:
+                self.z += 2.0 * self.w * (float(z_meas) - self.z) * dt
+                self._lift_n = self._lift_n + 1 if z_meas > self.lift_m else 0
+                if self._lift_n >= 3:
+                    self.airborne = True
+            self.vz = 0.0
+            return self.z, self.vz
+        self.vz += (az_world - self.bias) * dt
+        self.z += self.vz * dt
+        if fresh and z_meas is not None:
+            r = float(z_meas) - self.z
+            self.z += 2.0 * self.w * r * dt
+            self.vz += self.w * self.w * r * dt
+            self.bias -= self.bias_gain * r * dt
+        return self.z, self.vz
+
+
 class DeadReckonSource:
-    def __init__(self, fix_gain: float = 0.35, vel_gain: float = 0.5, v_decay_s: float = 30.0,
-                 start_xy=(0.0, 0.0)):
+    def __init__(self, fix_gain: float = 0.6, vel_gain: float = 0.005, v_decay_s: float = 120.0,
+                 start_xy=(0.0, 0.0), along_weight: float = 0.17, reject_m: float = 4.0):
+        # fix_gain acts across the line of sight (the bearing, precise);
+        # along it the gain is fix_gain * along_weight (the range, +-10 %):
+        # race_179 clipped g5 because g4's range errors became g5's lateral error
         self.fix_gain = fix_gain
         self.vel_gain = vel_gain
         self.v_decay_s = v_decay_s
+        self.along_weight = along_weight
+        self.reject_m = reject_m
         self.p = np.array([start_xy[0], start_xy[1], 0.0], dtype=float)
         self.v = np.zeros(3)
         self.t_prev = None
         self.t_last_fix = None
-        self.p_at_last_fix = None
         self.fixes = 0
+        self.rejected = 0
+        self.unmatched = 0
         self.fix_residual = 0.0
+        self.last_landmark = None
+        self.last_reason = ""        # why the last detection was not used (diagnostics)
+        self.last_full_residual = 0.0  # |p_fix - p| before any weighting (a misassociation shows here)
+        self.max_dv_per_fix = 0.3    # m/s: one fix may not rewrite the velocity
+        self.hist = []               # (t, p) over the last 0.5 s: a detection is compared with the
+                                     # estimate at its OWN time (the frame is old when it arrives)
         self.R = np.eye(3)
+        self.vert = VerticalFilter()
+        self.baro0 = None
         self.last_est = None
         self.events = []             # (x, y, z, heading) crossings in run order
         self.next_event = 0          # our own gate count: advances on our own crossings
         self.crossing_lat_m = 1.5    # generous: the estimate is what we have
         self.crossing_z_m = 1.2
+        self.miss_lat_m = 4.0        # crossed the plane this far off centre: a miss, but the gate is behind us
+        # association: how far the estimate may be wrong, growing with time since a fix
+        self.assoc_sigma_m = 1.5
+        self.assoc_sigma_rate = 0.5      # m per second without a fix
+        self.assoc_min_rad = math.radians(6.0)
+        self.assoc_max_rad = math.radians(40.0)
 
     def set_events(self, events):
         self.events = [(float(x), float(y), float(z), None if h is None else float(h)) for x, y, z, h in events]
@@ -71,20 +139,24 @@ class DeadReckonSource:
             cy = p_prev[1] + (p_new[1] - p_prev[1]) * f
             cz = p_prev[2] + (p_new[2] - p_prev[2]) * f
             lat = -(cx - gx) * ny + (cy - gy) * nx
-            if abs(lat) <= self.crossing_lat_m and abs(cz - gz) <= self.crossing_z_m:
+            clean = abs(lat) <= self.crossing_lat_m and abs(cz - gz) <= self.crossing_z_m
+            # a plane crossing near the gate advances the count even when the
+            # estimate says we missed: staying on a gate that is behind us
+            # (race_177: circling g4 until the g5 frame) is worse than moving on
+            if clean or abs(lat) <= self.miss_lat_m:
                 self.next_event += 1
             else:
                 return
 
     # --- prediction -------------------------------------------------------------
-    def integrate(self, t: float, R: np.ndarray, accel_body, z: float, vz: float):
+    def integrate(self, t: float, R: np.ndarray, accel_body, z_meas: float | None, baro_fresh: bool = True):
+        """One tick: attitude, body specific force, barometric altitude."""
         if self.t_prev is None:
             self.t_prev = t
         dt = max(0.0, min(0.05, t - self.t_prev))
         self.t_prev = t
         self.R = R
         a_w = R @ np.asarray(accel_body, dtype=float) - np.array([0.0, 0.0, G])
-        # horizontal: integrate; vertical: trust the barometer
         self.v[0] += a_w[0] * dt
         self.v[1] += a_w[1] * dt
         if self.v_decay_s > 0:                          # bounded drift when no fixes arrive
@@ -93,45 +165,160 @@ class DeadReckonSource:
         p_prev = self.p.copy()
         self.p[0] += self.v[0] * dt
         self.p[1] += self.v[1] * dt
+        z, vz = self.vert.update(dt, float(a_w[2]), z_meas, baro_fresh)
         self.p[2] = z
         self.v[2] = vz
+        self.hist.append((t, self.p.copy()))
+        while len(self.hist) > 1 and self.hist[0][0] < t - 0.5:
+            self.hist.pop(0)
         if self.events:
             self._count_crossings(p_prev, self.p)
 
+    def p_at(self, t_det):
+        """The estimate at the detection's time (nearest sample not later than it)."""
+        if t_det is None or not self.hist:
+            return self.p.copy()
+        best = self.hist[0][1]
+        for tt, pp in self.hist:
+            if tt <= t_det:
+                best = pp
+            else:
+                break
+        return best.copy()
+
     def estimate(self, u) -> StateEstimate:
-        """Sim SensorUpdate -> StateEstimate."""
+        """Sim SensorUpdate -> StateEstimate. Attitude from the quaternion (the
+        FC's attitude), accel from the IMU packet, altitude from the sim's
+        BAROMETER zeroed at the first sample, never the true position."""
         R = rot_from_quat(u.world_pos[0:4])
-        # stand-in for the FC's filtered altitude + vario (MSP_ALTITUDE)
-        z = float(u.world_pos[6])
-        vz = float(u.world_vel[5])
-        self.integrate(float(u.t), R, u.accel, z, vz)
+        z_meas = None
+        if u.baro_fresh:
+            if self.baro0 is None:
+                self.baro0 = float(u.baro)
+            z_meas = float(u.baro) - self.baro0
+        self.integrate(float(u.t), R, u.accel, z_meas, u.baro_fresh)
         omega_w = np.asarray(u.world_vel[0:3], dtype=float)
         yaw = math.atan2(R[1, 0], R[0, 0])
         self.last_est = StateEstimate(p=self.p.copy(), v=self.v.copy(), R=R, yaw=yaw, omega=R.T @ omega_w)
         return self.last_est
 
     # --- correction -----------------------------------------------------------------
+    def associate(self, det, landmarks):
+        """Which map gate is this detection? The one whose predicted bearing
+        from the current estimate is closest to the observed one, inside a
+        tolerance that grows with the time since the last fix, with the
+        measured range (if any) consistent with the predicted one. None when
+        nothing matches or two gates match about equally."""
+        d_obs = cam.direction_body(det)
+        dt_fix = 0.0 if (self.t_last_fix is None or self.t_prev is None) else max(0.0, self.t_prev - self.t_last_fix)
+        sigma = self.assoc_sigma_m + self.assoc_sigma_rate * min(dt_fix, 20.0)
+        cands = []
+        best_ang, best_tol, rng_fail = None, None, False
+        for i, lm in enumerate(landmarks):
+            d = np.array([lm[0] - self.p[0], lm[1] - self.p[1], lm[2] - self.p[2]])
+            rng_pred = float(np.linalg.norm(d))
+            if rng_pred < 0.4:
+                continue
+            d_b = self.R.T @ (d / rng_pred)
+            if d_b[0] <= 0.0:
+                continue                                    # behind the drone
+            ang = math.acos(max(-1.0, min(1.0, float(np.dot(d_b, d_obs)))))
+            tol = min(self.assoc_max_rad, max(self.assoc_min_rad, math.atan2(sigma, rng_pred)))
+            if best_ang is None or ang < best_ang:
+                best_ang, best_tol = ang, tol
+            if ang > tol:
+                continue
+            rng = getattr(det, "range_m", None)
+            # range from ring size is good to ~10 %: a sighting whose range does
+            # not fit is another gate on the same line (race_196: the finish
+            # gate matched the one 10 m behind it and the estimate ran 9 m ahead)
+            if rng and abs(rng - rng_pred) > 1.0 + 0.25 * rng_pred:
+                rng_fail = True
+                continue
+            cands.append((ang / tol, i))
+        if not cands:
+            self.last_reason = ("range" if rng_fail else
+                                f"angle {math.degrees(best_ang):.0f}>{math.degrees(best_tol):.0f}" if best_ang is not None else "none ahead")
+            return None
+        cands.sort()
+        if len(cands) > 1 and cands[1][0] - cands[0][0] < 0.25:
+            self.last_reason = "ambiguous"
+            return None
+        self.last_reason = ""
+        return cands[0][1]
+
     def apply_fix(self, det, gate_xyz) -> float:
         """Position fix from a sighting of the gate at gate_xyz. Returns the
         residual (m) between the dead-reckoned and the fixed position."""
-        rng = det.range_m if getattr(det, "range_m", None) else cam.range_from_area(det.area_frac)
         d_w = self.R @ cam.direction_body(det)
         d_h = np.array([d_w[0], d_w[1]])
         n = np.linalg.norm(d_h)
         if n < 1e-6:
             return 0.0
         d_h /= n
+        rng = getattr(det, "range_m", None)
+        if not rng:
+            # bearing only: the fix sits at the predicted range, so it only
+            # moves the estimate across the line of sight
+            rng = float(np.hypot(gate_xyz[0] - self.p[0], gate_xyz[1] - self.p[1]))
         p_fix = np.array([gate_xyz[0], gate_xyz[1]]) - rng * d_h
-        r = p_fix - self.p[:2]
+        p_ref = self.p_at(getattr(det, "t", None))          # where we were when the frame was taken
+        r_full = p_fix - p_ref[:2]
+        self.last_full_residual = float(np.hypot(r_full[0], r_full[1]))
+        along = float(np.dot(r_full, d_h))
+        r_lat = r_full - along * d_h                       # across the line of sight: the bearing, precise
+        # far sightings are worth less: the bearing error grows with range, and
+        # the range (ring size) is only worth using up close: full weight to
+        # 8 m, none beyond 20 m (race_188: 30 m sightings across the field
+        # carried 3 m of range noise into the position and the velocity)
+        w_lat = 1.0 / (1.0 + (rng / 12.0) ** 2)
+        w_rng = max(0.0, min(1.0, (20.0 - rng) / 12.0))
+        r_lat = w_lat * r_lat
+        r = r_lat + self.along_weight * w_rng * along * d_h
+        p_before = self.p.copy()
         self.p[0] += self.fix_gain * r[0]
         self.p[1] += self.fix_gain * r[1]
-        # a consistent residual over time means the velocity is wrong: nudge it
+        if self.events:                                   # a fix can carry the estimate across a gate plane too
+            self._count_crossings(p_before, self.p)
+        # the lateral residual is also a velocity error: v += beta r_lat / dt
+        # (alpha-beta). At 30 Hz fixes beta = vel_gain; after a gap the residual
+        # is mostly velocity error times the gap, so absorb half of it. Capped
+        # per fix, and never from the range component (race_184: the old nudge
+        # was 100x too weak; race_187: uncapped, one bad fix rewrote v by 3 m/s)
         if self.t_last_fix is not None and self.t_prev is not None:
             dt = self.t_prev - self.t_last_fix
-            if 0.02 < dt < 2.0:
-                self.v[0] += self.vel_gain * r[0] / max(dt, 0.2) * min(1.0, dt)
-                self.v[1] += self.vel_gain * r[1] / max(dt, 0.2) * min(1.0, dt)
+            if 0.0 < dt < 3.0:
+                k = min(0.5 / dt, self.vel_gain * 30.0)
+                dv = k * r_lat
+                n = float(np.hypot(dv[0], dv[1]))
+                if n > self.max_dv_per_fix:
+                    dv *= self.max_dv_per_fix / n
+                self.v[0] += dv[0]
+                self.v[1] += dv[1]
         self.t_last_fix = self.t_prev
         self.fixes += 1
         self.fix_residual = float(np.hypot(r[0], r[1]))
         return self.fix_residual
+
+    def observe(self, det, landmarks):
+        """A detection of an unknown gate: associate it, then fix on it.
+        Returns (landmark index or None, residual m). A fix whose residual
+        exceeds reject_m is undone and counted as rejected."""
+        i = self.associate(det, landmarks)
+        if i is None:
+            self.unmatched += 1
+            self.last_landmark = None
+            return None, 0.0
+        p_before, v_before, t_before, ev_before = self.p[:2].copy(), self.v[:2].copy(), self.t_last_fix, self.next_event
+        r = self.apply_fix(det, landmarks[i][:3])
+        if r > self.reject_m or self.last_full_residual > 2.0 * self.reject_m:
+            self.p[:2] = p_before
+            self.v[:2] = v_before
+            self.t_last_fix = t_before
+            self.next_event = ev_before
+            self.fixes -= 1
+            self.rejected += 1
+            self.last_landmark = None
+            return None, r
+        self.last_landmark = i
+        return i, r

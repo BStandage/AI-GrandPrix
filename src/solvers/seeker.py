@@ -30,18 +30,19 @@ from raceline import course as course_bridge
 from raceline.planner import next_numbered
 from raceline.rc_backend import StateEstimate, rot_from_quat
 from seeker.brain import Detection, SeekerConfig
+from seeker.dr_estimator import VerticalFilter, G
 from seeker.pilot import SeekerPilot, crossings_from_course
+from seeker import synthetic_camera as cam
 from solver.api import RCCommand, SensorUpdate
 
 CFG = load_config(os.environ.get("AIGP_VEHICLE_TOML"))
 # DETECTOR SOURCE. "camera": the HSV detector on the sim's FPV frame - but this
 # elodin build renders no FPV frames headless and none in our editor runs
-# either (0 of 349 on 2026-09-16), so "synthetic" (default) projects the next
-# gate through the spec camera (640x360, fx 320, 20 deg up-tilt) from the
-# TRUE pose and reports it when it is in the field of view, facing us and
-# not too close. That exercises the brain, the legs, the dead reckoning and
-# the loops against the real physics and referee; the detector itself is
-# proven on the Orin with real frames. The brain never sees position.
+# either (0 of 349 on 2026-09-16), so "synthetic" (default) projects every
+# gate through the camera from the true pose and returns the BIGGEST one,
+# unlabeled, one frame old, with dropouts, offset and range noise and false
+# positives (seeker.synthetic_camera.detect_any). The brain never sees
+# position; the detector itself is proven on the Orin with real frames.
 DET_SOURCE = os.environ.get("AIGP_SEEKER_DET", "synthetic")
 LAPS = int(os.environ.get("AIGP_LAPS", "2"))
 _COURSE = course_bridge.load_course(laps=LAPS)
@@ -53,12 +54,19 @@ print(f"[SEEKER] config: tilt {_SCFG.cruise_tilt_deg} deg, v_creep {_SCFG.v_cree
 _PILOT = SeekerPilot(CFG, crossings_from_course(_COURSE), start_xy=(0.0, 0.0), laps=LAPS,
                      seeker_cfg=_SCFG)
 
-_state = {"baro0": None, "z_prev": None, "t_prev": None, "vz": 0.0, "det": None,
-          "log": None, "writer": None, "n": 0, "z_f": None}
-# The sim's barometer carries ~0.1 m of noise per sample at 100 Hz: a raw
-# derivative is tens of m/s of garbage. Alpha-beta tracker (position gain
-# ALPHA, velocity gain BETA per sample) gives a usable z and vz.
-ALPHA, BETA = 0.15, 0.004
+_state = {"baro0": None, "t_prev": None, "det": None, "log": None, "writer": None, "n": 0}
+# Altitude and vertical speed: the same accel + baro complementary filter
+# the Orin runtime uses (seeker.dr_estimator.VerticalFilter), fed by the
+# sim's noisy barometer. Never the true position.
+_VERT = VerticalFilter()
+_LANDMARKS = []
+_seen = set()
+for _c in _COURSE.crossings:
+    _k = (round(_c.x, 2), round(_c.y, 2), round(_c.z, 2))
+    if _k not in _seen:
+        _seen.add(_k)
+        _LANDMARKS.append((_c.x, _c.y, _c.z, _c.heading_rad))
+_POSES = cam.PoseHistory(cam.NOISE["latency_s"])
 DETECT_EVERY_S = 1.0 / 30.0
 _det_t = [-1.0]
 
@@ -97,35 +105,6 @@ def _detect(frame_rgba, t):
                      area_frac=float(d.area_frac or d.area / float(bgr.shape[0] * bgr.shape[1])), t=t)
 
 
-def _synthetic_detect(update, t):
-    """Next crossing projected through the spec camera from the true pose."""
-    k = min(_PILOT.brain.k, len(_PILOT.brain.seq) - 1)
-    c = _PILOT.brain.seq[k]
-    R = rot_from_quat(update.world_pos[0:4])            # body FLU -> world
-    p = np.asarray(update.world_pos[4:7], dtype=float)
-    d_w = np.array([c.x - p[0], c.y - p[1], c.z - p[2]])
-    d_b = R.T @ d_w                                       # in body FLU
-    dist = float(np.hypot(d_b[0], d_b[1]))
-    if dist < 0.4:
-        return None
-    tilt = math.radians(20.0)                             # camera axis 20 deg above body forward
-    fwd = d_b[0] * math.cos(tilt) + d_b[2] * math.sin(tilt)
-    up = -d_b[0] * math.sin(tilt) + d_b[2] * math.cos(tilt)
-    left = d_b[1]
-    if fwd <= 0.1:
-        return None
-    x_img = -left / fwd                                   # +right (tan units, fx = half-width)
-    y_img = -up / fwd                                     # +down
-    if abs(x_img) > 1.0 or abs(y_img) > 0.5625:           # outside the 90 x 59 deg frame
-        return None
-    yaw = math.atan2(R[1, 0], R[0, 0])
-    if abs(((c.heading_rad - yaw + math.pi) % (2 * math.pi)) - math.pi) > math.radians(70):
-        return None                                       # seeing the ring edge-on / from behind
-    app = 2.7 / max(dist, 0.4)
-    area_frac = min(1.0, (app / 2.0) ** 2 * 0.35)
-    return Detection(offset_x=x_img, offset_y=y_img / 0.5625, area_frac=area_frac, t=t)
-
-
 def _log(t, est, det, out, update):
     if _state["writer"] is None:
         path = next_numbered(str(AIGP_REPO / "out" / "flightlogs" / "seeker_XXX.csv"))
@@ -159,29 +138,18 @@ def _log(t, est, det, out, update):
 
 def autopilot(update: SensorUpdate) -> RCCommand:
     t = update.t
-    # sensors only: heading from attitude, altitude from the baro
+    # sensors only: heading from attitude, altitude from accel + baro
     R = rot_from_quat(update.world_pos[0:4])
     yaw = math.atan2(R[1, 0], R[0, 0])
-    if _state["baro0"] is None and update.baro_fresh:
-        _state["baro0"] = float(update.baro)
-    z_meas = float(update.baro) - (_state["baro0"] or 0.0)
-    if _state["z_f"] is None:
-        _state["z_f"], _state["vz"], _state["t_prev"] = z_meas, 0.0, t
-    elif update.baro_fresh and t > _state["t_prev"]:
-        dt = t - _state["t_prev"]
-        pred = _state["z_f"] + _state["vz"] * dt
-        r = z_meas - pred
-        _state["z_f"] = pred + ALPHA * r
-        _state["vz"] += (BETA / dt) * r
-        _state["t_prev"] = t
-    z = _state["z_f"]
-    vz = _state["vz"]
-    if DET_SOURCE == "synthetic":
-        # stand-in for the FC's filtered altitude + vario (MSP_ALTITUDE): the
-        # sim's raw baro through our filter lags enough to make the altitude
-        # loop hunt (race_163: 1.2 to 1.9 m swings)
-        z = float(update.world_pos[6])
-        vz = float(update.world_vel[5])
+    z_meas = None
+    if update.baro_fresh:
+        if _state["baro0"] is None:
+            _state["baro0"] = float(update.baro)
+        z_meas = float(update.baro) - _state["baro0"]
+    dt = 0.0 if _state["t_prev"] is None else max(0.0, min(0.05, t - _state["t_prev"]))
+    _state["t_prev"] = t
+    az_world = float((R @ np.asarray(update.accel, dtype=float))[2]) - G
+    z, vz = _VERT.update(dt, az_world, z_meas, update.baro_fresh)
     # body rates for the acro attitude loop's damping term (world -> body)
     omega_w = np.asarray(update.world_vel[0:3], dtype=float)
     est = StateEstimate(p=np.array([0.0, 0.0, z]), v=np.array([0.0, 0.0, vz]),
@@ -191,10 +159,11 @@ def autopilot(update: SensorUpdate) -> RCCommand:
         _diag["frames"] += 1
     if update.frame_fresh:
         _diag["fresh"] += 1
+    _POSES.push(t, update.world_pos)
     if DET_SOURCE == "synthetic":
         if t - _det_t[0] >= DETECT_EVERY_S:
             _det_t[0] = t
-            det = _synthetic_detect(update, t)
+            det = cam.detect_any(_POSES.at_delay(t), _LANDMARKS, t)
             _state["det"] = det
         elif det is not None and t - det.t > 0.25:
             det = None

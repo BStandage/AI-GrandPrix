@@ -141,7 +141,7 @@ receives **IMU data** back - nothing else. So the stack splits cleanly:
 | Planner + plan JSON | unchanged | **unchanged** (new course map in, plan out) |
 | Follower `Tracker` | unchanged | **unchanged** (pure: state + plan -> desired accel/yaw) |
 | Follower `StateSource` | ground-truth pose from the sim | **swapped**: `DeadReckonSource` fed by `hardware.state.FcStateSource` (FC attitude, accel, baro) plus camera gate fixes (`hardware.runtime`) |
-| RC output | `RCCommand` -> sim bridge packets | **swapped**: `hardware.bridge` sends the same channel values as MSP_SET_RAW_RC at 50 Hz over `/dev/ttyTHS1` at 115200 (Betaflight 4.5.x on the Archer) |
+| RC output | `RCCommand` -> sim bridge packets | **swapped**: `hardware.bridge` sends the same channel values as MSP_SET_RAW_RC at 50 Hz over `/dev/ttyTHS1` at 115200 (Betaflight 4.4.3 on the Archer) |
 | Attitude loop | our thrust-vector loop at 1 kHz (ACRO) | **ANGLE mode**: `rc_backend.angle_sticks` sends tilt angles, Betaflight closes attitude (`angle_limit` 80); `batch_fly --angle` flies the same shape in the sim |
 | Scoring | `sim/pq_course.RaceTracker` | the organizers' clock |
 
