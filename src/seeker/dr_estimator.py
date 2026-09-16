@@ -132,8 +132,8 @@ class DeadReckonSource:
 
     def set_landmarks(self, landmarks):
         """The unique gates, so the map can say which ones can be in view:
-        the gate just passed, the next one and the one after. Everything
-        else is refused whatever it looks like (we know the course)."""
+        the gate just passed and the next one. Everything else is refused
+        whatever it looks like (we know the course)."""
         self.landmarks = list(landmarks)
         key = lambda x, y, z: (round(x, 2), round(y, 2), round(z, 2))
         lm_of = {key(*lm[:3]): i for i, lm in enumerate(self.landmarks)}
@@ -142,7 +142,10 @@ class DeadReckonSource:
     def allowed_now(self):
         if not self.event_lm:
             return None
-        lo, hi = max(0, self.next_event - 1), min(len(self.event_lm), self.next_event + 2)
+        # the gate just passed and the next one. NOT the one after: it is far,
+        # its fix is weak, and on the approach to gate 5 a sighting of gate 6
+        # through it pulled the estimate 1.2 m off (race_261)
+        lo, hi = max(0, self.next_event - 1), min(len(self.event_lm), self.next_event + 1)
         return {i for i in self.event_lm[lo:hi] if i is not None}
 
     def _count_crossings(self, p_prev, p_new):

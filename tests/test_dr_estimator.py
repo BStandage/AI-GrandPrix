@@ -166,9 +166,11 @@ class TestMapPrior(unittest.TestCase):
         src.p[:] = [0.0, 0.0, 1.35]
         src.integrate(0.0, src.R, [0, 0, G], 1.35)
         near = [(0.0, 8.0, 1.35, math.pi / 2), (6.0, 12.0, 1.35, 0.0), (-3.0, 9.0, 1.35, math.pi / 2)]
-        src.set_events([near[2], near[1], near[0]])      # run order: 2, 1, 0; next_event = 0 -> allowed {2, 1}
+        src.set_events([near[2], near[1], near[0]])      # run order: 2, 1, 0; next_event = 0 -> allowed {2}
         src.set_landmarks(near)
-        self.assertEqual(src.allowed_now(), {2, 1})
+        self.assertEqual(src.allowed_now(), {2})
+        src.next_event = 1
+        self.assertEqual(src.allowed_now(), {2, 1})      # just passed + next
         det = sighting(src, near[0][:3])                  # looking straight at landmark 0, which the map rules out
         self.assertIsNone(src.associate(det, near))
         self.assertEqual(src.associate(det, near, allowed={0, 1, 2}), 0)

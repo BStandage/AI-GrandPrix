@@ -29,6 +29,7 @@ All predicted times are MODEL PREDICTIONS, unverified (RESTRICTIONS.md).
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import math
@@ -1838,7 +1839,31 @@ def _smooth_path(P: np.ndarray, sg: np.ndarray, centers: np.ndarray):
     return Q2, sg2
 
 
+@contextlib.contextmanager
+def centred_crossings():
+    """Zero the per-gate knobs for one plan (keep only the START-role stub)."""
+    g = globals()
+    saved = {n: g[n] for n in ("POSE_LAT_OFFSET_M", "POSE_Z_OFFSET_M", "POSE_TILT_OVERRIDE_DEG",
+                               "PRE_STUB_M", "POST_STUB_M")}
+    try:
+        g["POSE_LAT_OFFSET_M"] = {}
+        g["POSE_Z_OFFSET_M"] = {}
+        g["POSE_TILT_OVERRIDE_DEG"] = {}
+        g["PRE_STUB_M"] = {k: v for k, v in saved["PRE_STUB_M"].items() if k == "g0"}
+        g["POST_STUB_M"] = {}
+        yield
+    finally:
+        g.update(saved)
+
+
 def plan(cfg: VehicleConfig, course=None) -> Plan:
+    if getattr(cfg.planner, "centred_crossings", False):
+        with centred_crossings():
+            return _plan(cfg, course)
+    return _plan(cfg, course)
+
+
+def _plan(cfg: VehicleConfig, course=None) -> Plan:
     if course is None:
         course = course_bridge.load_course(laps=cfg.planner.laps)
 
