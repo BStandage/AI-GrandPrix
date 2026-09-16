@@ -125,7 +125,8 @@ class VehicleConfig:
 
 
 def load_config(path=None) -> VehicleConfig:
-    path = Path(path) if path is not None else DEFAULT_CONFIG_PATH
+    # an empty string (an env var declared but unset in the container) means the default
+    path = Path(path) if path else DEFAULT_CONFIG_PATH
     data = path.read_bytes()
     raw = tomllib.loads(data.decode("utf-8"))
 

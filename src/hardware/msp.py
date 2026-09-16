@@ -328,6 +328,13 @@ def decode_battery_state(p: bytes) -> Battery:
     return Battery(voltage_v=v, current_a=amps, mah_drawn=mah, cells=cells)
 
 
+# MSP_RC reports rcData in Betaflight's INTERNAL order: roll, pitch, yaw,
+# throttle, aux1, aux2 ... (after the `map` has been applied). That is not
+# the order of MSP_SET_RAW_RC, which is the map order (AETR = roll, pitch,
+# throttle, yaw, aux...). Confirmed against the SITL 2026-09-16.
+RC_ECHO_ROLL, RC_ECHO_PITCH, RC_ECHO_YAW, RC_ECHO_THROTTLE, RC_ECHO_AUX1, RC_ECHO_AUX2 = range(6)
+
+
 def decode_rc(p: bytes) -> list[int]:
     return list(struct.unpack_from(f"<{len(p) // 2}H", p, 0))
 
