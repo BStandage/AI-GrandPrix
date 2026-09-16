@@ -61,6 +61,11 @@ _OPTIONAL = {
     # height stays in the frame (mount + vertical half FOV - cam_margin_deg),
     # and inside look_window_m before every crossing the forward accel is
     # capped to that same pitch. No target time anywhere.
+    # CENTRED CROSSINGS: ignore the per-gate pose knobs in planner.py (lateral
+    # offsets, tilt overrides, stubs) and cross every gate through its centre.
+    # The knobs were searched for 29 s on ground truth; with a position
+    # ESTIMATE the centre is the only pose with the full 0.6 m margin.
+    "planner": {"centred_crossings": False},
     "limits": {"cam_tilt_deg": None, "cam_hfov_deg": None, "cam_margin_deg": 8.0,
                "look_window_m": 0.0, "look_tilt_deg": 12.0,
                # BLIND TURNS: a crossing whose heading differs from the previous
