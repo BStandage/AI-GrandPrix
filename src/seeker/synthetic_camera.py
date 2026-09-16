@@ -84,7 +84,10 @@ def direction_body(det: Detection) -> np.ndarray:
 NOISE_ON = os.environ.get("AIGP_CAM_NOISE", "1") != "0"
 NOISE = dict(dropout=0.15,        # fraction of frames with no detection though a gate is in view
              sigma_offset=0.01,   # image offset noise, fraction of the half frame (~0.5 deg)
-             sigma_range=0.10,    # range noise, fraction of the range
+             # range noise, fraction of the range: the real detector's box-width jitter. Measured on the
+             # Orin recording with the repo thresholds: 11 % (perception.video_probe --still). Override
+             # with AIGP_CAM_RANGE_SIGMA once the detector is tuned.
+             sigma_range=float(os.environ.get("AIGP_CAM_RANGE_SIGMA", "0.10")),
              false_pos=0.02,      # fraction of frames returning a detection of nothing
              latency_s=1.0 / 30)  # the frame is one period old when it is consumed
 _rng = np.random.default_rng(int(os.environ.get("AIGP_SEED", "0")))

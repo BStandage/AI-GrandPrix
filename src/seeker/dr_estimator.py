@@ -116,6 +116,8 @@ class DeadReckonSource:
         self.crossing_lat_m = 1.5    # generous: the estimate is what we have
         self.crossing_z_m = 1.2
         self.miss_lat_m = 4.0        # crossed the plane this far off centre: a miss, but the gate is behind us
+        self.crossing_fix_gain = 0.6  # a counted crossing is a position fix: the drone was inside the opening,
+                                      # so pull the lateral estimate toward the gate centre (no camera needed)
         # association: how far the estimate may be wrong, growing with time since a fix
         self.assoc_sigma_m = 1.5
         self.assoc_sigma_rate = 0.5      # m per second without a fix
@@ -169,6 +171,12 @@ class DeadReckonSource:
             # (race_177: circling g4 until the g5 frame) is worse than moving on
             if clean or abs(lat) <= self.miss_lat_m:
                 self.next_event += 1
+                if clean and self.crossing_fix_gain > 0.0:
+                    # we went through the opening: the map says where that is.
+                    # Move the estimate across the crossing direction toward the
+                    # centre (the blind turn that follows starts from here)
+                    self.p[0] += self.crossing_fix_gain * lat * ny
+                    self.p[1] -= self.crossing_fix_gain * lat * nx
             else:
                 return
 

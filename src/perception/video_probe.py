@@ -39,6 +39,9 @@ def main(argv=None) -> int:
     ap.add_argument("--seconds", type=float, default=None, help="how much to process (default: all)")
     ap.add_argument("--step", type=int, default=1, help="process every Nth frame")
     ap.add_argument("--fy", type=float, default=None, help="focal length px, for the range readout (default: frame width, i.e. 90 deg)")
+    ap.add_argument("--still", type=float, default=0.0,
+                    help="the first N seconds show a STILL camera: report the biggest blob's width jitter there. "
+                         "That jitter is the range error the estimator lives with; the hairpin needs it under 3 %%")
     args = ap.parse_args(argv)
 
     cap = cv2.VideoCapture(args.video)
@@ -54,7 +57,7 @@ def main(argv=None) -> int:
     end_frame = n if args.seconds is None else min(n, int((args.start + args.seconds) * fps))
     print(f"{args.video}: {w}x{h} {fps:.1f} fps, {n} frames; processing every {args.step} from {args.start:.0f} s -> {out_path}")
 
-    stats = {"frames": 0, "with_det": 0, "blobs": 0, "big_area": [], "big_w": []}
+    stats = {"frames": 0, "with_det": 0, "blobs": 0, "big_area": [], "big_w": [], "still_w": [], "still_cx": []}
     t_print = -1.0
     while True:
         pos = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
@@ -79,6 +82,8 @@ def main(argv=None) -> int:
             g = dets[0]
             x, y, bw, bh = g.ring_bbox or g.bbox
             stats["big_area"].append(g.area_frac); stats["big_w"].append(bw)
+            if t < args.start + args.still:
+                stats["still_w"].append(bw); stats["still_cx"].append(x + bw / 2.0)
             cv2.rectangle(vis, (x, y), (x + bw, y + bh), (0, 255, 0), 3)
             if g.opening_bbox:
                 ox, oy, ow, oh = g.opening_bbox
@@ -101,6 +106,13 @@ def main(argv=None) -> int:
     print(f"frames {stats['frames']}, with a detection {stats['with_det']} ({100.0 * stats['with_det'] / f:.0f} %), "
           f"blobs per frame {stats['blobs'] / f:.1f}, biggest blob area median {np.median(stats['big_area']) if stats['big_area'] else 0:.4f}, "
           f"width median {np.median(stats['big_w']) if stats['big_w'] else 0:.0f} px")
+    if stats["still_w"]:
+        sw = np.array(stats["still_w"], dtype=float); cx = np.array(stats["still_cx"], dtype=float)
+        med = np.median(sw); merged = int((sw > 1.5 * med).sum())
+        clean = sw[sw <= 1.5 * med]
+        print(f"still camera, first {args.still:.1f} s: biggest blob width {med:.0f} px, jitter +-{100 * clean.std() / max(clean.mean(), 1):.1f} % "
+              f"(= range error), merged with a neighbour in {merged} of {len(sw)} frames, centre jitter +-{cx.std():.1f} px. "
+              f"Target: jitter under 3 %, no merges.")
     print(f"annotated video: {out_path}")
     return 0
 
