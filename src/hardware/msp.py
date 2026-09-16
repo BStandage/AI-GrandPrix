@@ -42,6 +42,7 @@ MSP_ALTITUDE = 109
 MSP_ANALOG = 110
 MSP_BATTERY_STATE = 130
 MSP_STATUS_EX = 150
+MSP_BOXNAMES = 116      # ';'-separated names of the ENABLED boxes, in flightModeFlags bit order
 MSP_SET_RAW_RC = 200
 
 # Betaflight 4.5 arming-disable flag bits, in order (src/main/fc/runtime_config.h)
@@ -230,14 +231,23 @@ class Status:
     cpu_load: int
     arming_disable_flags: Optional[int] = None
     armed: bool = False
+    box_names: Optional[list] = None   # from MSP_BOXNAMES: bit i of flight_mode_flags = box_names[i]
 
     @property
     def active_modes(self) -> list[str]:
-        return [n for i, n in enumerate(FLIGHT_MODE_BOXES) if self.flight_mode_flags & (1 << i)]
+        names = self.box_names or FLIGHT_MODE_BOXES
+        return [n for i, n in enumerate(names) if self.flight_mode_flags & (1 << i)]
 
     @property
     def angle_mode(self) -> bool:
-        return bool(self.flight_mode_flags & 2)
+        return "ANGLE" in self.active_modes
+
+    @property
+    def msp_override(self) -> bool:
+        """The MSP OVERRIDE box is on: our sticks are being used. ARM, the
+        override switch and the mode switches stay on the transmitter
+        (msp_override_channels_mask = 15 covers channels 1-4 only)."""
+        return any("OVERRIDE" in n.upper() for n in self.active_modes)
 
     @property
     def arming_blockers(self) -> list[str]:
@@ -412,11 +422,26 @@ class FlightController:
         p = self.request(MSP_BOARD_INFO)
         return p[:4].decode("ascii", "replace") if len(p) >= 4 else ""
 
+    def box_names(self) -> list[str]:
+        """Names of the enabled boxes in flightModeFlags bit order (cached)."""
+        if getattr(self, "_box_names", None) is None:
+            try:
+                raw = self.request(MSP_BOXNAMES).decode("ascii", "replace")
+                self._box_names = [n for n in raw.split(";") if n]
+            except MspError:
+                self._box_names = []
+        return self._box_names
+
     def status(self) -> Status:
         try:
-            return decode_status(self.request(MSP_STATUS_EX))
+            st = decode_status(self.request(MSP_STATUS_EX))
         except MspError:
-            return decode_status(self.request(MSP_STATUS))
+            st = decode_status(self.request(MSP_STATUS))
+        names = self.box_names()
+        if names:
+            st.box_names = names
+            st.armed = "ARM" in st.active_modes
+        return st
 
     def attitude(self) -> Attitude:
         return decode_attitude(self.request(MSP_ATTITUDE))

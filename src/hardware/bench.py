@@ -53,6 +53,11 @@ def cmd_info(args) -> int:
                   "Use `hardware.runtime --map-north here` and measure `drift`.")
         if not st.sensors & 2:
             print("            NO BAROMETER: the runtime has no altitude. Do not fly.")
+        names = fc.box_names()
+        print(f"boxes       {', '.join(names) if names else 'n/a'}")
+        if names and not any("OVERRIDE" in n.upper() for n in names):
+            print("            NO MSP OVERRIDE box configured: our sticks are ignored. Configurator: Modes tab, "
+                  "MSP OVERRIDE on a switch; CLI: set msp_override_channels_mask = 15, save")
         print(f"arm blocks  {', '.join(st.arming_blockers) or 'none'}"
               + ("" if st.arming_disable_flags is not None else "  (flags not in this MSP_STATUS)"))
         try:
@@ -115,7 +120,8 @@ def cmd_rc_test(args) -> int:
         # MSP_RC echo is roll, pitch, yaw, throttle, aux1, aux2 (FC internal order)
         ok = (len(s.rc_echo) >= 6 and abs(s.rc_echo[msp.RC_ECHO_ROLL] - 1500) < 30
               and s.rc_echo[msp.RC_ECHO_THROTTLE] < 1050 and s.rc_echo[msp.RC_ECHO_AUX1] < 1100)
-        print("  echo matches:", "YES" if ok else "NO - check `map`, msp_override_channels_mask and the receiver type in diff all")
+        print("  echo matches:", "YES" if ok else "NO - MSP OVERRIDE switch on? `set msp_override_channels_mask = 15` "
+              "(the default 11 leaves THROTTLE on the radio), `map` AETR1234?")
         for roll in (1300, 1700, 1500):
             for _ in range(int(0.5 * args.rc_hz)):
                 br.set_rc(throttle=1000, roll=roll, arm=1000)
