@@ -1,3 +1,51 @@
+# Race day: what to run, and for what
+
+**The honest state.** The only thing that can be commanded to fly today is
+the simulator. The on-drone runtime is being built in `src/hardware/`:
+the flight-controller link exists (`hardware.msp`, `hardware.bridge`,
+`hardware.bench`: MSP over the Orin's UART or the sim SITL's TCP port,
+RC out at 50 Hz, attitude/IMU/altitude/battery in, stale-command and
+link-outage disarm rules, tested against a fake FC). Still missing: the
+ANGLE-mode output for the follower, the estimator, and the runtime loop
+that ties camera, estimator, follower and bridge together. When it
+exists it takes the same two inputs as the sim: a plan JSON and a
+vehicle toml.
+
+**Which branch.** All current work is on `chore/dead-code` (it contains
+`feature/pubmap-29s`, the two-lap stack on the published map, and the
+docs branch) until those merge into `main`. In the sim repo, `main` is
+the validated sim on Betaflight 2026.6.0; `feature/betaflight-4.5` is the
+Archer's firmware generation and is validated when its step tests and
+one race are clean.
+
+**Which plan.** `out/plans/plan_RACE.json` is the race plan, always. It is
+the only plan the launchers pick up by default. The speed-ladder rungs are
+`out/plans/plan_LADDER_<T>s.json`, each with its own toml
+`config/ladder/vehicle_<T>s.toml`. Numbered plans `plan_NNN.json` are
+candidates; promote one by copying it over `plan_RACE.json` and `.png`.
+
+| I want to... | Run (from the repo shown) | What it flies |
+|---|---|---|
+| Fly the race plan and WATCH it | sim repo: `run_race_docker.cmd` | `plan_RACE.json` (newest `plan_*.json` if it is missing), the toml recorded in the plan, 2 laps, `solvers.follower`. Opens the editor. |
+| Fly a specific plan headless (a ladder rung, a candidate, several in a row) | `cd src` then `python -m raceline.batch_fly ../out/plans/plan_LADDER_60s.json` | The plan you name, with the toml it records (`--config <toml>` overrides). Prints the referee table: gates, contacts, time. |
+| Same, from WSL without Docker | `python race.py --traj out/plans/plan_RACE.json` (add `--config config/ladder/vehicle_60s.toml` for a rung) | The plan you name. **Without `--traj` race.py REPLANS from the toml and flies a new numbered plan, not the race plan.** |
+| Build the ladder rungs | `cd src` then `python -m raceline.ladder --targets 60 50 40 35`; a midpoint: `--k 0.4` | Writes the rung tomls and plans. Model times, centred crossings, zero contacts. |
+| Make a new race-plan candidate | `python race.py --plan-only` | Writes `out/plans/plan_NNN.json` + `.png` and prints the CHECK lines. Frame contacts must be 0. |
+| Read a run | `out/flightlogs/race_NNN.csv` (100 Hz trace) and the sim repo's `race_result_NNN.json` | Gates scored, first frame contact, lap times. |
+| Fly the VISION SEEKER in the sim (no position, no plan: camera + heading + baro) | `cd src` then `python -m raceline.batch_fly --solver solvers.seeker --angle ../out/plans/plan_RACE.json` | The published course gate by gate on the HSV detector in ANGLE mode; the plan only sets the lap count. Trace in `out/flightlogs/seeker_NNN.csv`. This is the race-day pilot. |
+| Fly a PLAN in the sim in ANGLE mode (the hardware control shape) | `cd src` then `python -m raceline.batch_fly --angle ../out/plans/plan_LADDER_60s.json` | Tilt-angle sticks, the FC levels itself; needed before any plan is trusted on the drone. |
+| Fly the seeker on the ARCHER | on the Orin, `cd src` then `python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north <deg> --dry-run`, then `--arm` | Camera -> detector -> seeker -> MSP. `--map-north` = compass heading of the map's +y (point the drone along gate 1 on the start line and read the bench telemetry). Dry run streams disarmed sticks and prints what it would do. |
+| Talk to a flight controller (the sim's SITL) | sim running, then `cd src` and `python -m hardware.bench --tcp 127.0.0.1:5761 info` (or `telemetry --hz 20`) | Firmware identity, arming blockers, attitude at the link rate. Read-only; the race keeps flying. |
+| Talk to the Archer's flight controller (bench, props OFF) | on the Orin: `python3 -m hardware.bench --port /dev/ttyTHS1 info`, then `rc-test --props-off`, then `arm-test --props-off` | Proves the RC path end to end (the FC echoes our sticks back), then arms with throttle at minimum and disarms. Nothing raises the throttle. |
+
+**The order on the day** (`src/PQ_PROCEDURE.md`): fly the slowest rung
+(60 s). Clean twice, fly the fastest rung you brought. Fails, fly the
+midpoint (`--k`). Only after the 35 s rung has held twice does
+`plan_RACE.json` get a slot. A complete slow run outranks every incomplete
+fast one.
+
+---
+
 > ## Team members: start here
 >
 > Everything below this box is the organizers' original dev-kit readme
