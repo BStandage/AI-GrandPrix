@@ -13,14 +13,18 @@ Branch: `feature/hardware-seeker`. Sim repo: `elodin-sim-aigp` on `main`
   barometer from the IMU packet, ONE unlabeled detection per frame
   (biggest ring in view, one frame old, 15 % dropouts, 0.5 deg and 10 %
   range noise, 2 % false positives); the estimator picks the gate and
-  counts crossings itself. 20 deg camera: 60 s rung clean (57-61 s) in
-  3 of 5 runs, 50 s rung clean twice (49.0, 50.8 s). 35 deg mount with a
-  120 deg lens: 40 s rung clean twice (40.7, 41.0 s); plan_RACE fails.
+  counts crossings itself. 20 deg camera, final code: 60 s rung clean
+  in 2 of 3 runs (59.2, 59.4 s; the third hit gate 2 in a sim that had
+  slowed to a crawl), 50 s rung clean twice (49.0, 50.8 s). 35 deg mount
+  with a 120 deg lens: 40 s rung clean twice (40.7, 41.0 s); plan_RACE
+  fails.
   Failures are a misjudged gate at the hairpin or the finish; the
   estimator trace `out/flightlogs/dr_NNN.csv` shows which.
 - Vision-only seeker (fallback, no plan, gate to gate) under the same
-  detector: 9 of 23 crossings, hit the low stacked gate. Was 215 s clean
-  with a perfect detector and true altitude. Fly it in ACRO in the sim.
+  detector: 9 of 23 crossings, hit the low stacked gate; a rerun with
+  bearing-rate damping timed out at 420 s with no result. Was 215 s
+  clean with a perfect detector and true altitude. Fly it in ACRO in the
+  sim.
 - Hardware: `src/hardware/` runs the follower over MSP, rehearsed
   against the sim's SITL disarmed. It has never flown a real drone.
   Known from the Archer's own blackbox (`src/PQ_SPECS_INTAKE.md`):
