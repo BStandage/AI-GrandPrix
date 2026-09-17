@@ -147,8 +147,10 @@
     "x_ft": 41.0,
     "y_ft": 86.0,
     "rot_deg_cw": 90,
-    "flight_direction": "Right"
-   }
+    "flight_direction": "Right",
+    "flight_direction_note": "either direction allowed (organizers, 2026-09-17)"
+   },
+   "either_direction": true
   },
   {
    "id": 7,

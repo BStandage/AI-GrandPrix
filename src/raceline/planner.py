@@ -1857,10 +1857,32 @@ def centred_crossings():
 
 
 def plan(cfg: VehicleConfig, course=None) -> Plan:
-    if getattr(cfg.planner, "centred_crossings", False):
-        with centred_crossings():
-            return _plan(cfg, course)
-    return _plan(cfg, course)
+    if course is None:
+        course = course_bridge.load_course(laps=cfg.planner.laps)
+    # EITHER-DIRECTION crossings (gate 6 = g5 since 2026-09-17): the direction
+    # is a planner choice. Solve every combination, keep the fastest plan
+    # with no frame contact. Each such crossing appears once per lap.
+    import dataclasses
+    import itertools
+    free = sorted({c.label for c in course.crossings if getattr(c, "either_direction", False)})
+    best = None
+    for flips in itertools.product((False, True), repeat=len(free)):
+        flip = dict(zip(free, flips))
+        cr = tuple(dataclasses.replace(c, heading_rad=wrap_pi(c.heading_rad + math.pi)) if flip.get(c.label) else c
+                   for c in course.crossings)
+        variant = dataclasses.replace(course, crossings=cr)
+        if getattr(cfg.planner, "centred_crossings", False):
+            with centred_crossings():
+                p = _plan(cfg, variant)
+        else:
+            p = _plan(cfg, variant)
+        if free:
+            choice = ", ".join(k + (" reversed" if v else " published") for k, v in flip.items())
+            print(f"[PLANNER] {choice}: {float(p.total_s):.2f} s, contacts {p.meta.get('frame_violations', 0)}")
+        key = (int(p.meta.get("frame_violations", 0)) > 0, float(p.total_s))
+        if best is None or key < best[0]:
+            best = (key, p)
+    return best[1]
 
 
 def _plan(cfg: VehicleConfig, course=None) -> Plan:
