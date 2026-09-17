@@ -6,7 +6,7 @@ Sim repo: `elodin-sim-aigp`, checked out next to this one.
 
 - Course: `data/course_map.json` (published). 10 gates, gate 9 double, 23 crossings over 2 laps.
 - Follower flies a plan on dead reckoning: FC attitude and accel, baro altitude, camera fixes on any gate it can match to the map. No ground truth anywhere in the loop.
-- Sim, noisy detector, 35 deg mount + 120 deg lens: k = 0.8 flies clean 3 of 3 in 40 s, k = 0.5 in 48 s. Every crossing is a lateral fix; each camera fix uses the attitude at the frame's time; the climb rate is capped because a climbing turn crosses off centre.
+- Sim, noisy detector, 35 deg mount + 120 deg lens: k = 1.0 (the race levers under the camera's tilt cap) flies clean 3 of 3 in 35 s, k = 0.8 in 40 s, k = 0.5 in 48 s; k = 0.9 fails 3 of 3, so fly what was flown, not what interpolates. Every crossing is a lateral fix; each camera fix uses the attitude at the frame's time; the climb rate is capped because a climbing turn crosses off centre.
 - Archer (from its blackbox): Betaflight 4.4.3, acc_1G 2048, baro yes, no mag, ANGLE mode.
 - Never flown on the real drone.
 
@@ -48,6 +48,8 @@ That grid was flown before the fix below. With each fix taken against the attitu
 | 0.5 | 49 s | 3/3, 47.6 s |
 | 0.65 | 43 s | 3/3, 43.9 s |
 | 0.8 | 38 s | 3/3, 39.9 s |
+| 0.9 | 35 s | 0/3, that line dies at the stack top |
+| 1.0 | 32 s | 3/3, 35.4 s |
 
 Binary search on k: top of the search is the safe end, bottom is k = 1.
 
