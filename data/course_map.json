@@ -148,9 +148,9 @@
     "y_ft": 86.0,
     "rot_deg_cw": 90,
     "flight_direction": "Right",
-    "flight_direction_note": "either direction allowed (organizers, 2026-09-17)"
+    "flight_direction_note": "published direction only; the gate may be BYPASSED on either side or over the top on the way to its entry (organizers, 2026-09-17)"
    },
-   "either_direction": true
+   "either_direction": false
   },
   {
    "id": 7,
