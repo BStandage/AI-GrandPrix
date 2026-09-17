@@ -30,13 +30,18 @@ and prints the model time. Fly that rung in the sim on vision (Docker running):
 AIGP_STATE_SOURCE=deadreckon AIGP_CAM_TILT_DEG=35 AIGP_CAM_HFOV_DEG=120 python -m raceline.batch_fly --timeout 300 --config ../config/ladder/vehicle_k050.toml ../out/plans/plan_LADDER_k050.json
 ```
 
-| k | model time | sim on vision |
-|---|---|---|
-| 0.2 | 63 s | not flown |
-| 0.33 | 56 s | 1 clean of 2, one sim stall |
-| 0.5 | 49 s | 2 clean of 3 (47 s) |
-| 0.8 | 36 s | not flown |
-| 1.0 | 30 s | fails |
+Benchmark 2026-09-17 (`docs/benchmark_2026-09-17.csv`), 3 seeds each, clean runs and their mean time:
+
+| mount | lens | k 0.33 | k 0.5 |
+|---|---|---|---|
+| 20 | 90 | 3/3, 67 s | 1/3, 63 s |
+| 20 | 120 | 2/3, 61 s | 1/3, 55 s |
+| 35 | 90 | 1/3, 63 s | 2/3, 55 s |
+| 35 | 120 | 0/3 | 3/3, 48 s |
+| 45 | 90 | 0/3 | 2/2, 51 s |
+| 45 | 120 | 2/3, 52 s | 1/3, 46 s |
+
+Not monotonic in k: each k is a different line, and the line's shape at the hairpin and the stack decides more than the speed. k = 1 (30 s) fails on vision.
 
 Binary search on k: top of the search is the safe end, bottom is k = 1.
 
