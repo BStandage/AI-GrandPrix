@@ -6,7 +6,7 @@ Sim repo: `elodin-sim-aigp`, checked out next to this one.
 
 - Course: `data/course_map.json` (published). 10 gates, gate 9 double, 23 crossings over 2 laps.
 - Follower flies a plan on dead reckoning: FC attitude and accel, baro altitude, camera fixes on any gate it can match to the map. No ground truth anywhere in the loop.
-- Sim, noisy detector, 35 deg mount + 120 deg lens: the levers at about k = 0.4 flew clean 4 of 4 in 50 s. Every crossing is a lateral fix; the climb rate is a lever because a climbing turn crosses off centre.
+- Sim, noisy detector, 35 deg mount + 120 deg lens: k = 0.8 flies clean 3 of 3 in 40 s, k = 0.5 in 48 s. Every crossing is a lateral fix; each camera fix uses the attitude at the frame's time; the climb rate is capped because a climbing turn crosses off centre.
 - Archer (from its blackbox): Betaflight 4.4.3, acc_1G 2048, baro yes, no mag, ANGLE mode.
 - Never flown on the real drone.
 
@@ -41,7 +41,13 @@ Benchmark 2026-09-17 (`docs/benchmark_2026-09-17.csv`), 3 seeds each, clean runs
 | 45 | 90 | 0/3 | 2/2, 51 s |
 | 45 | 120 | 2/3, 52 s | 1/3, 46 s |
 
-Not monotonic in k: each k is a different line, and the line's shape at the hairpin and the stack decides more than the speed. k = 1 (30 s) fails on vision.
+That grid was flown before the fix below. With each fix taken against the attitude at the frame's own time (a frame one period old at 100 deg/s of yaw was 0.45 m of sideways error at 8 m, every fix through a turn leaning the same way), 35/120 flies faster, 3 seeds each (`docs/benchmark_2026-09-17_fast.csv`):
+
+| k | model | sim on vision |
+|---|---|---|
+| 0.5 | 49 s | 3/3, 47.6 s |
+| 0.65 | 43 s | 3/3, 43.9 s |
+| 0.8 | 38 s | 3/3, 39.9 s |
 
 Binary search on k: top of the search is the safe end, bottom is k = 1.
 
