@@ -1,6 +1,6 @@
 # How the drone flies the course
 
-Written for anyone on the team. No prior knowledge assumed. Diagram: `docs/how_it_flies.png`, slides: `docs/how_it_flies.pptx`.
+Written for anyone on the team. No prior knowledge assumed. Diagram: `docs/how_it_flies.png`, slides: `docs/how_it_flies.pptx`, the detailed version with links into the code: `docs/HOW_IT_FLIES_DETAILED.md`.
 
 ## The one-paragraph version
 
