@@ -46,7 +46,7 @@ Benchmark every mount, lens and k in one go (from `src`, Docker running; rows st
 python -m raceline.benchmark --tilts 20 35 45 --lenses 90 120 --ks 0.33 0.5 --seeds 1 2 3
 ```
 
-How it all works, for anyone: `docs/HOW_IT_FLIES.md`, `docs/how_it_flies.png`, `docs/how_it_flies.pptx`.
+How it all works, for anyone: `docs/HOW_IT_FLIES.md`, `docs/how_it_flies.png`, `docs/how_it_flies.pptx`; with links into the code: `docs/HOW_IT_FLIES_DETAILED.md`.
 
 Other sim commands, from `src`:
 
