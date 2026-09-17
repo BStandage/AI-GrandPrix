@@ -48,7 +48,7 @@ That grid was flown before the fix below. With each fix taken against the attitu
 | 0.5 | 49 s | 3/3, 47.6 s |
 | 0.65 | 43 s | 3/3, 43.9 s |
 | 0.8 | 38 s | 3/3, 39.9 s |
-| 0.9 | 35 s | 0/3, that line dies at the stack top |
+| 0.9 | 35 s | 0/3, that line hits gate 5 at 9.9 s every time |
 | 1.0 | 32 s | 3/3, 35.4 s |
 
 Binary search on k: top of the search is the safe end, bottom is k = 1.
