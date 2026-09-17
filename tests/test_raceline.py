@@ -95,9 +95,11 @@ class TestPlanGeometry(unittest.TestCase):
     def test_crossing_direction(self):
         for k, e in enumerate(PLAN.events):
             c = COURSE.event(k)
+            # an either-direction crossing carries the planner's chosen heading in the event
+            h = e["heading_rad"] if e.get("heading_rad") is not None else c.heading_rad
             tx = np.interp(e["s"], PLAN.s, PLAN.tangent[:, 0])
             ty = np.interp(e["s"], PLAN.s, PLAN.tangent[:, 1])
-            dot = tx * math.cos(c.heading_rad) + ty * math.sin(c.heading_rad)
+            dot = tx * math.cos(h) + ty * math.sin(h)
             self.assertGreater(dot, 0.8,
                                f"{e['label']} crossed off-normal (dot={dot:.2f})")
 
