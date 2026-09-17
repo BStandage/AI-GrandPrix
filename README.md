@@ -40,6 +40,14 @@ AIGP_STATE_SOURCE=deadreckon AIGP_CAM_TILT_DEG=35 AIGP_CAM_HFOV_DEG=120 python -
 
 Binary search on k: top of the search is the safe end, bottom is k = 1.
 
+Benchmark every mount, lens and k in one go (from `src`, Docker running; rows stream to `out/benchmark.csv`):
+
+```
+python -m raceline.benchmark --tilts 20 35 45 --lenses 90 120 --ks 0.33 0.5 --seeds 1 2 3
+```
+
+How it all works, for anyone: `docs/HOW_IT_FLIES.md`, `docs/how_it_flies.png`, `docs/how_it_flies.pptx`.
+
 Other sim commands, from `src`:
 
 ```
