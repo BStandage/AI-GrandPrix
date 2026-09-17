@@ -200,7 +200,7 @@ class DeadReckonSource:
         z, vz = self.vert.update(dt, float(a_w[2]), z_meas, baro_fresh)
         self.p[2] = z
         self.v[2] = vz
-        self.hist.append((t, self.p.copy()))
+        self.hist.append((t, self.p.copy(), R.copy()))
         while len(self.hist) > 1 and self.hist[0][0] < t - 0.5:
             self.hist.pop(0)
         if self.events:
@@ -208,15 +208,22 @@ class DeadReckonSource:
 
     def p_at(self, t_det):
         """The estimate at the detection's time (nearest sample not later than it)."""
+        return self.state_at(t_det)[0]
+
+    def state_at(self, t_det):
+        """(position, attitude) at the detection's time. The attitude matters
+        as much as the position: at 100 deg/s of yaw a frame one period old
+        is 3 deg, which is 0.45 m across the line of sight at 8 m, and every
+        fix through a turn leaned the same way (race_345 era, stack top)."""
         if t_det is None or not self.hist:
-            return self.p.copy()
-        best = self.hist[0][1]
-        for tt, pp in self.hist:
-            if tt <= t_det:
-                best = pp
+            return self.p.copy(), self.R
+        best = self.hist[0]
+        for h in self.hist:
+            if h[0] <= t_det:
+                best = h
             else:
                 break
-        return best.copy()
+        return best[1].copy(), best[2]
 
     def estimate(self, u) -> StateEstimate:
         """Sim SensorUpdate -> StateEstimate. Attitude from the quaternion (the
@@ -256,14 +263,15 @@ class DeadReckonSource:
         best_ang, best_tol, rng_fail = None, None, False
         if allowed is None:
             allowed = self.allowed_now()
+        p_ref, R_ref = self.state_at(getattr(det, "t", None))   # predict from where we were at the frame's time
         for i, lm in enumerate(landmarks):
             if allowed is not None and i not in allowed:
                 continue                                    # the map says this gate cannot be the one in view
-            d = np.array([lm[0] - self.p[0], lm[1] - self.p[1], lm[2] - self.p[2]])
+            d = np.array([lm[0] - p_ref[0], lm[1] - p_ref[1], lm[2] - p_ref[2]])
             rng_pred = float(np.linalg.norm(d))
             if rng_pred < 0.4 or rng_pred > self.max_fix_range_m:
                 continue
-            d_b = self.R.T @ (d / rng_pred)
+            d_b = R_ref.T @ (d / rng_pred)
             if d_b[0] <= 0.0:
                 continue                                    # behind the drone
             ang = math.acos(max(-1.0, min(1.0, float(np.dot(d_b, d_obs)))))
@@ -310,7 +318,8 @@ class DeadReckonSource:
     def apply_fix(self, det, gate_xyz) -> float:
         """Position fix from a sighting of the gate at gate_xyz. Returns the
         residual (m) between the dead-reckoned and the fixed position."""
-        d_w = self.R @ cam.direction_body(det)
+        p_ref, R_ref = self.state_at(getattr(det, "t", None))   # where and how we were pointed when the frame was taken
+        d_w = R_ref @ cam.direction_body(det)
         d_h = np.array([d_w[0], d_w[1]])
         n = np.linalg.norm(d_h)
         if n < 1e-6:
@@ -322,7 +331,6 @@ class DeadReckonSource:
             # moves the estimate across the line of sight
             rng = float(np.hypot(gate_xyz[0] - self.p[0], gate_xyz[1] - self.p[1]))
         p_fix = np.array([gate_xyz[0], gate_xyz[1]]) - rng * d_h
-        p_ref = self.p_at(getattr(det, "t", None))          # where we were when the frame was taken
         r_full = p_fix - p_ref[:2]
         self.last_full_residual = float(np.hypot(r_full[0], r_full[1]))
         along = float(np.dot(r_full, d_h))
