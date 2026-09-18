@@ -1,28 +1,15 @@
 [
  {
-  "tag": "60s_cam20_90",
-  "k": 0.172,
-  "model_s": 59.97,
-  "contacts": 0,
-  "min_margin_m": 0.35,
-  "tilt_deg": 31.9,
-  "v_max": 7.6,
-  "slew": 61.0,
-  "a_lat_margin": 0.75,
-  "toml": "config\\ladder\\vehicle_60s_cam20_90.toml",
-  "plan": "out\\plans\\plan_LADDER_60s_cam20_90.json"
- },
- {
-  "tag": "50s_cam20_90",
+  "tag": "k050_cam20_90",
   "k": 0.5,
-  "model_s": 49.85,
+  "model_s": 62.22,
   "contacts": 0,
   "min_margin_m": 0.35,
-  "tilt_deg": 41.4,
+  "tilt_deg": 30.7,
   "v_max": 12.5,
   "slew": 102.0,
-  "a_lat_margin": 0.85,
-  "toml": "config\\ladder\\vehicle_50s_cam20_90.toml",
-  "plan": "out\\plans\\plan_LADDER_50s_cam20_90.json"
+  "a_lat_margin": 0.82,
+  "toml": "config\\ladder\\vehicle_k050_cam20_90.toml",
+  "plan": "out\\plans\\plan_LADDER_k050_cam20_90.json"
  }
 ]
