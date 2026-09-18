@@ -1,41 +1,15 @@
 [
  {
-  "tag": "60s_cam35_120",
-  "k": 0.172,
-  "model_s": 59.97,
+  "tag": "k100_cam35_120",
+  "k": 1.0,
+  "model_s": 32.24,
   "contacts": 0,
   "min_margin_m": 0.35,
-  "tilt_deg": 31.9,
-  "v_max": 7.6,
-  "slew": 61.0,
-  "a_lat_margin": 0.75,
-  "toml": "config\\ladder\\vehicle_60s_cam35_120.toml",
-  "plan": "out\\plans\\plan_LADDER_60s_cam35_120.json"
- },
- {
-  "tag": "50s_cam35_120",
-  "k": 0.312,
-  "model_s": 50.17,
-  "contacts": 0,
-  "min_margin_m": 0.35,
-  "tilt_deg": 41.6,
-  "v_max": 9.7,
-  "slew": 79.0,
-  "a_lat_margin": 0.79,
-  "toml": "config\\ladder\\vehicle_50s_cam35_120.toml",
-  "plan": "out\\plans\\plan_LADDER_50s_cam35_120.json"
- },
- {
-  "tag": "40s_cam35_120",
-  "k": 0.516,
-  "model_s": 39.84,
-  "contacts": 0,
-  "min_margin_m": 0.35,
-  "tilt_deg": 55.6,
-  "v_max": 12.7,
-  "slew": 104.0,
-  "a_lat_margin": 0.85,
-  "toml": "config\\ladder\\vehicle_40s_cam35_120.toml",
-  "plan": "out\\plans\\plan_LADDER_40s_cam35_120.json"
+  "tilt_deg": 71.3,
+  "v_max": 20.0,
+  "slew": 165.0,
+  "a_lat_margin": 0.95,
+  "toml": "config\\ladder\\vehicle_k100_cam35_120.toml",
+  "plan": "out\\plans\\plan_LADDER_k100_cam35_120.json"
  }
 ]

@@ -30,6 +30,8 @@ and prints the model time. Fly that rung in the sim on vision (Docker running):
 AIGP_STATE_SOURCE=deadreckon AIGP_CAM_TILT_DEG=35 AIGP_CAM_HFOV_DEG=120 python -m raceline.batch_fly --timeout 300 --config ../config/ladder/vehicle_k050.toml ../out/plans/plan_LADDER_k050.json
 ```
 
+The proven rungs travel with the repo, plan and toml together, in `config/ladder/plans/` and `config/ladder/`: k 0.5, 0.65, 0.8 and 1.0 for the 35/120 camera (48, 44, 40, 35 s, each 3 of 3) and k 0.33 for the 20/90 camera (67 s, 3 of 3). Those are the files the Archer lines above take. `out/plans/` is not in git.
+
 Benchmark 2026-09-17 (`docs/benchmark_2026-09-17.csv`), 3 seeds each, clean runs and their mean time:
 
 | mount | lens | k 0.33 | k 0.5 |
@@ -79,8 +81,8 @@ python3 -m hardware.bench --port /dev/ttyTHS1 rc-test --props-off
 python3 -m hardware.bench --port /dev/ttyTHS1 arm-test --props-off
 python3 -m hardware.bench --port /dev/ttyTHS1 drift --seconds 60
 python3 -m hardware.camcal --dist 6.0 --dz <m> --port /dev/ttyTHS1        # prints --fy --cam-hfov --cam-tilt
-python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north here --cam-tilt <deg> --fy <px> --cam-hfov <deg> --pilot follower --config ../config/ladder/vehicle_k033.toml --traj ../out/plans/plan_LADDER_k033.json --dry-run
-python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north here --cam-tilt <deg> --fy <px> --cam-hfov <deg> --pilot follower --config ../config/ladder/vehicle_k033.toml --traj ../out/plans/plan_LADDER_k033.json --arm
+python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north here --cam-tilt <deg> --fy <px> --cam-hfov <deg> --pilot follower --config ../config/ladder/vehicle_k050_cam35_120.toml --traj ../config/ladder/plans/plan_LADDER_k050_cam35_120.json --dry-run
+python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north here --cam-tilt <deg> --fy <px> --cam-hfov <deg> --pilot follower --config ../config/ladder/vehicle_k050_cam35_120.toml --traj ../config/ladder/plans/plan_LADDER_k050_cam35_120.json --arm
 ```
 
 `--map-north here`: drone on the start line pointing along gate 1 when the runtime starts. `--pilot seeker` = fallback.
