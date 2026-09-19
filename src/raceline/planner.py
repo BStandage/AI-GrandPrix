@@ -29,6 +29,7 @@ All predicted times are MODEL PREDICTIONS, unverified (RESTRICTIONS.md).
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import math
@@ -230,6 +231,7 @@ V_REVERSAL_SWING_MPS = 20.0  # cap OFF (feature/rip): the 4 m disc also caught t
 REVERSAL_CROSS_OFFSET_M = 0.25  # see build_anchors: aim inside the loop by the follower's wide error
 _LAST_REVERSAL = []          # reversal flags of the last build_anchors() call
 _LAST_LABELS = []
+_LAST_HEADINGS = []          # crossing headings of the last build_anchors() call
 GATE_SPEED_CAP = {}          # gate label -> speed cap (m/s) within REVERSAL_WINDOW_M of it (the follower's carrot is 0.3 s of speed: slower = tighter tracking)
 V_REVERSAL_MPS = 3.5         # speed cap through a reversal gate (replay: the follower
 REVERSAL_WINDOW_M = 4.0      # left the 2.5 m loop at 9.3 m/s and crossed g7 0.45 m wide)
@@ -1120,9 +1122,10 @@ def build_anchors(course, cfg: VehicleConfig):
                 else:
                     for i in range(lo, hi):
                         anchors[i][2] = z_to
-    global _LAST_REVERSAL, _LAST_LABELS
+    global _LAST_REVERSAL, _LAST_LABELS, _LAST_HEADINGS
     _LAST_REVERSAL = [bool(r) for r in reversal]
     _LAST_LABELS = [c.label for c in events]
+    _LAST_HEADINGS = [c.heading_rad for c in events]
     return np.array(anchors), center_idx
 
 
@@ -1658,6 +1661,24 @@ def _speed_profile(P: np.ndarray, s: np.ndarray, cfg: VehicleConfig,
                 dk = np.linalg.norm(P[:, :2] - centers[k, :2], axis=1)
                 v_rev[dk < REVERSAL_WINDOW_M] = np.minimum(v_rev[dk < REVERSAL_WINDOW_M], GATE_SPEED_CAP[lab])
         ceilings["reversal-gate"] = v_rev
+    # Blind turns (see config _OPTIONAL limits): slow into any crossing that
+    # the camera cannot hold on the way in, by the heading change alone.
+    v_bt = float(getattr(lim, "v_blind_turn_mps", 0.0) or 0.0)
+    if v_bt > 0.0 and _LAST_HEADINGS and len(_LAST_HEADINGS) == len(centers):
+        bt_deg = float(getattr(lim, "blind_turn_deg", 90.0))
+        bt_win = float(getattr(lim, "blind_turn_window_m", 6.0))
+        v_blind = np.full(n, np.inf)
+        i_prev = 0
+        for k, c in enumerate(centers):
+            d = np.linalg.norm(P[i_prev:] - c[None, :], axis=1)
+            j = i_prev + int(np.flatnonzero(d < float(d.min()) + 0.5)[0])
+            if k > 0 and _LAST_HEADINGS[k] is not None and _LAST_HEADINGS[k - 1] is not None:
+                turn = abs(wrap_pi(_LAST_HEADINGS[k] - _LAST_HEADINGS[k - 1]))
+                if math.degrees(turn) > bt_deg:
+                    back = s[j] - s
+                    v_blind[(back >= 0.0) & (back <= bt_win)] = v_bt
+            i_prev = j
+        ceilings["blind-turn"] = v_blind
 
     # RUN-OUT: past the FINAL crossing the race is already scored, so there is
     # nothing to gain by accelerating again - and the time-optimal profile
@@ -1726,10 +1747,30 @@ def _speed_profile(P: np.ndarray, s: np.ndarray, cfg: VehicleConfig,
     # Braking, drag is free deceleration on top of the brake budget.
     a_thrust = cfg.a_lat_full() * THRUST_SHARE
     Tz = T[:, 2]
+    # LOOK WINDOW (sprint, then look): inside look_window_m before each
+    # crossing the forward budget is capped so the total pitch stays near
+    # look_tilt_deg, which keeps the next gate in the camera. Crossing
+    # samples are found in event order, first passage after the previous
+    # one (the path overlaps itself across laps).
+    look_m = float(getattr(lim, "look_window_m", 0.0) or 0.0)
+    a_look_cap = np.full(n, np.inf)
+    if look_m > 0.0:
+        a_look = G * math.tan(math.radians(float(getattr(lim, "look_tilt_deg", 12.0))))
+        i_prev = 0
+        for k, c in enumerate(centers):
+            d = np.linalg.norm(P[i_prev:] - c[None, :], axis=1)
+            j = i_prev + int(np.flatnonzero(d < float(d.min()) + 0.5)[0])
+            if k > 0:                        # not the start gate: it is dead ahead on the start line
+                back = (s[j] - s)
+                win = (back > 0.0) & (back <= look_m)
+                a_look_cap[win] = np.minimum(a_look_cap[win], a_look)
+            i_prev = j
     v = v_lim.copy()
     v[0] = 0.0
     for i in range(n - 1):
         budget = max(0.1, min(lim.a_accel_max, a_thrust - cfg.a_drag(v[i])))
+        if a_look_cap[i] < np.inf:
+            budget = max(0.1, min(budget, a_look_cap[i] - cfg.a_drag(v[i])))
         aa = a_avail(budget, v[i], kappa[i]) - G * Tz[i]
         aa = max(0.1, aa)
         v[i + 1] = min(v_lim[i + 1], math.sqrt(v[i] * v[i] + 2 * aa * ds))
@@ -1798,7 +1839,53 @@ def _smooth_path(P: np.ndarray, sg: np.ndarray, centers: np.ndarray):
     return Q2, sg2
 
 
+@contextlib.contextmanager
+def centred_crossings():
+    """Zero the per-gate knobs for one plan (keep only the START-role stub)."""
+    g = globals()
+    saved = {n: g[n] for n in ("POSE_LAT_OFFSET_M", "POSE_Z_OFFSET_M", "POSE_TILT_OVERRIDE_DEG",
+                               "PRE_STUB_M", "POST_STUB_M")}
+    try:
+        g["POSE_LAT_OFFSET_M"] = {}
+        g["POSE_Z_OFFSET_M"] = {}
+        g["POSE_TILT_OVERRIDE_DEG"] = {}
+        g["PRE_STUB_M"] = {k: v for k, v in saved["PRE_STUB_M"].items() if k == "g0"}
+        g["POST_STUB_M"] = {}
+        yield
+    finally:
+        g.update(saved)
+
+
 def plan(cfg: VehicleConfig, course=None) -> Plan:
+    if course is None:
+        course = course_bridge.load_course(laps=cfg.planner.laps)
+    # EITHER-DIRECTION crossings (gate 6 = g5 since 2026-09-17): the direction
+    # is a planner choice. Solve every combination, keep the fastest plan
+    # with no frame contact. Each such crossing appears once per lap.
+    import dataclasses
+    import itertools
+    free = sorted({c.label for c in course.crossings if getattr(c, "either_direction", False)})
+    best = None
+    for flips in itertools.product((False, True), repeat=len(free)):
+        flip = dict(zip(free, flips))
+        cr = tuple(dataclasses.replace(c, heading_rad=wrap_pi(c.heading_rad + math.pi)) if flip.get(c.label) else c
+                   for c in course.crossings)
+        variant = dataclasses.replace(course, crossings=cr)
+        if getattr(cfg.planner, "centred_crossings", False):
+            with centred_crossings():
+                p = _plan(cfg, variant)
+        else:
+            p = _plan(cfg, variant)
+        if free:
+            choice = ", ".join(k + (" reversed" if v else " published") for k, v in flip.items())
+            print(f"[PLANNER] {choice}: {float(p.total_s):.2f} s, contacts {p.meta.get('frame_violations', 0)}")
+        key = (int(p.meta.get("frame_violations", 0)) > 0, float(p.total_s))
+        if best is None or key < best[0]:
+            best = (key, p)
+    return best[1]
+
+
+def _plan(cfg: VehicleConfig, course=None) -> Plan:
     if course is None:
         course = course_bridge.load_course(laps=cfg.planner.laps)
 

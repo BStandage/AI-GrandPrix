@@ -1,0 +1,179 @@
+"""
+Vision gate-seeker in the sim. RACE_SOLVER=solvers.seeker
+
+Flies the published course with the camera, the heading and the
+barometer and nothing else: no ground-truth position, no plan. The
+heading comes from the sim's attitude quaternion (standing in for the
+flight controller's compass heading, which is a sensor the real drone
+has), altitude from the sim's barometer, vertical speed from its
+derivative, the gate from the HSV detector on the FPV frame.
+
+Requires ANGLE mode in the SITL (configure_betaflight.py maps ANGLE to
+AUX2 high; this solver always sends aux2 = 1800).
+
+    cd src && python -m raceline.batch_fly --solver solvers.seeker --angle ../out/plans/plan_RACE.json
+
+(the plan is only there to satisfy the launcher and set the lap count).
+"""
+
+from __future__ import annotations
+
+import csv
+import math
+import os
+import time
+
+import numpy as np
+
+from raceline.config import load_config, AIGP_REPO
+from raceline import course as course_bridge
+from raceline.planner import next_numbered
+from raceline.rc_backend import StateEstimate, rot_from_quat
+from seeker.brain import Detection, SeekerConfig
+from seeker.dr_estimator import VerticalFilter, G
+from seeker.pilot import SeekerPilot, crossings_from_course
+from seeker import synthetic_camera as cam
+from solver.api import RCCommand, SensorUpdate
+
+CFG = load_config(os.environ.get("AIGP_VEHICLE_TOML"))
+# DETECTOR SOURCE. "camera": the HSV detector on the sim's FPV frame - but this
+# elodin build renders no FPV frames headless and none in our editor runs
+# either (0 of 349 on 2026-09-16), so "synthetic" (default) projects every
+# gate through the camera from the true pose and returns the BIGGEST one,
+# unlabeled, one frame old, with dropouts, offset and range noise and false
+# positives (seeker.synthetic_camera.detect_any). The brain never sees
+# position; the detector itself is proven on the Orin with real frames.
+DET_SOURCE = os.environ.get("AIGP_SEEKER_DET", "synthetic")
+LAPS = int(os.environ.get("AIGP_LAPS", "2"))
+_COURSE = course_bridge.load_course(laps=LAPS)
+# Seeker tuning overrides: AIGP_SEEKER_CFG='{"cruise_tilt_deg": 14, "turn_in_place_rad": 1.0}'
+import json as _json
+_SCFG = SeekerConfig(**_json.loads(os.environ.get("AIGP_SEEKER_CFG", "{}")))
+print(f"[SEEKER] config: tilt {_SCFG.cruise_tilt_deg} deg, v_creep {_SCFG.v_creep_est_mps} m/s, "
+      f"turn-in-place > {_SCFG.turn_in_place_rad:.2f} rad, scan {_SCFG.scan_before_seek_s} s, commit {_SCFG.commit_s} s")
+_PILOT = SeekerPilot(CFG, crossings_from_course(_COURSE), start_xy=(0.0, 0.0), laps=LAPS,
+                     seeker_cfg=_SCFG)
+
+_state = {"baro0": None, "t_prev": None, "det": None, "log": None, "writer": None, "n": 0}
+# Altitude and vertical speed: the same accel + baro complementary filter
+# the Orin runtime uses (seeker.dr_estimator.VerticalFilter), fed by the
+# sim's noisy barometer. Never the true position.
+_VERT = VerticalFilter()
+_LANDMARKS = []
+_seen = set()
+for _c in _COURSE.crossings:
+    _k = (round(_c.x, 2), round(_c.y, 2), round(_c.z, 2))
+    if _k not in _seen:
+        _seen.add(_k)
+        _LANDMARKS.append((_c.x, _c.y, _c.z, _c.heading_rad))
+_POSES = cam.PoseHistory(cam.NOISE["latency_s"])
+DETECT_EVERY_S = 1.0 / 30.0
+_det_t = [-1.0]
+
+
+_diag = {"frames": 0, "fresh": 0, "detect_calls": 0, "cv2": None, "dumped": 0, "mask_px": 0}
+DUMP_DIR = AIGP_REPO / "out" / "flightlogs" / "frames"
+
+
+def _detect(frame_rgba, t):
+    """HSV ring detector on the FPV frame -> nearest gate, or None."""
+    try:
+        import cv2
+        from perception.detectors.hsv_classic import gate_mask
+        from perception.gate_detection import mask_to_detections
+        _diag["cv2"] = cv2.__version__
+    except ImportError as e:
+        _diag["cv2"] = f"IMPORT FAILED: {e}"
+        return None
+    _diag["detect_calls"] += 1
+    arr = np.asarray(frame_rgba)
+    if arr.dtype != np.uint8:
+        arr = np.clip(arr * (255.0 if arr.max() <= 1.0 else 1.0), 0, 255).astype(np.uint8)
+    bgr = cv2.cvtColor(arr, cv2.COLOR_RGBA2BGR) if arr.shape[-1] == 4 else cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+    mask = gate_mask(bgr)
+    _diag["mask_px"] = int(mask.sum() // 255)
+    if _diag["detect_calls"] % 60 == 1 and _diag["dumped"] < 12:
+        DUMP_DIR.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(DUMP_DIR / f"frame_{_diag['dumped']:02d}_t{t:05.1f}.png"), bgr)
+        cv2.imwrite(str(DUMP_DIR / f"mask_{_diag['dumped']:02d}_t{t:05.1f}.png"), mask)
+        _diag["dumped"] += 1
+    dets = mask_to_detections(mask, bgr.shape)
+    if not dets:
+        return None
+    d = dets[0]
+    return Detection(offset_x=float(d.offset_x), offset_y=float(d.offset_y),
+                     area_frac=float(d.area_frac or d.area / float(bgr.shape[0] * bgr.shape[1])), t=t)
+
+
+def _log(t, est, det, out, update):
+    if _state["writer"] is None:
+        path = next_numbered(str(AIGP_REPO / "out" / "flightlogs" / "seeker_XXX.csv"))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _state["log"] = open(path, "w", newline="", encoding="utf-8")
+        _state["writer"] = csv.writer(_state["log"])
+        _state["writer"].writerow(["t", "phase", "crossing", "yaw", "z", "vz", "det_x", "det_y", "det_area",
+                                   "z_target", "yaw_target", "ax", "ay", "roll_deg", "pitch_deg",
+                                   "throttle", "roll", "pitch", "yaw_stick", "gt_x", "gt_y", "gt_z", "next_gate"])
+        print(f"[SEEKER] log -> {path}")
+    _state["n"] += 1
+    if _state["n"] % 10:
+        return
+    w = _state["writer"]
+    w.writerow([f"{t:.3f}", out.phase, out.crossing, f"{est.yaw:.3f}", f"{est.p[2]:.2f}", f"{est.v[2]:.2f}",
+                f"{det.offset_x:.3f}" if det else "", f"{det.offset_y:.3f}" if det else "",
+                f"{det.area_frac:.4f}" if det else "", f"{out.z_target:.2f}", f"{out.yaw_target:.3f}",
+                f"{out.a_des[0]:.2f}", f"{out.a_des[1]:.2f}", f"{out.tilt_deg[0]:.1f}", f"{out.tilt_deg[1]:.1f}",
+                out.throttle, out.roll, out.pitch, out.yaw,
+                f"{update.world_pos[4]:.2f}", f"{update.world_pos[5]:.2f}", f"{update.world_pos[6]:.2f}",
+                update.next_gate_index])
+    if _state["n"] % 500 == 0:
+        _state["log"].flush()
+        fr = update.frame_rgba
+        print(f"[SEEKER] cam: frames={_diag['frames']} fresh={_diag['fresh']} detect_calls={_diag['detect_calls']} "
+              f"cv2={_diag['cv2']} mask_px={_diag['mask_px']} shape={None if fr is None else (getattr(fr, 'shape', None), getattr(fr, 'dtype', None))}")
+        print(f"[SEEKER] t={t:6.1f} {out.phase:7s} k={out.crossing:2d} z={est.p[2]:4.2f} "
+              f"yaw={math.degrees(est.yaw):5.0f} det={'%.3f' % det.area_frac if det else '-'} "
+              f"stk=({out.roll},{out.pitch},{out.throttle},{out.yaw})")
+
+
+def autopilot(update: SensorUpdate) -> RCCommand:
+    t = update.t
+    # sensors only: heading from attitude, altitude from accel + baro
+    R = rot_from_quat(update.world_pos[0:4])
+    yaw = math.atan2(R[1, 0], R[0, 0])
+    z_meas = None
+    if update.baro_fresh:
+        if _state["baro0"] is None:
+            _state["baro0"] = float(update.baro)
+        z_meas = float(update.baro) - _state["baro0"]
+    dt = 0.0 if _state["t_prev"] is None else max(0.0, min(0.05, t - _state["t_prev"]))
+    _state["t_prev"] = t
+    az_world = float((R @ np.asarray(update.accel, dtype=float))[2]) - G
+    z, vz = _VERT.update(dt, az_world, z_meas, update.baro_fresh)
+    # body rates for the acro attitude loop's damping term (world -> body)
+    omega_w = np.asarray(update.world_vel[0:3], dtype=float)
+    est = StateEstimate(p=np.array([0.0, 0.0, z]), v=np.array([0.0, 0.0, vz]),
+                        R=R, yaw=yaw, omega=R.T @ omega_w)
+    det = _state["det"]
+    if update.frame_rgba is not None:
+        _diag["frames"] += 1
+    if update.frame_fresh:
+        _diag["fresh"] += 1
+    _POSES.push(t, update.world_pos)
+    if DET_SOURCE == "synthetic":
+        if t - _det_t[0] >= DETECT_EVERY_S:
+            _det_t[0] = t
+            det = cam.detect_any(_POSES.at_delay(t), _LANDMARKS, t)
+            _state["det"] = det
+        elif det is not None and t - det.t > 0.25:
+            det = None
+    elif update.frame_fresh and update.frame_rgba is not None and t - _det_t[0] >= DETECT_EVERY_S:
+        _det_t[0] = t
+        det = _detect(update.frame_rgba, t)
+        _state["det"] = det
+    elif det is not None and t - det.t > 0.25:
+        det = None
+    out = _PILOT.tick(t, est, det, update.baro_fresh)
+    _log(t, est, det, out, update)
+    return RCCommand(throttle=out.throttle, roll=out.roll, pitch=out.pitch, yaw=out.yaw,
+                     arm=out.arm, aux2=out.aux2)

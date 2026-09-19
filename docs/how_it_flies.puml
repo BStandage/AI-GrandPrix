@@ -1,0 +1,61 @@
+@startuml how_it_flies
+skinparam backgroundColor white
+skinparam defaultFontSize 13
+skinparam ArrowColor #333333
+skinparam rectangle {
+  BackgroundColor #F7F7F7
+  BorderColor #555555
+  RoundCorner 10
+}
+skinparam note {
+  BackgroundColor #FFF8DC
+  BorderColor #999999
+}
+
+title How the drone flies the course, start to finish
+
+rectangle "1. BEFORE THE RACE (laptop)" as before {
+  rectangle "Course map\n(organizer's published\ngate positions)" as map
+  rectangle "Camera + levers\nconfig/vehicle_cam35_120.toml\n(mount angle, lens,\ntilt, slew, speed limits)" as cfg
+  rectangle "Planner\nraceline.ladder --k\nsolves the fastest line\ninside the levers" as planner
+  rectangle "The plan\nplan_LADDER_kNNN.json\n(the line, speed at every\npoint, 23 crossings)" as plan
+  map --> planner
+  cfg --> planner
+  planner --> plan
+}
+
+rectangle "2. ON THE DRONE, 50 TIMES A SECOND (Orin)" as loop {
+  rectangle "Flight controller\n(Betaflight over MSP)\ngives: attitude, heading,\naccel, barometer" as fc
+  rectangle "Camera\n1080p 60 fps\nHSV detector finds\nred blobs" as cam
+  rectangle "ESTIMATOR: where am I?\n\n- integrate accel on attitude\n  (walking with eyes closed)\n- baro + accel = altitude\n- a blob that fits the map's\n  predicted azimuth = a fix\n- passing a gate = a fix\n- counts its own crossings" as est
+  rectangle "FOLLOWER: steer\n\n- where on the plan am I\n- carrot a little ahead\n- desired acceleration\n- desired altitude, nose" as fol
+  rectangle "Sticks\nANGLE mode: tilt angles\n+ throttle + yaw\nover MSP" as sticks
+  fc --> est
+  cam --> est
+  est --> fol
+  plan --> fol
+  fol --> sticks
+  sticks --> fc
+}
+
+rectangle "3. THE HUMAN (radio)" as human {
+  rectangle "Pilot arms,\nflips MSP OVERRIDE\nand ANGLE.\nCan take the sticks\nback any time." as pilot
+}
+pilot --> fc
+
+note right of est
+  The map is trusted. Only the gate
+  just passed and the next one may
+  match a blob. A blob far from the
+  predicted azimuth is ignored.
+end note
+
+note bottom of fol
+  Through the hairpin and the
+  stacked gate the next gate is
+  out of view: the follower flies
+  the known turn from the plan on
+  dead reckoning.
+end note
+
+@enduml

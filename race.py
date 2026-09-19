@@ -189,6 +189,8 @@ def main():
     ap.add_argument("--config", default=None, help="vehicle.toml path")
     ap.add_argument("--plan-only", action="store_true",
                     help="plan + render + report, no sim run")
+    ap.add_argument("--out", default=None,
+                    help="write the plan here (default: the next out/plans/plan_NNN.json)")
     ap.add_argument("--traj", default=None,
                     help="refly an existing plan JSON instead of replanning")
     ap.add_argument("--sim-time", type=float, default=None,
@@ -215,7 +217,7 @@ def main():
         print(f"PLAN  reusing {plan_path} "
               f"(predicts {predicted:.1f} s - model prediction, unverified)")
     else:
-        p, plan_path = make_plan(cfg)
+        p, plan_path = make_plan(cfg, args.out)
         plan_events = p.events
         predicted = p.total_s
 

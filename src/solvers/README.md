@@ -14,7 +14,14 @@ def autopilot(update: SensorUpdate) -> RCCommand:
 | `sysid_thrust.py` | Measurement flight: raw throttle steps -> `[thrust]` curve + analyzer. |
 | `sysid_alt.py` | Measurement flight: closed-loop altitude steps + tilt pulses (checks `kp_z`/`kd_z`) + analyzer. |
 | `sysid_sprint.py` | Measurement flight: constant-tilt straight sprints -> terminal speed + `[vehicle] drag_*` fit + analyzer. |
+| `seeker.py` | Fallback pilot: `seeker/brain.py` gate to gate on the camera, heading and baro. No plan, no position. |
+| `angle_probe.py` | Checks Betaflight ANGLE mode engages in the sim (it does; the SITL attitude filter drifts). |
 | `vision_probe.py` | Collects FPV frames of the gates, then runs the HSV detector offline. |
+
+Env knobs the follower reads: `AIGP_STATE_SOURCE=deadreckon` (fly on the
+dead-reckoning estimator instead of ground truth), `AIGP_ANGLE_MODE=1`
+(`batch_fly --angle`), `AIGP_CAM_TILT_DEG` / `AIGP_CAM_HFOV_DEG`
+(synthetic camera geometry).
 
 ## Add a solver
 

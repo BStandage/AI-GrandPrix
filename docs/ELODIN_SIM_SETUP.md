@@ -114,13 +114,13 @@ Needs the `build-essential` from step 2. `git status` showing
 the submodule's target.h).
 
 **Firmware version matters.** The Archer's flight controller runs
-Betaflight 4.5.x (the organizers ship configurator 10.10.0, the 4.5
-configurator). The sim's submodule is pinned to tag 4.5.5 on the sim
-branch `feature/betaflight-4.5` (2026-09-15; main still builds 2026.6.0
-until that branch is validated and merged). After switching the submodule
-version, delete `betaflight/obj/` and `eeprom.bin` so the build and the
-config are regenerated - the Docker entrypoint does both when they are
-missing.
+Betaflight 4.4.3 (its blackbox header; the organizers ship configurator 10.10.0, the 4.x
+configurator). The sim's submodule stays on 2026.6.0: a 4.5.5 SITL
+stalls in lockstep (sim branch `feature/betaflight-4.5`, parked). After
+switching the submodule version, delete `betaflight/obj/` and
+`eeprom.bin` (Docker: `docker volume rm elodin-sim-aigp_bf-build`) so the
+build and the config are regenerated - the Docker entrypoint does both
+when they are missing.
 
 ## 7. Elodin CLI (runtime), inside WSL
 

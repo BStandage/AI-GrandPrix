@@ -33,10 +33,14 @@ from raceline import planner as plan_io
 from raceline.config import G, load_config
 
 course_bridge.pq_course()          # side effect: sim repo importable
-from solver.api import RCCommand, SensorUpdate  # noqa: E402
+try:
+    from solver.api import RCCommand, SensorUpdate  # noqa: E402
+except ImportError:      # on the Orin: no sim repo, same dataclasses
+    from hardware.api_shim import RCCommand, SensorUpdate  # noqa: E402
 
 from raceline.rc_backend import (   # noqa: E402  (the shared proven loops)
-    AltitudeLoop, GroundTruthSource, StateEstimate, YawLoop, attitude_sticks)
+    AltitudeLoop, GroundTruthSource, StateEstimate, YawLoop, attitude_sticks,
+    angle_sticks)
 
 # Arming phases, matching the baseline's Betaflight handshake.
 T_DISARMED_END = 0.50   # 0.30 tried twice (2026-09-10, race_137 with the boot-grace hold in place): Betaflight never armed, the drone sat on the ground for the whole run - the arm request must come later than 0.3 s after the first RC frame regardless of the boot grace
@@ -67,6 +71,13 @@ RETRY_CONFIRM_TICKS = 20
 MAX_RETRIES_PER_GATE = 3
 
 _TRAJ_PATH = os.environ.get("AIGP_TRAJ")
+# ANGLE MODE (the hardware control shape): the FC closes the attitude loop,
+# our sticks are tilt angles (rc_backend.angle_sticks) and AUX2 is held high
+# to engage the ANGLE box configured in the SITL (configure_betaflight.py:
+# aux 1 = ANGLE on AUX2 1700-2100, angle_limit 80). Default off = acro.
+ANGLE_MODE = os.environ.get("AIGP_ANGLE_MODE", "0") == "1"
+AUX2 = 1800 if ANGLE_MODE else 1500
+print(f"[RACELINE] control mode: {'ANGLE (aux2 1800, tilt-angle sticks)' if ANGLE_MODE else 'ACRO (rate sticks)'}")
 if not _TRAJ_PATH:
     raise RuntimeError(
         "solvers.follower needs AIGP_TRAJ=/path/to/plan.json "
@@ -83,7 +94,7 @@ ATT_IDLE_SCALE = False     # superseded by THRUST_VECTOR_MODE (race_057: zero de
 THRUST_VECTOR_MODE = True  # throttle = |(a_h, g + a_z)|, tilt = its angle (see autopilot)
 VECTOR_FREEFALL_SHARE = 0.85   # a_z floor: -0.85 g (a quad cannot fall faster than g anyway)
 VECTOR_TILT_MAX_DEG = 60.0     # tilt cap when descending (gz small)
-ACC_LEAD_S = 0.10          # feedforward acceleration taken this far ahead along the plan (attitude lag compensation, see Tracker.step)
+ACC_LEAD_S = float(os.environ.get("AIGP_ACC_LEAD_S", "0.10"))   # feedforward acceleration taken this far ahead along the plan (attitude lag compensation, see Tracker.step)
 AZ_FF_GAIN = 0.0           # plan vertical-accel feedforward into the altitude loop: OFF - the calibrated replay fails the clean-flown plan_030 with it on (overshoots the top gate); untested in flight
 YAW_IDLE_BAND = 150        # PWM below hover_pwm under which no yaw is commanded (see autopilot)
 THRUST_BUDGET_SHARE = 1.0  # share of the motors' total specific thrust the follower may commit; vertical need first, horizontal gets the rest (see autopilot). 0 disables.
@@ -387,8 +398,46 @@ class Tracker:
 # RC backend (proven loops from solver/pq_waypoints.py, gains from the toml)
 # ---------------------------------------------------------------------------
 
-_SOURCE = GroundTruthSource()
+# STATE SOURCE. ground_truth (default): the sim's exact pose - the number the
+# real drone does not have. deadreckon: vision-aided dead reckoning
+# (seeker.dr_estimator): IMU integrated on the attitude, barometer for
+# altitude, and a position fix from every sighting of the next gate (in the
+# sim the sighting comes from the synthetic camera). This is the state
+# source the Archer flies on.
+STATE_SOURCE = os.environ.get("AIGP_STATE_SOURCE", "ground_truth")
+if STATE_SOURCE == "deadreckon":
+    from seeker.dr_estimator import DeadReckonSource
+    from seeker import synthetic_camera as _cam
+    _SOURCE = DeadReckonSource()
+    print("[RACELINE] state source: vision-aided DEAD RECKONING (no ground-truth position)")
+else:
+    _SOURCE = GroundTruthSource()
+    print("[RACELINE] state source: ground truth")
 _TRACKER = Tracker(PLAN, CFG)
+_FIX = {"n": 0, "last_res": 0.0, "t_det": -1.0, "err": 0.0}
+_POSES = _cam.PoseHistory(_cam.NOISE["latency_s"]) if STATE_SOURCE == "deadreckon" else None
+if STATE_SOURCE == "deadreckon":
+    # the drone has no referee: the estimator advances the gate index itself
+    # when its own position crosses the next opening's plane
+    _SOURCE.set_events([(e["x"], e["y"], e["z"], e.get("heading_rad")) for e in PLAN["events"]])
+# YAW POLICY. The plan's yaw follows the path tangent, which points the
+# camera away from the gate through a hairpin exactly when the estimator
+# needs to see it. With dead reckoning the nose aims at the next gate
+# instead (thrust-vector control does not care where the nose points),
+# handing back to the tracker's crossing heading inside 2 m of the gate.
+AIM_AT_GATE = os.environ.get("AIGP_YAW_AT_GATE", "1" if STATE_SOURCE == "deadreckon" else "0") == "1"
+AIM_HANDOFF_M = float(os.environ.get("AIGP_AIM_HANDOFF_M", "2.0"))   # metres before the gate where the nose goes back to the crossing heading
+# unique gate landmarks (xyz + crossing heading) from the plan's events; the
+# stacked pair is two landmarks at one XY
+_GATE_LANDMARKS = []
+_seen_lm = set()
+for _e in PLAN["events"]:
+    _key = (round(_e["x"], 2), round(_e["y"], 2), round(_e["z"], 2))
+    if _e.get("heading_rad") is not None and _key not in _seen_lm:
+        _seen_lm.add(_key)
+        _GATE_LANDMARKS.append((_e["x"], _e["y"], _e["z"], _e["heading_rad"]))
+if STATE_SOURCE == "deadreckon":
+    _SOURCE.set_landmarks(_GATE_LANDMARKS)      # the map says which gates can be in view
 _ALT = AltitudeLoop(CFG)
 _YAW = YawLoop(CFG)
 LAND_RATE_MPS = 1.0   # descent after the finish (see autopilot)
@@ -438,16 +487,84 @@ def reset_state() -> None:
     _state.update(done_t=None, dbg_t=0.0, trace=None, trace_n=0)
 
 
+_DR = {"fh": None, "n": 0, "det": None}
+
+
+def _dr_trace(t, est, truth, truth_v):
+    """Sim-only: estimate vs truth at 100 Hz, for finding where drift comes from."""
+    _DR["n"] += 1
+    if _DR["n"] % 10:
+        return
+    if _DR["fh"] is None:
+        from raceline.config import AIGP_REPO
+        from raceline.planner import next_numbered
+        path = next_numbered(str(AIGP_REPO / "out" / "flightlogs" / "dr_XXX.csv"))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _DR["fh"] = open(path, "w", encoding="utf-8")
+        _DR["fh"].write("t,ev,x,y,z,tx,ty,tz,vx,vy,tvx,tvy,fixes,rej,unm,lm,res,det_area,det_range,reason" + chr(10))
+        print(f"[RACELINE] estimator trace -> {path}")
+    lm = _SOURCE.last_landmark
+    _DR["fh"].write(f"{t:.2f},{_SOURCE.next_event},{est.p[0]:.3f},{est.p[1]:.3f},{est.p[2]:.3f},"
+                    f"{truth[0]:.3f},{truth[1]:.3f},{truth[2]:.3f},{est.v[0]:.3f},{est.v[1]:.3f},"
+                    f"{truth_v[0]:.3f},{truth_v[1]:.3f},{_SOURCE.fixes},{_SOURCE.rejected},{_SOURCE.unmatched},"
+                    f"{'' if lm is None else lm},{_SOURCE.fix_residual:.3f},"
+                    f"{'' if _DR['det'] is None else '%.4f' % _DR['det'].area_frac},"
+                    f"{'' if _DR['det'] is None or not _DR['det'].range_m else '%.2f' % _DR['det'].range_m},"
+                    f"{_SOURCE.last_reason}" + chr(10))
+    if _DR["n"] % 1000 == 0:
+        _DR["fh"].flush()
+
+
 def autopilot(update: SensorUpdate) -> RCCommand:
     t = update.t
     if t < T_DISARMED_END:
-        return RCCommand(arm=1000, throttle=1000)
+        return RCCommand(arm=1000, throttle=1000, aux2=AUX2)
     if t < T_ARM_IDLE_END:
-        return RCCommand(arm=1800, throttle=1000)
+        return RCCommand(arm=1800, throttle=1000, aux2=AUX2)
 
     est = _SOURCE.estimate(update)
-    a_des, z_target, vz_ff, yaw_des, done = _TRACKER.step(
-        est, update.next_gate_index)
+    if STATE_SOURCE == "deadreckon":
+        # the camera (30 Hz): ONE unlabeled detection of whatever ring is
+        # biggest in view, one frame old, with dropouts, noise and false
+        # positives; the estimator decides which gate it is and fixes on it.
+        # The same observe() runs on the Orin with the real detector.
+        _POSES.push(t, update.world_pos)
+        if t - _FIX["t_det"] >= 1.0 / 30.0:
+            _FIX["t_det"] = t
+            dets = _cam.detect_all(_POSES.at_delay(t), _GATE_LANDMARKS, t)
+            _DR["det"] = dets[0] if dets else None
+            if dets:
+                idx, res = _SOURCE.observe_any(dets, _GATE_LANDMARKS)
+                if idx is not None:
+                    _FIX["last_res"] = res
+                    _FIX["n"] += 1
+                    est = _SOURCE.last_est
+                    est.p[:] = _SOURCE.p
+                    est.v[:] = _SOURCE.v
+        # truth is read here for the LOG ONLY (the DR err column and the
+        # sim-only estimator trace out/flightlogs/dr_NNN.csv)
+        truth = np.asarray(update.world_pos[4:7], dtype=float)
+        truth_v = np.asarray(update.world_vel[3:6], dtype=float)
+        _FIX["err"] = float(np.hypot(est.p[0] - truth[0], est.p[1] - truth[1]))
+        _dr_trace(t, est, truth, truth_v)
+    # the gate index: the referee's in the sim, the estimator's own count under
+    # dead reckoning (the drone has no referee); the trace logs the referee's
+    next_event = _SOURCE.next_event if STATE_SOURCE == "deadreckon" else update.next_gate_index
+    return step(update.t, est, next_event, update.baro_fresh, _motor_stats(update))
+
+
+def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
+         motor_stats: str = "") -> RCCommand:
+    """One control tick from a state estimate: the tracker, the landing,
+    the thrust budget, the sticks and the trace. Pure with respect to the
+    sensor source, so the Orin runtime calls it with FC-fed estimates and
+    the sim wrapper below calls it with the sim's."""
+    a_des, z_target, vz_ff, yaw_des, done = _TRACKER.step(est, next_event)
+    if AIM_AT_GATE and not done and 0 <= next_event < len(_TRACKER.event_xyz):
+        gx, gy, _gz = _TRACKER.event_xyz[next_event]
+        dxg, dyg = gx - float(est.p[0]), gy - float(est.p[1])
+        if math.hypot(dxg, dyg) > AIM_HANDOFF_M:
+            yaw_des = math.atan2(dyg, dxg)
 
     if done or _state["done_t"] is not None:
         # LATCHED: once the last crossing is credited the race is over. The
@@ -464,11 +581,11 @@ def autopilot(update: SensorUpdate) -> RCCommand:
         z_target = max(0.0, float(park[2]) - LAND_RATE_MPS * dt_done)
         vz_ff = -LAND_RATE_MPS if z_target > 0.0 else 0.0
         if est.p[2] < 0.10 and dt_done > 0.5:
-            return RCCommand(arm=1000, throttle=1000)
+            return RCCommand(arm=1000, throttle=1000, aux2=AUX2)
 
     airborne = est.p[2] >= CFG.follower.min_alt_translation_m
-    throttle = _ALT.throttle(update.t, est, z_target, vz_ff, airborne,
-                             update.baro_fresh,
+    throttle = _ALT.throttle(t, est, z_target, vz_ff, airborne,
+                             baro_fresh,
                              (AZ_FF_GAIN * getattr(_TRACKER, 'az_ff', 0.0)) if getattr(_TRACKER, 'in_fold', False) else 0.0)
     # THRUST-VECTOR BUDGET, vertical first (Brian, race_044): the motors
     # make T_MAX of specific thrust in total. The altitude loop states its
@@ -535,7 +652,10 @@ def autopilot(update: SensorUpdate) -> RCCommand:
         throttle = int(round(CFG.pwm_for_thrust(t_mag)))
     roll = pitch = yaw_stick = 1500
     if airborne:
-        roll, pitch, eb = attitude_sticks(CFG, est, a_des, az_eff)
+        if ANGLE_MODE:
+            roll, pitch, eb = angle_sticks(CFG, est, a_des, az_eff)
+        else:
+            roll, pitch, eb = attitude_sticks(CFG, est, a_des, az_eff)
         yaw_stick = _YAW.stick(est, yaw_des)
         # No yaw demand when the motors cannot deliver it: through the
         # stack the throttle sits at minimum for ~1 s and the yaw loop kept
@@ -555,14 +675,14 @@ def autopilot(update: SensorUpdate) -> RCCommand:
     if fh is not None and _state["trace_n"] % TRACE_EVERY == 0:
         w = est.omega if est.omega is not None else (0.0, 0.0, 0.0)
         fh.write(f"{t:.3f},{_TRACKER.s[_TRACKER.idx]:.2f},"
-                 f"{update.next_gate_index},"
+                 f"{next_event},"
                  f"{est.p[0]:.3f},{est.p[1]:.3f},{est.p[2]:.3f},"
                  f"{est.v[0]:.3f},{est.v[1]:.3f},{est.v[2]:.3f},"
                  f"{z_target:.3f},{vz_ff:.3f},{a_des[0]:.2f},{a_des[1]:.2f},"
                  f"{cos_tilt:.3f},{w[0]:.2f},{w[1]:.2f},"
                  f"{_ALT.a_cmd:.2f},{_ALT.thrust:.2f},"
                  f"{roll},{pitch},{throttle},{yaw_stick},"
-                 f"{_motor_stats(update)}\n")
+                 f"{motor_stats}\n")
     # heartbeat ALWAYS prints - a crash below 1 m used to go silent for
     # 23 s while the drone skidded 140 m (measured); crashes must narrate
     if t - _state["dbg_t"] >= 1.0:
@@ -576,7 +696,8 @@ def autopilot(update: SensorUpdate) -> RCCommand:
               f"v={np.linalg.norm(est.v):4.2f} "
               f"xtrack={np.linalg.norm(_TRACKER.pos[i] - est.p):4.2f} "
               f"zt={z_target:4.2f} tilt={tilt_deg:3.0f} az={_ALT.a_cmd:+4.1f} "
-              f"air={airborne} stk=({roll},{pitch},{throttle},{yaw_stick})")
+              f"air={airborne} stk=({roll},{pitch},{throttle},{yaw_stick})"
+              + (f" DR err={_FIX['err']:.2f}m fixes={_FIX['n']} rej={_SOURCE.rejected} unm={_SOURCE.unmatched} res={_FIX['last_res']:.2f}" if STATE_SOURCE == "deadreckon" else ""))
 
     return RCCommand(arm=1800, throttle=throttle, roll=roll, pitch=pitch,
-                     yaw=yaw_stick)
+                     yaw=yaw_stick, aux2=AUX2)

@@ -107,9 +107,10 @@ RATE commands), throttle supplies the vector's magnitude at the achieved
 tilt off the measured thrust curve, capped at hover-minus when riding
 high. The nose follows the path tangent `yaw_lookahead_m` ahead but goes
 NEUTRAL inside gate windows (a railed yaw demand steals motor authority
-at the crossing). State comes through `StateSource` - ground truth
-today; the estimator milestone swaps in a new source and touches nothing
-else.
+at the crossing). State comes through `StateSource`: ground truth by
+default, `seeker.dr_estimator.DeadReckonSource` with
+`AIGP_STATE_SOURCE=deadreckon` (the follower then aims the nose at the
+next gate so the camera keeps fixing position).
 
 ## Tuning levers, in the order to try them
 
@@ -139,14 +140,14 @@ receives **IMU data** back - nothing else. So the stack splits cleanly:
 | `config/vehicle.toml` | SITL plant seeds | **same file** - `[vehicle]`/`[thrust]`/`[limits]` refilled from day-1 sysid + `diff all` on the 8" Archer Block 2 |
 | Planner + plan JSON | unchanged | **unchanged** (new course map in, plan out) |
 | Follower `Tracker` | unchanged | **unchanged** (pure: state + plan -> desired accel/yaw) |
-| Follower `StateSource` | ground-truth pose from the sim | **swapped**: estimator on FC IMU (UART) + camera gate fixes |
-| RC output | `RCCommand` -> sim bridge packets | **swapped**: same channel values sent as MSP RC frames over `/dev/ttyTHS1` at 115200 (Betaflight 4.5.x on the Archer; organizer libraries `~/target/msp/msp.py`, `msp_rc.py`) |
-| Attitude loop | our thrust-vector loop at 1 kHz on ground truth (ACRO) | **open decision**: MSP is polled at 30-50 Hz, and the organizers say flight-rate loops belong inside Betaflight -> ANGLE mode with angle setpoints from us is the candidate; the follower needs that output variant |
+| Follower `StateSource` | ground-truth pose from the sim | **swapped**: `DeadReckonSource` fed by `hardware.state.FcStateSource` (FC attitude, accel, baro) plus camera gate fixes (`hardware.runtime`) |
+| RC output | `RCCommand` -> sim bridge packets | **swapped**: `hardware.bridge` sends the same channel values as MSP_SET_RAW_RC at 50 Hz over `/dev/ttyTHS1` at 115200 (Betaflight 4.4.3 on the Archer) |
+| Attitude loop | our thrust-vector loop at 1 kHz (ACRO) | **ANGLE mode**: `rc_backend.angle_sticks` sends tilt angles, Betaflight closes attitude (`angle_limit` 80); `batch_fly --angle` flies the same shape in the sim |
 | Scoring | `sim/pq_course.RaceTracker` | the organizers' clock |
 
-The two "swapped" rows are deliberately thin adapters - that was the
-design constraint from day one. Nobody retunes the planner or the tracker
-to go to hardware; they get a new state source and a new wire.
+The swapped rows are thin adapters, built and rehearsed against the
+sim's SITL over MSP (disarmed). Nobody retunes the planner or the
+tracker to go to hardware; they get a new state source and a new wire.
 
 Sim-only conveniences that do NOT carry: ground truth (obviously),
 determinism (one survey flight, then it has to work - RESTRICTIONS.md),

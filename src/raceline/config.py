@@ -51,6 +51,29 @@ _SCHEMA = {
 # older tomls (archer_block2, dev_fast) keep loading.
 _OPTIONAL = {
     "vehicle": {"drag_quad_z": None},   # None -> same as drag_quad (isotropic)
+    "follower": {"angle_limit_deg": 80.0},   # Betaflight `angle_limit` when flying ANGLE mode (AIGP_ANGLE_MODE=1)
+    # LOOK WINDOW: within look_window_m of arc length before each crossing the
+    # planner stops accelerating (pitch capped near look_tilt_deg) so the
+    # camera can hold the gate; the sprint happens right after the previous
+    # gate instead. 0 = off.
+    # CAMERA (both or neither). When given, the planner solves for the fastest
+    # plan the camera can fly: the tilt is clamped so a gate at the drone's
+    # height stays in the frame (mount + vertical half FOV - cam_margin_deg),
+    # and inside look_window_m before every crossing the forward accel is
+    # capped to that same pitch. No target time anywhere.
+    # CENTRED CROSSINGS: ignore the per-gate pose knobs in planner.py (lateral
+    # offsets, tilt overrides, stubs) and cross every gate through its centre.
+    # The knobs were searched for 29 s on ground truth; with a position
+    # ESTIMATE the centre is the only pose with the full 0.6 m margin.
+    "planner": {"centred_crossings": False},
+    "limits": {"cam_tilt_deg": None, "cam_hfov_deg": None, "cam_margin_deg": 8.0,
+               "look_window_m": 0.0, "look_tilt_deg": 12.0,
+               # BLIND TURNS: a crossing whose heading differs from the previous
+               # crossing's by more than blind_turn_deg is approached with the
+               # camera off the gate, so the estimate runs blind into it. Cap
+               # speed within blind_turn_window_m before such a crossing at
+               # v_blind_turn_mps (0 = off). One rule for every gate.
+               "blind_turn_deg": 90.0, "blind_turn_window_m": 6.0, "v_blind_turn_mps": 0.0},
 }
 
 
@@ -73,6 +96,15 @@ class VehicleConfig:
             for k, default in _OPTIONAL.get(section, {}).items():
                 vals[k] = raw[section].get(k, default)
             setattr(self, section, SimpleNamespace(**vals))
+        lim = self.limits
+        self.cam_tilt_cap_deg = None
+        if lim.cam_tilt_deg is not None and lim.cam_hfov_deg is not None:
+            vhalf = math.degrees(math.atan(math.tan(math.radians(float(lim.cam_hfov_deg) / 2.0)) * 9.0 / 16.0))
+            self.cam_tilt_cap_deg = float(lim.cam_tilt_deg) + vhalf - float(lim.cam_margin_deg)
+            lim.max_tilt_deg = min(float(lim.max_tilt_deg), self.cam_tilt_cap_deg)
+            if not lim.look_window_m:
+                lim.look_window_m = 8.0
+            lim.look_tilt_deg = self.cam_tilt_cap_deg
 
     # Derived quantities - defined ONCE here so planner and follower agree.
     def tilt_rad(self) -> float:
@@ -124,7 +156,8 @@ class VehicleConfig:
 
 
 def load_config(path=None) -> VehicleConfig:
-    path = Path(path) if path is not None else DEFAULT_CONFIG_PATH
+    # an empty string (an env var declared but unset in the container) means the default
+    path = Path(path) if path else DEFAULT_CONFIG_PATH
     data = path.read_bytes()
     raw = tomllib.loads(data.decode("utf-8"))
 
