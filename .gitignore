@@ -50,3 +50,4 @@ out/plans/*
 !out/plans/plan_RACE.json
 !out/plans/plan_RACE.png
 RESTRICTIONS.md
+event_files/

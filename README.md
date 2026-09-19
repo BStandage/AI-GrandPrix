@@ -1,100 +1,105 @@
-> ## Team members: start here
->
-> Everything below this box is the organizers' original dev-kit readme
-> (the OLD Windows sim era). Our current stack races in the **elodin sim**
-> on the organizers' **published** September course.
->
-> **Where things stand (2026-09-15):** `data/course_map.json` is the
-> organizer's published gate table (10 gates, 85 x 165 ft, gate 9 is the
-> double; code labels are traversal order, g0 = gate 1, g8 = the double).
-> The sim flies it clean: 23/23 crossings in 29.55 s over two laps
-> (`out/plans/plan_RACE.json`). A speed ladder (`raceline.ladder`) builds
-> slower, centred-crossing plans for race-day binary search. The Archer's
-> flight controller is Betaflight 4.5.x; the sim's SITL is being pinned to
-> 4.5.5 (sim branch `feature/betaflight-4.5`). Nothing flies on hardware
-> yet: the MSP bridge, the ANGLE-mode output and the estimator are the
-> open work.
->
-> | You want to... | Go to |
-> |---|---|
-> | Just WATCH a flight, zero setup | Docker Desktop + `run_race_docker.cmd` in the sim repo (nothing else needed) |
-> | Get set up and fly your first race | `docs/GETTING_STARTED_RACING_LINE.md` |
-> | Understand drones/Betaflight from zero | `docs/WHAT_IS_BETAFLIGHT.md` |
-> | Write or tune a solver | `src/solvers/README.md` |
-> | Understand the stack's design | `docs/RACING_LINE_STACK.md` |
-> | Know what's banned before planning | `RESTRICTIONS.md` (read it first) |
-> | September physical-race facts, the published course, the Orin board | `src/PQ_SPECS_INTAKE.md` |
-> | Day-0 / day-1 procedure and the race-day binary search | `src/PQ_PROCEDURE.md` |
-> | The course in 3D | `viz/course_viewer.html` (keep private until after the qualifier) |
->
-> Tune ONLY `config/vehicle.toml`. Race with `race.cmd` (or `python race.py`
-> from the repo root). The `raceline.*` modules run from `src/`:
-> `cd src && python -m raceline.batch_fly ../out/plans/plan_RACE.json`.
-> The tape-era code (pilots, tape tools, MAVLink comms, the old runtime)
-> and the overhead-image map extractor were removed on 2026-09-15; git
-> history has them. Plans made on the pre-publication course estimate are
-> archived under `out/plans/archive_20260915_estimate_map/`. Organizer
-> spec PDFs live in `docs/specs/`.
+# AI-GrandPrix
 
-## AI Grand Prix (AI-GP) Development Kit
-Conceived by Anduril founder Palmer Luckey and partnered with the Drone Champions League (DCL), Neros Technologies, and JobsOhio, AI-GP is a premier autonomous drone racing competition.
-This global challenge invites elite engineers and teams of up to 8 people to design, build, and deploy autonomy software capable of piloting high-speed racing drones through professional-grade courses-with absolutely zero human intervention.
-For complete competition details and updates, visit the official website at www.theaigrandprix.com.
+Sim repo: `elodin-sim-aigp`, checked out next to this one.
 
-## Competition Highlights
+## Status (2026-09-16)
 
-* The Stakes: Compete for a share of a $500,000 prize pool and career opportunities at Anduril.
-* The Hardware: Complete competitive parity. All teams utilize identical racing drones built by Neros Technologies incorporating DCL's AI vector module.
-* The Mission: Program the ultimate AI pilot to conquer dynamic, real-world flight conditions using onboard vision sensing-no GPS or absolute coordinate data will be provided.
+- Course: `data/course_map.json` (published). 10 gates, gate 9 double, 23 crossings over 2 laps.
+- Follower flies a plan on dead reckoning: FC attitude and accel, baro altitude, camera fixes on any gate it can match to the map. No ground truth anywhere in the loop.
+- Sim, noisy detector, 35 deg mount + 120 deg lens: k = 1.0 (the race levers under the camera's tilt cap) flies clean 3 of 3 in 35 s, k = 0.8 in 40 s, k = 0.5 in 48 s; k = 0.9 fails 3 of 3, so fly what was flown, not what interpolates. Every crossing is a lateral fix; each camera fix uses the attitude at the frame's time; the climb rate is capped because a climbing turn crosses off centre.
+- Archer (from its blackbox): Betaflight 4.4.3, acc_1G 2048, baro yes, no mag, ANGLE mode.
+- Never flown on the real drone.
 
-------------------------------
-## Repository Contents
-This package contains the foundational tools required to develop, test, and qualify your autonomous flight software.
-## 1. AIGP_X.zip (The Simulator)
-This archive contains the official AI-GP flight simulator environment for Windows.
+## The plan: levers in, time out
 
-* Setup: Extract the ZIP archive to your local directory.
-* Execution: Launch the simulator by running FlightSim.exe from the unzipped root folder.
-* Authentication: Access the virtual qualifier within the simulator by logging in with your official simulator account credentials.
+`config/vehicle_cam35_120.toml` holds the camera (35 deg mount, 120 deg
+lens; change to what `camcal` measures) and the five levers at their race
+values: tilt, attitude slew, lateral margin, top speed, climb rate. One
+number k moves all five between a safe floor (k = 0) and the race values
+(k = 1); the planner solves the line and the time is whatever comes out.
+From `src`:
 
-## 2. PyAIPilotExample.zip (The Code Template)
-This archive provides a starter template to help you interface with the simulator and write your autonomous flight algorithms.
+```
+python -m raceline.ladder --k 0.5 --config ../config/vehicle_cam35_120.toml
+```
 
-* Environment: Tested and verified on Python 3.14.2.
-* Setup:
-1. Unzip the archive.
-   2. Install the required dependencies:
+writes `config/ladder/vehicle_k050.toml` and `out/plans/plan_LADDER_k050.json`
+and prints the model time. Fly that rung in the sim on vision (Docker running):
 
-   pip install -r requirements.txt
+```
+AIGP_STATE_SOURCE=deadreckon AIGP_CAM_TILT_DEG=35 AIGP_CAM_HFOV_DEG=120 python -m raceline.batch_fly --timeout 300 --config ../config/ladder/vehicle_k050.toml ../out/plans/plan_LADDER_k050.json
+```
 
-   * Execution: Run the primary script to connect to the simulator:
+The proven rungs travel with the repo, plan and toml together, in `config/ladder/plans/` and `config/ladder/`: k 0.5, 0.65, 0.8 and 1.0 for the 35/120 camera (48, 44, 40, 35 s, each 3 of 3) and k 0.33 for the 20/90 camera (67 s, 3 of 3). Those are the files the Archer lines above take. `out/plans/` is not in git.
 
-python main.py
+Benchmark 2026-09-17 (`docs/benchmark_2026-09-17.csv`), 3 seeds each, clean runs and their mean time:
 
+| mount | lens | k 0.33 | k 0.5 |
+|---|---|---|---|
+| 20 | 90 | 3/3, 67 s | 1/3, 63 s |
+| 20 | 120 | 2/3, 61 s | 1/3, 55 s |
+| 35 | 90 | 1/3, 63 s | 2/3, 55 s |
+| 35 | 120 | 0/3 | 3/3, 48 s |
+| 45 | 90 | 0/3 | 2/2, 51 s |
+| 45 | 120 | 2/3, 52 s | 1/3, 46 s |
 
-------------------------------
-## System Requirements
-The simulator environment has been successfully tested on Windows 11 with a GeForce RTX 3070. For stable performance, your system should meet or exceed the following hardware specifications:
+That grid was flown before the fix below. With each fix taken against the attitude at the frame's own time (a frame one period old at 100 deg/s of yaw was 0.45 m of sideways error at 8 m, every fix through a turn leaning the same way), 35/120 flies faster, 3 seeds each (`docs/benchmark_2026-09-17_fast.csv`):
 
-| Requirement | Minimum Specification |
+| k | model | sim on vision |
+|---|---|---|
+| 0.5 | 49 s | 3/3, 47.6 s |
+| 0.65 | 43 s | 3/3, 43.9 s |
+| 0.8 | 38 s | 3/3, 39.9 s |
+| 0.9 | 35 s | 0/3, that line hits gate 5 at 9.9 s every time |
+| 1.0 | 32 s | 3/3, 35.4 s |
+
+Binary search on k: top of the search is the safe end, bottom is k = 1.
+
+Benchmark every mount, lens and k in one go (from `src`, Docker running; rows stream to `out/benchmark.csv`):
+
+```
+python -m raceline.benchmark --tilts 20 35 45 --lenses 90 120 --ks 0.33 0.5 --seeds 1 2 3
+```
+
+How it all works, for anyone: `docs/HOW_IT_FLIES.md`, `docs/how_it_flies.png`, `docs/how_it_flies.pptx`; with links into the code: `docs/HOW_IT_FLIES_DETAILED.md`.
+
+Other sim commands, from `src`:
+
+```
+python -m raceline.batch_fly ../out/plans/plan_RACE.json          # the 29 s plan on ground truth
+python -m raceline.batch_fly --solver solvers.seeker --timeout 400 ../out/plans/plan_RACE.json   # fallback, ACRO only in sim
+python -m perception.video_probe ../event_files/archer_AIGP.mkv --still 1.6   # detector on the real video, width jitter
+```
+
+`AIGP_CAM_NOISE=0` = perfect detector (diagnostics only). Traces: `out/flightlogs/race_NNN.csv`, `dr_NNN.csv`.
+
+## Archer (Orin, from `src`, props off until the last line)
+
+```
+python3 -m hardware.bench --port /dev/ttyTHS1 info
+python3 -m hardware.bench --port /dev/ttyTHS1 rc-test --props-off
+python3 -m hardware.bench --port /dev/ttyTHS1 arm-test --props-off
+python3 -m hardware.bench --port /dev/ttyTHS1 drift --seconds 60
+python3 -m hardware.camcal --dist 6.0 --dz <m> --port /dev/ttyTHS1        # prints --fy --cam-hfov --cam-tilt
+python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north here --cam-tilt <deg> --fy <px> --cam-hfov <deg> --pilot follower --config ../config/ladder/vehicle_k050_cam35_120.toml --traj ../config/ladder/plans/plan_LADDER_k050_cam35_120.json --dry-run
+python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north here --cam-tilt <deg> --fy <px> --cam-hfov <deg> --pilot follower --config ../config/ladder/vehicle_k050_cam35_120.toml --traj ../config/ladder/plans/plan_LADDER_k050_cam35_120.json --arm
+```
+
+`--map-north here`: drone on the start line pointing along gate 1 when the runtime starts. `--pilot seeker` = fallback.
+The pilot arms and flips MSP OVERRIDE and ANGLE on the radio; MSP owns the four sticks only (`set msp_override_channels_mask = 15`, CLI, once). The pilot can always take the sticks back.
+
+## Race day
+
+1. Fly the lowest k that is clean in the sim. Clean twice, jump to the fastest k you brought.
+2. Fail, fly the midpoint. Each heat halves the interval.
+3. A complete slow run beats an incomplete fast one.
+
+## Docs
+
+| | |
 |---|---|
-| OS | 64-bit Windows 10 / 11 |
-| Processor | Intel Core i7 4770k (or AMD equivalent) |
-| Memory | 8 GB RAM |
-| Graphics | NVIDIA GeForce GTX 970 |
-| Network | Broadband Internet connection |
-| Storage | 12 GB available space |
-
-------------------------------
-## Timeline & Structure
-
-* Virtual Qualifier Round 1: Simple, high-contrast, desaturated gate environment to test core flight logic.
-* Virtual Qualifier Round 2: High-fidelity, visually complex 3D-scanned environments.
-* Physical Qualifier (September 2026): Top teams advance to a live, indoor testing phase in Southern California.
-* The Finals (November 2026): The premier AI Grand Prix live event in Ohio.
-
-------------------------------
-## Technical Specification & More Information
-Can be found here:
-
-https://www.theaigrandprix.com/previousupdates/
+| Bench steps, day 1, the 15 min slot | `src/PQ_PROCEDURE.md` |
+| Course, Orin, firmware facts | `src/PQ_SPECS_INTAKE.md` |
+| Sim setup | `docs/ELODIN_SIM_SETUP.md`, `docs/GETTING_STARTED_RACING_LINE.md` |
+| Stack design, Betaflight | `docs/RACING_LINE_STACK.md`, `docs/WHAT_IS_BETAFLIGHT.md` |
+| Solvers | `src/solvers/README.md` |

@@ -42,11 +42,44 @@ def _logs():
     return (r.stdout or "") + (r.stderr or "")
 
 
-def fly(plan_path: Path, timeout_s: float = 200.0, solver: str = "solvers.follower") -> dict:
-    """Fly one plan; returns the referee result dict."""
+def plan_toml(plan_path: Path) -> Path | None:
+    """The toml a plan was built with (its config_path, repo-relative or
+    absolute), if that file exists inside this repo; else None."""
+    try:
+        cp = json.load(open(plan_path, encoding="utf-8")).get("config_path", "")
+    except (OSError, ValueError):
+        return None
+    if not cp:
+        return None
+    cand = Path(str(cp).replace("\\", "/"))
+    if not cand.is_absolute():
+        cand = AIGP_REPO / cand
+    try:
+        cand.resolve().relative_to(AIGP_REPO.resolve())
+    except ValueError:
+        return None
+    return cand if cand.is_file() else None
+
+
+def fly(plan_path: Path, timeout_s: float = 200.0, solver: str = "solvers.follower",
+        config: Path | None = None, angle_mode: bool = False) -> dict:
+    """Fly one plan; returns the referee result dict. The follower flies with
+    `config` if given, else the toml the plan records (a ladder rung brings
+    its own), else the container default (config/vehicle.toml)."""
     rel = plan_path.resolve().relative_to(AIGP_REPO.resolve())
     env = dict(os.environ)
     env["RACE_SOLVER"] = solver
+    env["AIGP_ANGLE_MODE"] = "1" if angle_mode else "0"
+    env.setdefault("AIGP_SEEKER_CFG", "{}")
+    env.setdefault("AIGP_STATE_SOURCE", "ground_truth")
+    for k, d in (("AIGP_CAM_TILT_DEG", "20"), ("AIGP_CAM_HFOV_DEG", "90"), ("AIGP_SEEKER_DET", "synthetic"),
+                 ("AIGP_CAM_NOISE", "1"), ("AIGP_SEED", "0"), ("AIGP_CAM_RANGE_SIGMA", "0.10"),
+                 ("AIGP_YAW_AT_GATE", ""), ("AIGP_AIM_HANDOFF_M", "2.0"), ("AIGP_ACC_LEAD_S", "0.10")):
+        env.setdefault(k, d)
+    toml = config or plan_toml(plan_path)
+    if toml is not None:
+        trel = toml.resolve().relative_to(AIGP_REPO.resolve())
+        env["AIGP_VEHICLE_TOML"] = "/work/AI-GrandPrix/" + str(trel).replace("\\", "/")
     env["AIGP_TRAJ"] = "/work/AI-GrandPrix/" + str(rel).replace("\\", "/")
     _compose("down", "--remove-orphans", timeout=120)
     up = _compose("up", "-d", env=env)
@@ -122,6 +155,8 @@ def main():
     ap.add_argument("plans", nargs="*")
     ap.add_argument("--glob", default=None)
     ap.add_argument("--timeout", type=float, default=200.0)
+    ap.add_argument("--config", default=None, help="vehicle.toml for every flight (default: the toml each plan records)")
+    ap.add_argument("--angle", action="store_true", help="fly Betaflight ANGLE mode (AIGP_ANGLE_MODE=1): tilt-angle sticks, the hardware control shape")
     ap.add_argument("--solver", default="solvers.follower", help="RACE_SOLVER module for every flight in this batch")
     args = ap.parse_args()
     plans = [Path(p) for p in args.plans]
@@ -141,7 +176,8 @@ def main():
         except Exception:
             pass
         print(f"flying {p} (model {model}) with {args.solver} ...", flush=True)
-        r = fly(p, timeout_s=args.timeout, solver=args.solver)
+        r = fly(p, timeout_s=args.timeout, solver=args.solver,
+                config=Path(args.config) if args.config else None, angle_mode=args.angle)
         r["model_s"] = model
         rows.append(r)
         print(f"   -> {r.get('status')} {r.get('passed')}/{r.get('total')} "

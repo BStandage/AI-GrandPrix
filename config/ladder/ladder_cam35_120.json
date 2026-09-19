@@ -1,0 +1,15 @@
+[
+ {
+  "tag": "k100_cam35_120",
+  "k": 1.0,
+  "model_s": 32.24,
+  "contacts": 0,
+  "min_margin_m": 0.35,
+  "tilt_deg": 71.3,
+  "v_max": 20.0,
+  "slew": 165.0,
+  "a_lat_margin": 0.95,
+  "toml": "config\\ladder\\vehicle_k100_cam35_120.toml",
+  "plan": "out\\plans\\plan_LADDER_k100_cam35_120.json"
+ }
+]

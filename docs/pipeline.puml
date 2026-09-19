@@ -1,5 +1,5 @@
 @startuml pipeline
-title AI-GrandPrix race pipeline (as of 2026-09-10)
+title AI-GrandPrix race pipeline
 skinparam shadowing false
 skinparam linetype ortho
 skinparam nodesep 30
@@ -14,65 +14,84 @@ skinparam note {
   BorderColor #999999
 }
 
-package "1. PLAN (offline, AI-GrandPrix)" as PLAN {
-  rectangle "python race.py --plan-only" as RACEPY
-  rectangle "raceline/course.py\nload_course()\ndata/course_map.json" as COURSE
-  rectangle "raceline/planner.py\nplan(cfg)\n- per-gate anchors (rules)\n- Catmull-Rom spline\n- 3D thrust-vector speed profile" as PLANNER
-  rectangle "config/vehicle.toml\nplant limits + follower gains" as TOML
-  rectangle "raceline/line_opt.py\noptimize()\nREPAIR ONLY: runs iff the rule\nplan touches a gate frame" as LINEOPT
-  rectangle "raceline/render_plan.py" as RENDER
-  rectangle "out/plans/plan_NNN.json + .png" as PLANJSON
+package "1. COURSE (published)" as MAP {
+  rectangle "data/course_map.json\n10 gates, 85 x 165 ft\nstart line 7.3 m behind gate 1\ngK = organizer gate K+1, g8 = double gate" as MAPJSON
+  rectangle "common/course_map.py\nload()" as LOADER
+  rectangle "sim/pq_course.py (sim repo)\nMapToSim: origin = start line\n11 crossings per lap, 23 events" as PQC
 }
 
-package "2. PROMOTE (manual)" as PROMO {
-  rectangle "copy plan_NNN.json/.png\n-> out/plans/plan_RACE.json/.png\n(the ONLY plan the sim flies)" as PLANRACE
+package "2. PLAN (offline, AI-GrandPrix)" as PLAN {
+  rectangle "config/vehicle.toml\n[vehicle] [thrust] [limits] [planner] [follower]" as TOML
+  rectangle "raceline/planner.py\nplan(cfg)\n- anchors per crossing + park point\n- Catmull-Rom spline\n- thrust-vector speed profile\n- frame-contact check" as PLANNER
+  rectangle "raceline/line_search.py\nper-crossing knobs searched\nagainst the model, replay as guard\n-> seed dicts in planner.py" as SEARCH
+  rectangle "raceline/replay.py\ncalibrated kinematic replay\nvs the referee geometry" as REPLAY
+  rectangle "python race.py ~--plan-only\nrender_plan.py" as RACEPY
+  rectangle "out/plans/plan_RACE.json + .png\nthe plan the sim flies" as PLANRACE
+  rectangle "raceline/ladder.py\nenvelope level k -> rungs\ncentred crossings\nconfig/ladder/vehicle_<T>s.toml\nout/plans/plan_LADDER_<T>s.json" as LADDER
 }
 
-package "3. VALIDATE (offline, scratch tools - not in repo yet)" as VAL {
-  rectangle "twin_plan.py + replay_events.py\nkinematic follower replay vs referee\ngate geometry: 25/25 or not" as REPLAY
+package "3. FLY (elodin-sim-aigp, Docker)" as FLY {
+  rectangle "raceline/batch_fly.py\nplans -> container -> referee table\nrace.py ~--config <toml> ~--traj <plan>" as BATCH
+  rectangle "docker/entrypoint.sh\n- uv sync\n- build Betaflight SITL if missing\n- eeprom regen from configure_betaflight.py\n- AIGP_TRAJ, AIGP_VEHICLE_TOML" as ENTRY
+  rectangle "uv run elodin run sim/main.py\nRACE_SOLVER=solvers.follower\nlockstep 1 kHz" as ELODIN
+  rectangle "solvers/follower.py\n- Tracker: carrot on the plan, retries, park + land\n- rc_backend: thrust-vector attitude loop (ACRO),\n  AltitudeLoop, YawLoop -> RC sticks" as FOLLOWER
+  rectangle "Betaflight SITL 4.5.5\neeprom.bin: ACRO, airmode off,\nstock PIDs, FF 0, ACTUAL linear rates" as BF
+  rectangle "referee (pq_course.RaceTracker)\nordered crossings, frame contact = crash,\nlaps, cone near-misses" as REF
+  rectangle "out/flightlogs/race_NNN.csv (100 Hz trace)\nrace_result_NNN.json" as LOGS
 }
 
-package "4. FLY (elodin-sim-aigp, Docker)" as FLY {
-  rectangle "run_race_docker.cmd [solver]\ndocker compose up" as LAUNCH
-  rectangle "docker/entrypoint.sh\n- uv sync\n- eeprom regen if configure_betaflight.py hash changed\n- AIGP_TRAJ = plan_RACE.json (else newest plan_*.json)\n- toml = plan's config_path" as ENTRY
-  rectangle "uv run elodin run sim/main.py\nRACE_SOLVER=solvers.follower" as ELODIN
-  rectangle "solvers/follower.py\n- Tracker: nearest-point cross-track, speed loop,\n  drag + accel feedforward\n- thrust-vector budget (vertical first)\n- attitude_sticks (tilt vs g + a_z), AltitudeLoop, YawLoop" as FOLLOWER
-  rectangle "Betaflight SITL\n(eeprom.bin: stock PIDs, FF off, ACTUAL linear rates)" as BF
-  rectangle "referee (sim/main.py)\ngates, contacts, laps" as REF
-  rectangle "out/flightlogs/race_NNN.csv\nrace_result_000.json" as LOGS
+package "4. REVIEW" as ANA {
+  rectangle "crossing z / lateral vs plan\nfirst contact, follower state\nlap times vs model" as ANALYSIS
 }
 
-package "5. ANALYSE (ad-hoc scripts this session)" as ANA {
-  rectangle "per-gate model vs flown\nloop decompositions\ntracking error vs demand" as ANALYSIS
+package "5. HARDWARE (Orin NX, Archer)" as HW {
+  rectangle "estimator\nIMU over MSP + camera gate fixes\nagainst the published map\n-> StateSource" as EST
+  rectangle "MSP bridge\n~/target/msp/msp.py, msp_rc.py\n/dev/ttyTHS1 @ 115200\nRC frames down, attitude back" as MSP
+  rectangle "Betaflight 4.5.x on the Archer\nangle setpoints (ANGLE mode)\nrate loops inside the FC" as FC
+  rectangle "perception/detectors\nhsv_classic, ML\nIMX477 1920x1080@60" as DET
 }
 
-RACEPY --> COURSE
-RACEPY --> PLANNER
+MAP -[hidden]-> PLAN
+PLAN -[hidden]-> FLY
+FLY -[hidden]-> HW
+MAPJSON --> LOADER
+LOADER --> PQC
+PQC --> PLANNER
 TOML --> PLANNER
-COURSE --> PLANNER
-PLANNER --> LINEOPT : frame contact > 0
-PLANNER --> RENDER : frame contact == 0
-LINEOPT --> RENDER
-RENDER --> PLANJSON
-PLANJSON --> PLANRACE
-PLANRACE --> REPLAY
-REPLAY --> LAUNCH : 25/25
-LAUNCH --> ENTRY
+SEARCH --> PLANNER : seeds
+PLANNER --> REPLAY
+REPLAY --> SEARCH : guard
+PLANNER --> RACEPY
+RACEPY --> PLANRACE : frame contacts == 0
+TOML --> LADDER
+PLANNER --> LADDER
+PLANRACE --> BATCH
+LADDER --> BATCH
+BATCH --> ENTRY
 ENTRY --> ELODIN
-ELODIN --> FOLLOWER : imports from AI-GrandPrix/src
-PLANRACE -[norank]-> FOLLOWER : AIGP_TRAJ at import
-TOML -[norank]-> FOLLOWER
-FOLLOWER --> BF : RC sticks (UDP)
-BF -[norank]-> ELODIN : motors
+ELODIN --> FOLLOWER : SensorUpdate (ground truth)
+PLANRACE -[norank]-> FOLLOWER : AIGP_TRAJ
+TOML -[norank]-> FOLLOWER : AIGP_VEHICLE_TOML
+FOLLOWER --> BF : RC sticks (UDP 9004)
+BF -[norank]-> ELODIN : motors (UDP 9002)
 ELODIN --> REF
 REF --> LOGS
 LOGS --> ANALYSIS
-ANALYSIS -[norank,#555555,dashed]-> TOML : change a limit or gain
-ANALYSIS -[norank,#555555,dashed]-> PLANNER : change a rule or constant
+ANALYSIS -[#555555,dashed]-> TOML : limit or gain
+ANALYSIS -[#555555,dashed]-> SEARCH : re-search
+ANALYSIS -[#555555,dashed]-> LADDER : rung up or down
 
-note bottom of LINEOPT
-  Not a line search. Fired once today (plan_010),
-  never flown. The global line optimizer
-  discussed on 2026-09-10 does not exist yet.
+DET --> EST
+FOLLOWER -[#555555,dashed]-> EST : StateSource swap
+FOLLOWER -[#555555,dashed]-> MSP : RC writer swap
+MSP --> FC
+
+note bottom of LADDER
+  Race day: fly the slowest rung; clean -> the fastest;
+  fails -> the midpoint. Two clean runs hold a rung.
+end note
+note bottom of BF
+  The sim builds the Archer's firmware generation;
+  the yaw-rate sign in sim/sensors.py follows it.
 end note
 @enduml
