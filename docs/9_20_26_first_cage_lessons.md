@@ -81,7 +81,52 @@ every gate fix.
 
 ---
 
+## The bigger bug, found afterwards on the bench
+
+Chasing the ceiling bug turned up something worse, and it had nothing to do
+with altitude.
+
+**The drone had its pitch upside down.** Betaflight on this firmware reports
+pitch as positive when the nose points DOWN. We assumed the opposite. So every
+time the aircraft tilted, it worked out which way was up using a mirrored
+idea of its own attitude.
+
+Held level it was perfect - which is why nothing ever caught it. Every check
+we had ever run was done sitting flat on a bench. The error is zero at zero
+tilt and grows fast:
+
+| tilt | phantom acceleration |
+|---|---|
+| level | 0.00 |
+| 20 deg | -2.29 m/s^2 |
+| 31 deg | -5.20 m/s^2 |
+| 40 deg | -8.10 m/s^2 |
+
+d45 measured **-5.24 m/s^2 at 31 degrees** against the -5.20 that an inverted
+sign predicts exactly. After the fix, -0.37 at 30 degrees in all four
+directions.
+
+**Why this mattered far beyond altitude.** The same attitude is used to work
+out which way the aircraft is accelerating horizontally, which is the whole
+basis of knowing where it is on the course. With the sign inverted it would
+have flown the race integrating forward acceleration backwards - and tilting
+is how a quadcopter moves at all. It would have been lost within seconds of
+leaving the start line, and we would never have understood why.
+
+It took **tilting the aircraft by hand** to find. Nothing else would have.
+
+`hardware.tiltcheck` now does exactly that, in a minute, props off. Run it on
+every new airframe.
+
+---
+
 ## Lessons
+
+**0. Test the thing in the state it will actually be in.**
+The pitch sign was wrong from the beginning and every check passed, because
+every check was run with the aircraft sitting flat and a flying aircraft is
+never flat. A bench is not a small version of flight. It is a different
+situation that happens to share a building.
 
 **1. Never let a fast decision depend on the slowest sensor.**
 The altimeter is the slowest thing on the aircraft, and it was the sole judge
@@ -115,8 +160,9 @@ run.
 **Proved on hardware:** thrust curve, hover throttle, takeoff behaviour,
 override abort, camera calibration procedure, dead-reckoning ground hold.
 
-**Fixed today, not yet flown:** launch detection, the hard ceiling, vision
-altitude hold.
+**Fixed today, not yet flown:** the pitch sign, launch detection, the hard
+ceiling, the accelerometer scale hover.py never applied, and vision altitude
+hold.
 
 **Still open:** all-up weight is measured (1.751 kg) but the plan has never
 flown; the gate detector reported a gate in 99.6 percent of frames including
