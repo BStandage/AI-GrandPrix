@@ -124,6 +124,31 @@ found the gate's height by eye and held it.
 
 ---
 
+## 3b. TEST THREE - add roll centring (only if test two was clean)
+
+Adds `--gate-roll`: the aircraft also slides sideways until the gate is dead
+ahead. Now it holds height AND lateral position by eye.
+
+```
+AIGP_CAM_CX=613.1 AIGP_CAM_CY=387.0 python3 -m hardware.hover --port /dev/ttyTHS1 --alt 0.76 --seconds 25   --gate-z --gate-roll --fy 830 --cam-tilt 20   --gate-z-min 0.40 --gate-z-max 1.40   --config ../config/ladder/vehicle_k025_cam20_75.toml --arm
+```
+
+**Aim the nose at the gate before arming.** The aircraft slides sideways by
+about `range x tan(how far off your aim is)` - 4 m and 15 deg out is roughly
+1 m of travel. Aim well and it barely moves.
+
+The live line gains `az` (degrees the gate is to the right) and `roll` (the
+angle commanded). **Success is `az` trending to zero and `roll` settling near
+zero.** Roll is capped at 4 deg - the stick never leaves 1475..1525.
+
+Still no pitch: it does not control distance, so it can still drift slowly
+toward or away from the gate. That is the one axis left, and it is next.
+
+Compared with test one this drifts LESS, not more - a plain hover has no
+horizontal control at all.
+
+---
+
 ## 4. Landing
 
 | when | do |
@@ -151,5 +176,7 @@ found the gate's height by eye and held it.
 | `gate: none (0/N)` throughout | the detector never saw it. Yaw at the gate, check lighting |
 | `el` drifts away from zero instead of toward it | sign or calibration. Land, fly test one only |
 | target pinned at 1.40 or 0.40 | the clamp is holding it. The range estimate is off |
+| it slides sideways and keeps going | your nose was well off the gate. Land, re-aim, retry |
+| `roll` pinned at +/-4.0 | azimuth is large - the gate is near the frame edge |
 | `camera did not open` | another process has it, or the pipeline is wrong |
 | it bounces at knee height on landing | the airborne latch did not take - you are on stale code, re-sync |
