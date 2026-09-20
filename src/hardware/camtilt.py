@@ -21,15 +21,26 @@ row it lands on, and uses the calibrated focal length and principal point:
 Target can be the checkerboard (found automatically) or any point you can
 click. All lengths in metres, all heights from the same floor.
 
-Keep the drone LEVEL: this measures the camera against the airframe, so any
-body pitch goes straight into the answer. Check roll and pitch first with
-`msp_bench.py telemetry`.
+BODY PITCH IS READ FROM THE FLIGHT CONTROLLER and subtracted, because this
+measures the camera against the AIRFRAME and any pitch the airframe is sitting
+at lands in the answer one degree for one degree.
+
+Measuring at two distances does NOT catch that: a constant body pitch biases
+both measurements identically, so they agree with each other perfectly while
+both are wrong. d45 measured 13.6 and 13.1 deg on 2026-09-20 against 19.4 and
+20.6 on the camera it replaced, and no amount of agreement between the two
+could say whether the mount had moved or the airframe was 7 degrees nose down.
+
+Still shim it level if you can - a subtracted 7 degrees is a 7 degree lever on
+whatever error is in the attitude - but it is now measured rather than assumed.
+`--pitch` overrides it, `--port none` skips reading it.
 """
 
 from __future__ import annotations
 
 import argparse
 import math
+import time
 
 INNER = (6, 8)      # inner corners of the printed checkerboard
 
@@ -47,10 +58,55 @@ def main(argv=None) -> int:
     ap.add_argument("--fy", type=float, required=True, help="from camcal_board")
     ap.add_argument("--cy", type=float, default=None,
                     help="principal point row from camcal_board (default: image centre)")
-    ap.add_argument("--pitch", type=float, default=0.0,
-                    help="body pitch in deg, NOSE-UP positive, if the drone is not level")
+    ap.add_argument("--pitch", type=float, default=None,
+                    help="body pitch in deg, NOSE-UP positive. Default: read from the "
+                         "flight controller on --port, which is what you want - see below")
+    ap.add_argument("--port", default="/dev/ttyTHS1",
+                    help="FC serial port, to read the body pitch. 'none' to skip it.")
     ap.add_argument("--frames", type=int, default=60)
     args = ap.parse_args(argv)
+
+    # BODY PITCH. This measures the camera against the AIRFRAME, so any pitch
+    # the airframe happens to be sitting at lands directly in the answer, one
+    # degree for one degree. Measuring at two distances does NOT catch it: a
+    # constant body pitch biases both measurements identically and they agree
+    # with each other perfectly while both are wrong.
+    #
+    # d45, 2026-09-20, measured 13.6 and 13.1 deg against 19.4 and 20.6 on the
+    # camera it replaced. Either the mount really moved when the camera was
+    # changed, or the airframe was sitting 7 deg nose down. Nothing in the
+    # measurement itself can tell those apart, so read the attitude instead of
+    # assuming it.
+    pitch = args.pitch
+    if pitch is None and str(args.port).lower() != "none":
+        from hardware.bridge import FcBridge
+        from hardware.state import FcStateSource
+        br = FcBridge.open(port=args.port)
+        br.start()
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and br.state().attitude is None:
+            time.sleep(0.05)
+        st = br.state().attitude
+        if st is None:
+            br.stop()
+            raise SystemExit("no attitude from the FC. Close other sessions holding "
+                             "the port, or pass --pitch explicitly / --port none.")
+        s_ = FcStateSource(br)
+        pitch = s_.pitch_sign * float(st.pitch_deg)     # nose-UP positive
+        roll = float(st.roll_deg)
+        br.stop()
+        print(f"body attitude from the FC: pitch {pitch:+.2f} deg nose-up, "
+              f"roll {roll:+.2f} deg")
+        if abs(pitch) > 2.0:
+            print(f"  NOTE the airframe is {abs(pitch):.1f} deg "
+                  f"{'nose up' if pitch > 0 else 'nose down'} and that is being "
+                  f"subtracted. Shim it level and re-run if you want it out of the "
+                  f"measurement entirely.")
+        if abs(roll) > 3.0:
+            print(f"  WARNING roll {roll:+.1f} deg tilts the whole image; level it.")
+    elif pitch is None:
+        pitch = 0.0
+    args.pitch = pitch
 
     import cv2
     import numpy as np
