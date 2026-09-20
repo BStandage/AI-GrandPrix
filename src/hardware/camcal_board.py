@@ -133,6 +133,34 @@ def solve(args) -> int:
     if len(objpoints) < 5:
         raise SystemExit("not enough usable views")
     rms, K, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, shape, None, None)
+
+    # PER-VIEW ERROR, and how obliquely each board was seen. Both matter and
+    # neither is visible in the single RMS number. One ruined capture can carry
+    # the whole solve, and a set of views that are all face-on cannot pin the
+    # focal length down at all - the fit slides along a valley where focal
+    # length trades against distance, and fx and fy come out split by tens of
+    # percent in whichever direction the optimiser happened to fall. d45 saw
+    # 915/723 on one attempt and 642/1210 on the next.
+    per_view = []
+    for i in range(len(objpoints)):
+        proj, _ = cv2.projectPoints(objpoints[i], rvecs[i], tvecs[i], K, dist)
+        err = float(np.linalg.norm(imgpoints[i].reshape(-1, 2) - proj.reshape(-1, 2),
+                                   axis=1).mean())
+        R, _ = cv2.Rodrigues(rvecs[i])
+        # angle between the board's normal and the camera's optical axis: 0 is
+        # dead face-on, which measures nothing about focal length
+        obliq = math.degrees(math.acos(min(1.0, abs(float(R[2, 2])))))
+        per_view.append((err, obliq, Path(files[i]).name))
+
+    worst = sorted(per_view, reverse=True)[:5]
+    obliqs = sorted(v[1] for v in per_view)
+    print("")
+    print("per-view reprojection error (worst 5):")
+    for err, obliq, name in worst:
+        print(f"  {name:16s} {err:6.2f} px   board seen {obliq:4.0f} deg off face-on")
+    print(f"obliqueness across all views: {obliqs[0]:.0f} to {obliqs[-1]:.0f} deg, "
+          f"median {obliqs[len(obliqs)//2]:.0f}")
+
     fx, fy = K[0, 0], K[1, 1]
     cx, cy = K[0, 2], K[1, 2]
     w, h = shape
@@ -164,6 +192,11 @@ def solve(args) -> int:
     if abs(p1v) > 0.01 or abs(p2v) > 0.01:
         bad.append(f"tangential distortion p1={p1v:+.3f} p2={p2v:+.3f}; a lens "
                    f"that is not visibly crooked reads near zero")
+    if obliqs[-1] < 25.0:
+        bad.append(f"every view is nearly face-on (most oblique {obliqs[-1]:.0f} deg). "
+                   f"A flat-on checkerboard cannot separate focal length from "
+                   f"distance, so fx and fy are free to drift apart - which is "
+                   f"exactly what they did")
     if abs(k2) > 1.0:
         bad.append(f"k2={k2:+.2f} is outside the physical range, which is where "
                    f"an optimiser puts error it cannot otherwise explain")
@@ -173,6 +206,11 @@ def solve(args) -> int:
         for b in bad:
             print(f"    - {b}")
         print("")
+        if worst[0][0] > 3.0 * per_view[len(per_view) // 2][0]:
+            print(f"  {worst[0][2]} alone is far worse than the rest "
+                  f"({worst[0][0]:.1f} px). Delete that one view and re-solve "
+                  f"before re-grabbing everything.")
+            print("")
         print("  The cause is always the captures:")
         print("    1. FLAT AND RIGID. Tape the board to foam board or a clipboard.")
         print("       Paper curls a few millimetres and that is enough.")
