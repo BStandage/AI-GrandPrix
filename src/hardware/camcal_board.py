@@ -113,6 +113,48 @@ def solve(args) -> int:
           f"= {math.degrees(math.atan((cx - w/2)/fx)):+.2f} deg horizontal bias")
     print(f"hfov {hfov:.1f} deg   vfov {vfov:.1f} deg")
     print(f"distortion k1 k2 p1 p2 k3: " + " ".join(f"{v:+.4f}" for v in dist.ravel()[:5]))
+    # VERDICT. A bad solve prints numbers that look exactly like a good one,
+    # and the only defence is to refuse to hand them over. d45's replacement
+    # camera, 2026-09-20, printed fy 723 and hfov 70 off an RMS of 5.9:
+    # plausible figures, and completely wrong.
+    bad = []
+    if rms > 1.0:
+        bad.append(f"reprojection RMS {rms:.2f} px, over the 1.0 limit")
+    # Square pixels: fx and fy are the SAME focal length measured twice, and
+    # they are fitted independently, so a split between them reads directly on
+    # how badly the fit went rather than on the lens. d45 split 914.7 / 722.8.
+    split = abs(fx - fy) / max(fx, fy)
+    if split > 0.05:
+        bad.append(f"fx and fy differ by {split * 100:.0f} percent "
+                   f"({fx:.0f} vs {fy:.0f}); the pixels are square, so these "
+                   f"must agree to about 1")
+    k1, k2, p1v, p2v = (float(v) for v in dist.ravel()[:4])
+    if abs(p1v) > 0.01 or abs(p2v) > 0.01:
+        bad.append(f"tangential distortion p1={p1v:+.3f} p2={p2v:+.3f}; a lens "
+                   f"that is not visibly crooked reads near zero")
+    if abs(k2) > 1.0:
+        bad.append(f"k2={k2:+.2f} is outside the physical range, which is where "
+                   f"an optimiser puts error it cannot otherwise explain")
+    if bad:
+        print("")
+        print("  CALIBRATION FAILED - do NOT fly these numbers:")
+        for b in bad:
+            print(f"    - {b}")
+        print("")
+        print("  The cause is always the captures:")
+        print("    1. FLAT AND RIGID. Tape the board to foam board or a clipboard.")
+        print("       Paper curls a few millimetres and that is enough.")
+        print("    2. STILL, and well lit. Motion blur moves corners several pixels")
+        print("       straight into the RMS, and a dim room lengthens the exposure.")
+        print("    3. DIFFERENT. Near 0.4 m and far 1.5 m, tilted 20-40 degrees each")
+        print("       way, and in all four corners of the frame. Similar views let")
+        print("       focal length and distortion trade against each other.")
+        print("")
+        print("  Delete the old captures first - solve uses everything in the folder:")
+        print(f"    rm -f {args.out}/*.png")
+        print("    python3 -m hardware.camcal_board grab")
+        return 1
+
     print(f"\n  -> --fy {fy:.0f} --cam-hfov {hfov:.0f}")
     print("\nNotes:")
     print("  * the runtime uses a pinhole model with no undistortion, so k1/k2")
