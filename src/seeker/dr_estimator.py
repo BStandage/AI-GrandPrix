@@ -164,8 +164,9 @@ class DeadReckonSource:
         self.last_reason = ""        # why the last detection was not used (diagnostics)
         self.last_full_residual = 0.0  # |p_fix - p| before any weighting (a misassociation shows here)
         self.max_dv_per_fix = 0.3    # m/s: one fix may not rewrite the velocity
-        self.hist = []               # (t, p) over the last 0.5 s: a detection is compared with the
-                                     # estimate at its OWN time (the frame is old when it arrives)
+        self.hist = []               # (t, p, R) over the last 0.5 s: a detection is compared with
+                                     # the estimate at its OWN time and ATTITUDE (the frame is old
+                                     # when it arrives). Every append must be all three.
         self.R = np.eye(3)
         self.vert = VerticalFilter()
         self.baro0 = None
@@ -290,8 +291,14 @@ class DeadReckonSource:
             self.v[0] = self.v[1] = self.v[2] = 0.0
             z, vz = self.vert.update(dt, 0.0, z_meas, baro_fresh)
             self.p[2] = z
-            self.hist.append((t, self.p.copy()))
-            self.hist = [h for h in self.hist if t - h[0] <= 0.5]
+            # Same shape as the flying branch below - (t, p, R). state_at()
+            # reads the attitude out of element 2, so a two-element entry from
+            # here crashes the first time a detection arrives while the
+            # aircraft is still on the ground, which is exactly when a bench
+            # residual check runs.
+            self.hist.append((t, self.p.copy(), R.copy()))
+            while len(self.hist) > 1 and self.hist[0][0] < t - 0.5:
+                self.hist.pop(0)
             return
         a_w = R @ np.asarray(accel_body, dtype=float) - np.array([0.0, 0.0, G])
         self.v[0] += a_w[0] * dt

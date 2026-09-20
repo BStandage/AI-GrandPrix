@@ -393,3 +393,37 @@ class TestVerticalDivergence(unittest.TestCase):
             az = 4.0 if vz_true < 2.0 else 0.0
             _, vz = vf.update(dt, az, round(z_true / self.BARO_LSB) * self.BARO_LSB, fresh)
         self.assertGreater(vz, 1.5, f"a real 2 m/s climb reported as {vz:.2f}")
+
+
+class TestGroundFix(unittest.TestCase):
+    """A detection that arrives while the estimator is still on the ground.
+
+    This is the entire bench residual check - aircraft not flying, camera
+    looking at a gate - and it crashed on d45, 2026-09-20, the moment the
+    first detection landed. The zero-velocity branch appended (t, p) to the
+    history where every other path appends (t, p, R), and `state_at` reads
+    the attitude out of element 2.
+    """
+
+    def test_observe_while_on_ground_does_not_crash(self):
+        src = DeadReckonSource()
+        gate = np.array([0.0, 6.0, 1.35])
+        src.set_landmarks([gate])
+        R = R_yaw(math.pi / 2)             # nose along +y, at the gate
+        t = 0.0
+        for _ in range(20):
+            t += 0.02
+            src.integrate(t, R, np.array([0.0, 0.0, G]), 0.0, True, on_ground=True)
+        self.assertEqual(len(src.hist[0]), 3, "history entry must be (t, p, R)")
+        det = sighting(src, gate)
+        det.t = t
+        idx, res = src.observe_any([det], src.landmarks)
+        self.assertIsNotNone(idx, "the gate in front of it was not associated")
+        self.assertLess(res, 2.0, f"residual {res:.2f} m on a gate it is looking at")
+
+    def test_state_at_returns_attitude_from_the_ground_branch(self):
+        src = DeadReckonSource()
+        R = R_yaw(0.3)
+        src.integrate(0.02, R, np.array([0.0, 0.0, G]), 0.0, True, on_ground=True)
+        p, Rback = src.state_at(0.02)
+        np.testing.assert_allclose(Rback, R, atol=1e-9)
