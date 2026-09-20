@@ -89,7 +89,7 @@ sim repo:
 |---|---|---|---|
 | 0 | Roll | roll rate command | +stick tilts toward -y at yaw 0 |
 | 1 | Pitch | pitch rate command | +stick = nose down / accelerate +x at yaw 0 |
-| 2 | Throttle | collective thrust | hover ~ **1240** (measured); takeoff 1700 (`takeoff_pwm`, spool hard then lean toward g0) |
+| 2 | Throttle | collective thrust | hover ~ **1291** (MEASURED on the real aircraft, organizers' blackbox 2026-09-19; 1240 was the SITL plant); takeoff 1700 (`takeoff_pwm`, spool hard then lean toward g0) |
 | 3 | Yaw | yaw rate command | +stick = yaw RIGHT (world yaw decreases), ~0.31 rad/s per 60 PWM |
 | 4 | AUX1 | **arm switch** | >=1700 = armed |
 | 5+ | AUX2.. | mode switches | unused by us (see gotchas) |
@@ -262,5 +262,5 @@ RESTRICTIONS.md).
 | PWM 1000-2000 | the value range of every RC channel; 1500 = centered stick |
 | Mixer | Betaflight's map from (rates, thrust) to 4 motor outputs |
 | FRD / FLU / ENU | axis conventions (Forward-Right-Down etc.) - the source of every sign bug ever |
-| Hover PWM | throttle value where climb rate = 0 (measured 1240 here) |
+| Hover PWM | throttle value where climb rate = 0 (1291 on the real aircraft; 1240 is the SITL plant) |
 | SITL lockstep | sim and firmware advance one tick at a time, in sync |
