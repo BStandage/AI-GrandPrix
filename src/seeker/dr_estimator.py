@@ -31,7 +31,7 @@ import math
 
 import numpy as np
 
-from raceline.rc_backend import StateEstimate, rot_from_quat
+from raceline.rc_backend import StateEstimate, clamp, rot_from_quat
 from seeker import synthetic_camera as cam
 
 G = 9.80665
@@ -45,11 +45,17 @@ class VerticalFilter:
     Feed it every tick; the baro correction only applies on fresh samples."""
 
     def __init__(self, w: float = 3.0, bias_gain: float = 0.5, lift_m: float = 0.25,
-                 launch_acc: float = 2.0):
+                 launch_acc: float = 2.0, bias_max: float = 1.0,
+                 vz_margin: float = 2.0, slope_window_s: float = 0.4):
         self.w = w
         self.bias_gain = bias_gain
         self.lift_m = lift_m
         self.launch_acc = launch_acc   # m/s^2 of upward push that means "launch"
+        self.bias_max = bias_max       # the accel is measured at rest; a real bias is small
+        self.vz_margin = vz_margin     # how far vz may stray from the barometer's own slope
+        self.slope_window_s = slope_window_s
+        self._t = 0.0
+        self._zs = []                  # (t, z_meas) over the slope window
         self.z = None
         self.vz = 0.0
         self.bias = 0.0
@@ -59,6 +65,7 @@ class VerticalFilter:
         self._pend_n = 0
 
     def update(self, dt: float, az_world: float, z_meas: float | None, fresh: bool = True) -> tuple:
+        self._t += dt
         if self.z is None:
             if z_meas is None:
                 return 0.0, 0.0
@@ -99,8 +106,39 @@ class VerticalFilter:
             r = float(z_meas) - self.z
             self.z += 2.0 * self.w * r * dt
             self.vz += self.w * self.w * r * dt
-            self.bias -= self.bias_gain * r * dt
+            # The bias state exists to absorb a small constant accelerometer
+            # error. It is NOT a licence to invent metres per second: driven by
+            # a large r it winds up at bias_gain * r per second, and at 0.5 that
+            # is a fabricated 1 m/s^2 within two seconds. Clamped, because the
+            # scale is measured at rest at startup and checked against gravity,
+            # so anything beyond bias_max is the filter arguing with itself.
+            self.bias = clamp(self.bias - self.bias_gain * r * dt,
+                              -self.bias_max, self.bias_max)
+        # ANTI-DIVERGENCE. The accelerometer gives the fast, smooth answer and
+        # the barometer gives the slow, coarse, UNBIASED one. Integrated accel
+        # can run away - d45 reported -15.8 and then +11.4 m/s while being
+        # carried by hand, and the altitude loop answered a phantom 5 m/s dive
+        # with near-full throttle. The barometer cannot run away, so it gets
+        # the final say on the RANGE vz is allowed to be in, while the
+        # accelerometer still decides where inside that range.
+        vzb = self._baro_slope(z_meas, fresh)
+        if vzb is not None:
+            self.vz = clamp(self.vz, vzb - self.vz_margin, vzb + self.vz_margin)
         return self.z, self.vz
+
+    def _baro_slope(self, z_meas, fresh: bool):
+        """Vertical speed straight from the barometer over the last window.
+
+        Coarse - d45's barometer steps 0.076 m at a time - but it has no
+        memory and therefore no way to diverge, which is the only property
+        being asked of it here."""
+        if fresh and z_meas is not None:
+            self._zs.append((self._t, float(z_meas)))
+            self._zs = [e for e in self._zs if self._t - e[0] <= self.slope_window_s]
+        if len(self._zs) < 3:
+            return None
+        (t0, z0), (t1, z1) = self._zs[0], self._zs[-1]
+        return (z1 - z0) / (t1 - t0) if t1 - t0 > 1e-3 else None
 
 
 class DeadReckonSource:

@@ -325,3 +325,71 @@ class TestLaunchDetection(unittest.TestCase):
             vf.update(0.02, 0.15, 0.0, True)
         self.assertFalse(vf.airborne)
         self.assertEqual(vf.vz, 0.0)
+
+
+class TestVerticalDivergence(unittest.TestCase):
+    """The accelerometer may not invent vertical speed the barometer denies.
+
+    d45, 2026-09-20, being carried by hand on a bench: the filter reported
+    vz of -12.2 and then -15.8 m/s while the barometer sat at 1.41 m, and
+    later +11.4 m/s. The altitude loop answered a phantom 5 m/s dive with
+    thr=1749, near full throttle. In the air that is the ceiling event again.
+
+    The accelerometer scale was NOT the cause - it measured 504 counts/g
+    against a 512 default and read 0.00 m/s^2 at rest. Nor is a constant accel
+    error: the observer is stable against one, and this test file could not
+    reproduce the divergence that way. The suspected cause is an attitude sign,
+    which produces NO error at rest and a large one under tilt - see
+    hardware.tiltcheck.
+
+    What is asserted here is the BOUND, not the cause: however wrong the
+    accelerometer is, integrated accel may not report a vertical speed the
+    barometer flatly denies. The barometer is coarse and slow, but it has no
+    memory and therefore cannot diverge.
+    """
+
+    BARO_LSB = 0.076
+    BARO_HZ = 10.0
+
+    def _carry(self, accel_err, seconds=6.0, dt=0.005, **kw):
+        """Hold the aircraft perfectly still while the accelerometer is wrong
+        by accel_err. Returns the worst vz the filter ever reported."""
+        vf = VerticalFilter(**kw)
+        vf.update(dt, 0.0, 0.0, True)
+        vf.airborne = True              # already flying: past the ground branch
+        t, next_baro, worst = 0.0, 0.0, 0.0
+        for _ in range(int(seconds / dt)):
+            t += dt
+            fresh = t >= next_baro
+            if fresh:
+                next_baro += 1.0 / self.BARO_HZ
+            # truly stationary at 1.41 m, quantised exactly as d45's baro is
+            z_meas = round(1.41 / self.BARO_LSB) * self.BARO_LSB
+            _, vz = vf.update(dt, accel_err, z_meas, fresh)
+            worst = max(worst, abs(vz))
+        return worst
+
+    def test_a_still_aircraft_never_reports_a_dive(self):
+        # 2 m/s^2 of accelerometer error, twice anything we have measured
+        worst = self._carry(accel_err=-2.0)
+        self.assertLess(worst, 3.0,
+                        f"reported {worst:.1f} m/s standing still - this is the "
+                        f"divergence that commanded full throttle")
+
+    def test_a_real_climb_is_still_reported(self):
+        # the bound must not muzzle the thing it is protecting: a genuine
+        # 2 m/s climb has to come through
+        vf = VerticalFilter()
+        dt, t, next_baro = 0.005, 0.0, 0.0
+        vf.update(dt, 0.0, 0.0, True)
+        z_true = vz_true = 0.0
+        for _ in range(int(2.0 / dt)):
+            t += dt
+            vz_true = min(2.0, vz_true + 4.0 * dt)
+            z_true += vz_true * dt
+            fresh = t >= next_baro
+            if fresh:
+                next_baro += 1.0 / self.BARO_HZ
+            az = 4.0 if vz_true < 2.0 else 0.0
+            _, vz = vf.update(dt, az, round(z_true / self.BARO_LSB) * self.BARO_LSB, fresh)
+        self.assertGreater(vz, 1.5, f"a real 2 m/s climb reported as {vz:.2f}")
