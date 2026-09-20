@@ -266,3 +266,62 @@ class TestCrossingByFix(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestLaunchDetection(unittest.TestCase):
+    """The filter must see a launch before the barometer can tell it.
+
+    d45 flew this on 2026-09-20 and coasted to the ceiling. Takeoff throttle
+    was held at 1.32 g, so the aircraft was doing 2.5 m/s within a second -
+    but VerticalFilter forced vz to zero until three BAROMETER samples read
+    above 0.25 m, and the barometer arrives about ten times a second. The
+    altitude loop's damping term is kd_z * (vz_ff - vz); with vz stuck near
+    zero it saw nothing to damp, held roughly hover throttle, and the aircraft
+    coasted upward at constant speed. The log read `z=3.28 vz=-3.69` - three
+    metres up and climbing, with the filter reporting a descent.
+    """
+
+    BARO_LSB = 0.076        # 1 Pa, measured on d45
+    BARO_HZ = 10.0          # the bridge polls altitude on a slow rotation
+
+    def _takeoff(self, net_acc=3.2, seconds=1.0, dt=0.005, **kw):
+        """Fly an ideal constant-acceleration launch past the filter and
+        return (true_vz, reported_vz) at the end."""
+        vf = VerticalFilter(**kw)
+        z_true = vz_true = t = 0.0
+        next_baro = 0.0
+        vf.update(dt, 0.0, 0.0, True)          # seed it on the ground
+        for _ in range(int(seconds / dt)):
+            t += dt
+            vz_true += net_acc * dt
+            z_true += vz_true * dt
+            fresh = t >= next_baro
+            if fresh:
+                next_baro += 1.0 / self.BARO_HZ
+            z_meas = round(z_true / self.BARO_LSB) * self.BARO_LSB
+            _, vz = vf.update(dt, net_acc, z_meas, fresh)
+        return vz_true, vz
+
+    def test_velocity_is_seen_during_the_launch(self):
+        true_vz, vz = self._takeoff(seconds=1.0)
+        self.assertGreater(true_vz, 3.0)                  # the aircraft is climbing hard
+        self.assertGreater(vz, 0.6 * true_vz,
+                           f"reported {vz:.2f} against a true {true_vz:.2f} m/s - this is "
+                           f"the ceiling bug")
+
+    def test_it_latches_before_the_barometer_could(self):
+        # 0.15 s: the barometer has had at most two samples and the aircraft is
+        # nowhere near the 0.25 m lift threshold, but the push is unmistakable
+        _, vz = self._takeoff(seconds=0.15)
+        self.assertGreater(vz, 0.2, "no launch detected inside 0.15 s")
+
+    def test_sitting_still_never_latches(self):
+        # the accelerometer residual measured on d45 is 0.15 m/s^2, and the
+        # threshold has to stay well clear of it or the estimator starts
+        # integrating on the start line
+        vf = VerticalFilter()
+        vf.update(0.02, 0.0, 0.0, True)
+        for _ in range(3000):                              # 60 s
+            vf.update(0.02, 0.15, 0.0, True)
+        self.assertFalse(vf.airborne)
+        self.assertEqual(vf.vz, 0.0)

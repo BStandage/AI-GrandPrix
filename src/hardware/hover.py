@@ -124,6 +124,12 @@ def main(argv=None) -> int:
                          "The config default (1700) was tuned on the 0.8 kg sim plant; "
                          "on the measured curve it is 3.4 g and the aircraft leaps. "
                          "1350 is about 1.3 g, which lifts off gently. Default: the config.")
+    ap.add_argument("--ceiling", type=float, default=None,
+                    help="ABORT height, m above the start point. Throttle to minimum "
+                         "and disarm if the barometer ever reads above it. Default: "
+                         "--alt + 1.0. This is a dumb backstop on the RAW barometer "
+                         "and does not trust any filter, because on 2026-09-20 it was "
+                         "the filter that was wrong.")
     ap.add_argument("--gate-z", action="store_true",
                     help="hold the altitude of the gate centre in view, not --alt")
     ap.add_argument("--camera", default=None, help="GStreamer pipeline or /dev/videoN")
@@ -224,6 +230,8 @@ def main(argv=None) -> int:
           f"net {a_tk - 9.80665:+.1f} m/s^2 upward")
     if a_tk - 9.80665 > 6.0:
         print("  WARNING: that is a hard launch. --takeoff-pwm 1350 is gentler.")
+    ceiling = args.ceiling if args.ceiling is not None else args.alt + 1.0
+    print(f"ceiling {ceiling:.2f} m: above this it disarms, no questions asked")
     period = 1.0 / args.rc_hz
     t0 = time.monotonic()
     phase, t_phase = "climb", t0
@@ -324,6 +332,19 @@ def main(argv=None) -> int:
             thr = alt.throttle(t - t0, est, z_t, vz_ff, airborne, integrate=True)
             if phase == "hold" and abs(z - args.alt) < 0.15 and abs(vz) < 0.2:
                 hover_pwms.append(thr)
+
+            # HARD CEILING. Raw barometer, no filter, no controller: if the
+            # aircraft is above this it stops flying, full stop. d45 coasted to
+            # the ceiling on 2026-09-20 because the velocity estimate read
+            # +0.6 m/s during a 3.5 m/s climb and the loop saw nothing to
+            # damp - every clever layer agreed with itself and was wrong.
+            if z > ceiling:
+                print("")
+                print(f"  CEILING HIT: z={z:.2f} m > {ceiling:.2f}. "
+                      f"Throttle to minimum, disarming.")
+                br.set_rc(throttle=1000, roll=1500, pitch=1500, yaw=1500,
+                          arm=1000, aux2=1500)
+                break
 
             done = phase == "descend" and z < 0.15 and t - t_phase > 2.0
             # roll_deg is zero unless --gate-roll has a live detection in hold

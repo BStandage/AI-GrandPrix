@@ -44,15 +44,19 @@ class VerticalFilter:
     with a slow accel-bias state so a wrong accel scale does not run away.
     Feed it every tick; the baro correction only applies on fresh samples."""
 
-    def __init__(self, w: float = 3.0, bias_gain: float = 0.5, lift_m: float = 0.25):
+    def __init__(self, w: float = 3.0, bias_gain: float = 0.5, lift_m: float = 0.25,
+                 launch_acc: float = 2.0):
         self.w = w
         self.bias_gain = bias_gain
         self.lift_m = lift_m
+        self.launch_acc = launch_acc   # m/s^2 of upward push that means "launch"
         self.z = None
         self.vz = 0.0
         self.bias = 0.0
-        self.airborne = False       # latched once the baro has read above lift_m for 3 samples
+        self.airborne = False       # latched by the barometer OR by a real push
         self._lift_n = 0
+        self._pend_v = 0.0          # velocity built up since the push started
+        self._pend_n = 0
 
     def update(self, dt: float, az_world: float, z_meas: float | None, fresh: bool = True) -> tuple:
         if self.z is None:
@@ -62,14 +66,33 @@ class VerticalFilter:
             return self.z, self.vz
         if not self.airborne:
             # on the ground the accelerometer is not trusted (contact, and the
-            # sim reads free fall while settling): first-order baro track, vz 0
+            # sim reads free fall while settling): first-order baro track, vz 0.
+            #
+            # BUT the barometer alone is far too slow to notice a launch. It
+            # arrives about 10 times a second and needs three samples above
+            # lift_m, so it latches roughly 0.3 s after the aircraft leaves the
+            # ground - by which time a 1.3 g takeoff is already doing 2.5 m/s -
+            # and then vz starts counting from ZERO. d45 flew that on
+            # 2026-09-20: vz read +0.60 while the aircraft climbed at 3.5 m/s,
+            # the altitude loop's damping term saw no climb at all, held
+            # roughly hover throttle, and it coasted to the ceiling.
+            #
+            # So also watch the accelerometer, which answers every tick, and
+            # carry the velocity it implies forward as the seed.
+            if az_world > self.launch_acc:
+                self._pend_v += az_world * dt
+                self._pend_n += 1
+            else:
+                self._pend_v, self._pend_n = 0.0, 0
             if fresh and z_meas is not None:
                 self.z += 2.0 * self.w * (float(z_meas) - self.z) * dt
                 self._lift_n = self._lift_n + 1 if z_meas > self.lift_m else 0
-                if self._lift_n >= 3:
-                    self.airborne = True
-            self.vz = 0.0
-            return self.z, self.vz
+            if self._lift_n >= 3 or self._pend_n >= 5:
+                self.airborne = True
+                self.vz = self._pend_v      # start from the truth, not from zero
+            else:
+                self.vz = 0.0
+                return self.z, self.vz
         self.vz += (az_world - self.bias) * dt
         self.z += self.vz * dt
         if fresh and z_meas is not None:
