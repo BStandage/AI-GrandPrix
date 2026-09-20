@@ -152,6 +152,37 @@ def solve(args) -> int:
         obliq = math.degrees(math.acos(min(1.0, abs(float(R[2, 2])))))
         per_view.append((err, obliq, Path(files[i]).name))
 
+    # OUTLIER REJECTION, then solve again on what is left. One ruined capture
+    # drags the whole fit: d45, 2026-09-20, had 17 views at about 0.5 px and
+    # three between 3.7 and 6.1, and the aggregate came out at 2.38 with the
+    # distortion terms absorbing the difference (k2 -8.2, k3 +19.3). Dropping
+    # the three is not fudging the number - those views are measurements of
+    # something other than this camera, and including them is the error.
+    if args.max_view_err > 0:
+        keep = [i for i, (e, _o, _n) in enumerate(per_view) if e <= args.max_view_err]
+        if len(keep) >= 5 and len(keep) < len(per_view):
+            dropped = [(per_view[i][2], per_view[i][0])
+                       for i in range(len(per_view)) if i not in set(keep)]
+            print("")
+            print(f"dropping {len(dropped)} view(s) over {args.max_view_err:.1f} px "
+                  f"and solving again:")
+            for name, e in sorted(dropped, key=lambda d: -d[1]):
+                print(f"  {name:16s} {e:6.2f} px")
+            objpoints = [objpoints[i] for i in keep]
+            imgpoints = [imgpoints[i] for i in keep]
+            files = [files[i] for i in keep]
+            rms, K, dist, rvecs, tvecs = cv2.calibrateCamera(
+                objpoints, imgpoints, shape, None, None)
+            per_view = []
+            for i in range(len(objpoints)):
+                proj, _ = cv2.projectPoints(objpoints[i], rvecs[i], tvecs[i], K, dist)
+                err = float(np.linalg.norm(
+                    imgpoints[i].reshape(-1, 2) - proj.reshape(-1, 2), axis=1).mean())
+                R, _ = cv2.Rodrigues(rvecs[i])
+                per_view.append((err, math.degrees(math.acos(min(1.0, abs(float(R[2, 2]))))),
+                                 Path(files[i]).name))
+            print(f"  {len(objpoints)} views remain, RMS now {rms:.3f} px")
+
     worst = sorted(per_view, reverse=True)[:5]
     obliqs = sorted(v[1] for v in per_view)
     print("")
@@ -254,6 +285,10 @@ def main(argv=None) -> int:
     g.set_defaults(func=grab)
     s = sub.add_parser("solve", help="calibrate from the captured views")
     s.add_argument("--out", default=DEFAULT_DIR)
+    s.add_argument("--max-view-err", type=float, default=1.5,
+                   help="drop any view whose mean reprojection error exceeds this "
+                        "and solve again. 0 disables it. A single bad capture "
+                        "otherwise carries the whole fit.")
     s.add_argument("--square-mm", type=float, required=True,
                    help="MEASURED square size of the printed board, mm")
     s.set_defaults(func=solve)
