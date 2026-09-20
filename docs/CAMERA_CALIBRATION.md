@@ -1,53 +1,133 @@
 # Camera calibration, step by step
 
-Three numbers come out of this, and every camera fix in flight depends on them:
+**Do Method 0. The rest of this file is fallback and cross-checks.**
+
+Five numbers come out of this, and every camera fix in flight depends on them:
 
 | Number | Flag | What it does |
 |---|---|---|
 | focal length in pixels | `--fy` | how far away a gate is |
 | horizontal field of view | `--cam-hfov` | turns a pixel position into a direction |
-| camera mount tilt | `--cam-tilt` | which way the camera points relative to the drone |
+| principal point | `AIGP_CAM_CX/CY` | where the optical axis really is, which is NOT the image centre |
+| camera mount tilt | `--cam-tilt` | which way the camera points relative to the airframe |
 
-Get `--cam-tilt` wrong by 5 degrees and every gate is misplaced by 0.7 m at 8 m.
-That is the one to be careful with.
+Get `--cam-tilt` wrong by 5 degrees and every gate is misplaced by 0.7 m at
+8 m. That is the one to be careful with.
 
-Two ways to do this. **Method A (wall)** needs a tape measure and a wall.
-**Method B (gate)** needs the real gate. Do A first, then check with B.
+**None of these transfer between aircraft, or survive a camera swap.** They
+describe one lens in one mount. d45 broke its camera on 2026-09-20 and every
+number below had to be measured again.
+
+---
+
+## Before anything: is the airframe level, and are its signs right?
+
+The tilt is measured against the airframe, so a body that is pitched or rolled
+goes straight into the answer.
+
+```
+ssh d45
+cd ~/AI-GrandPrix/src
+python3 -m hardware.tiltcheck --port /dev/ttyTHS1
+```
+
+Tilt it 30 degrees each way, holding each pose still. It must say **PASS**.
+
+This is not optional politeness. Betaflight on this firmware reports pitch
+positive NOSE DOWN, we assumed the opposite for months, and the error is
+exactly zero when the aircraft is flat - which is how every calibration is
+done. d45 measured -5.24 m/s^2 at 31 degrees on 2026-09-20. If a new airframe
+reads the other way, `--pitch-nose-up-positive` flips it back.
+
+Then get it physically level: shim with folded paper or tape until roll and
+pitch read within a degree of zero.
+
+```
+python3 ~/target/msp/msp_bench.py --port /dev/ttyTHS1 telemetry
+```
+
+If they never sit still, calibrate the accelerometer once in Betaflight
+(**Setup -> Calibrate Accelerometer**, on a surface checked with a level) and
+re-check.
 
 ---
 
-## Before either method: get the drone level
+## Method 0: the checkerboard - THIS ONE
 
-1. SSH in:
+Twenty minutes, and the only method that gives the principal point and the
+distortion. This is what d45 was calibrated with on 2026-09-20: 20 views,
+RMS 0.165 px.
+
+### 0a. Print the board
+
+`out/caltarget/checkerboard_letter_25mm.png`, at **100 percent** - no "fit to
+page". Tape it FLAT to stiff card. A curled board quietly ruins the answer.
+
+**Measure one square with a ruler and use the real number.** Printers scale by
+a percent or two, and every length here is proportional to it.
+
+### 0b. Capture
 
 ```
-ssh d44
+python3 -m hardware.camcal_board grab
 ```
 
-2. Watch the attitude:
+It shows nothing and needs no display. It saves a frame each time it finds the
+board and prints the count. Aim for **20 views**, and make them different:
+
+- near (0.4 m) and far (1.5 m)
+- board tilted left, right, up, down - 20 to 40 degrees, not flat on
+- board in each corner of the frame as well as the middle
+
+Twenty copies of the same view calibrates nothing. The variety is the
+measurement.
+
+### 0c. Solve
 
 ```
-fc-telem
+python3 -m hardware.camcal_board solve --square-mm 25.0
 ```
 
-You get a table updating a few times a second. Look at the `roll` and `pitch`
-columns.
+Use YOUR measured square size. It prints `fy`, `hfov`, the principal point and
+the distortion, and an RMS reprojection error.
 
-3. Shim the drone with folded paper or tape until **roll** reads between -1 and
-   +1. Roll matters more than pitch for this - a rolled drone tilts the whole
-   image sideways and ruins the horizontal measurement.
+**RMS under about 0.5 px is good.** d45 got 0.165. Above 1.0, the captures
+were too alike or the board was not flat - capture more variety and re-solve.
 
-4. Ctrl+C to stop.
+### 0d. The mount tilt
 
-If roll and pitch never sit still, the FC's own idea of level may be off.
-Fix that once, on a surface you have checked with a spirit level (a phone level
-app on the frame is fine):
+Now that `fy` and `cy` are known, the tilt comes from one target at a known
+height:
 
-5. Betaflight -> **Setup** tab -> **Calibrate Accelerometer**. Do not move the
-   drone while it runs.
-6. Re-run `fc-telem`. It should read about 0 / 0.
+```
+python3 -m hardware.camtilt --dist 1.78 --lens-h 0.94 --target-h 1.25     --fy 830 --cy 387
+```
+
+- `--dist` lens to target, horizontally along the floor, in metres
+- `--lens-h` lens height off the floor
+- `--target-h` height of the target centre off the floor
+- `--fy`, `--cy` from step 0c
+
+All in metres, all heights from the same floor. Keep the aircraft level.
+
+Do it at **two different distances** and the answers should agree within about
+a degree. d45 read 19.4 at 70 inches and 20.6 at 40 inches, so 20.
+
+### 0e. Write them down
+
+Put them straight into that aircraft's flight card. The principal point is the
+one people forget: leaving it at the image centre carried a constant 1.8 degree
+bearing bias on d45, about 0.26 m of lateral error at 8 m, always the same
+way - which is exactly the kind of error that looks like bad tuning forever.
 
 ---
+
+## Fallbacks and cross-checks
+
+Everything below predates Method 0. Use it to sanity-check a number, or if the
+checkerboard is unavailable. **Method A cannot give you the principal point or
+the distortion**, and on d45 its frame-edge marks implied a 37.6 degree
+vertical field of view where the checkerboard measured 46.9.
 
 ## Method A: the wall
 
@@ -244,11 +324,23 @@ number, and get your safety margin from a lower k.
 
 ---
 
-## Where we got to (2026-09-19)
+## What we have measured
 
-- `--fy` roughly 720-780 at 6 m. The 952 from 2.3 m is distortion, discard it.
-- `--cam-hfov` roughly 80 measured; organizers say 75-85.
-- `--cam-tilt` never measured - the FC attitude was not reading during camcal.
-- Detector found the real gate in 100 % of frames at 6 m, width jitter +-3 %.
-- It also found a false gate in 100 % of frames with no gate in the room, so
-  something red in there passes the thresholds.
+**d45, 2026-09-20, checkerboard, 20 views, RMS 0.165 px** - and then the
+camera broke and all of it became history:
+
+| | |
+|---|---|
+| `--fy` | 830 |
+| `--cam-hfov` | 75 (74.9 measured; organizers say 75) |
+| `AIGP_CAM_CX/CY` | 613.1 / 387.0 in a 1280x720 frame - 27 px off centre in both axes |
+| `--cam-tilt` | 20 (19.4 at 70 in, 20.6 at 40 in) |
+
+Earlier, by the gate method: `fy` 720-780 at 6 m, and 952 at 2.3 m. The near
+one is distortion - do not calibrate at 2-3 m.
+
+**Open problem, not a calibration one.** The detector finds a gate in about
+99.6 percent of frames *including with the lens covered*, and its range
+estimate read 2.4, then 9.8, then 140 m within ten seconds (d45, 2026-09-20).
+Something in the room passes the HSV thresholds. That needs recorded footage
+and `perception.video_probe`, not more tape-measure work.
