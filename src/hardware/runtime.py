@@ -145,7 +145,9 @@ def main(argv=None) -> int:
     ap.add_argument("--acc-lsb-per-g", default="auto",
                     help="raw accelerometer counts per g (2048 on the Archer per its blackbox, 256 on the SITL); "
                          "'auto' measures |acc| over 1 s at rest before takeoff")
-    ap.add_argument("--pitch-nose-down-positive", action="store_true")
+    ap.add_argument("--pitch-nose-up-positive", action="store_true",
+                    help="pitch reads positive NOSE DOWN on this firmware "
+                         "(d45, 2026-09-20); pass this only if tiltcheck disagrees")
     ap.add_argument("--heading-drift-dpm", type=float, default=0.0,
                     help="measured gyro heading drift in deg/min (from `bench drift`), "
                          "subtracted linearly over the run. d45 measured +3.0 on the floor. "
@@ -196,7 +198,7 @@ def main(argv=None) -> int:
     bridge = FcBridge.open(port=args.port, tcp=args.tcp, baud=args.baud, rc_hz=args.rc_hz)
     bridge.start()
     src = FcStateSource(bridge, map_north_heading_deg=0.0,
-                        pitch_nose_up_positive=not args.pitch_nose_down_positive,
+                        pitch_nose_up_positive=args.pitch_nose_up_positive,
                         acc_lsb_per_g=512.0 if args.acc_lsb_per_g == "auto" else float(args.acc_lsb_per_g))
     camera = None if args.no_camera else CameraThread(args.camera, args.fy)
     if camera:

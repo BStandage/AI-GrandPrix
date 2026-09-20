@@ -33,10 +33,13 @@ Frame facts to pin on the bench (each is one flag here):
   is CCW from the map's +x. `map_north_heading_deg` is the compass
   heading of the map's +y axis, measured on site by pointing the drone
   along gate 1's direction (north on the PDF).
-- Betaflight roll is positive right-wing-down. Betaflight pitch sign is
-  set by `pitch_nose_up_positive`; verify with the telemetry tool by
-  tilting the nose down by hand (default assumes nose-DOWN reads
-  negative, i.e. nose-up positive).
+- Betaflight roll is positive right-wing-down. Betaflight pitch on this
+  firmware reads positive NOSE DOWN, measured on d45 2026-09-20 with
+  `hardware.tiltcheck`: held still and pitched 31 degrees it produced
+  -5.24 m/s^2 of vertical acceleration where there should be none, against
+  the -5.20 that an inverted sign predicts exactly (g*(cos 2t - 1)).
+  Hence `pitch_nose_up_positive` now defaults to FALSE. Re-measure it on
+  every new aircraft with tiltcheck; do not assume it carries over.
 - MSP_RAW_IMU gyro is deg/s in the FC's body frame (x forward, y right,
   z down = FRD). Converted to FLU body rates here.
 """
@@ -65,7 +68,7 @@ def rot_zyx(roll: float, pitch: float, yaw: float) -> np.ndarray:
 
 class FcStateSource:
     def __init__(self, bridge, map_north_heading_deg: float = 0.0,
-                 pitch_nose_up_positive: bool = True, roll_right_positive: bool = True,
+                 pitch_nose_up_positive: bool = False, roll_right_positive: bool = True,
                  alt_offset_m: float = 0.0, acc_lsb_per_g: float = 512.0,
                  acc_signs=(1.0, 1.0, 1.0)):
         # MSP_RAW_IMU accel: Betaflight reports its sensor frame (x forward,
