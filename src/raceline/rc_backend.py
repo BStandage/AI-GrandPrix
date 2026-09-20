@@ -86,6 +86,10 @@ class AltitudeLoop:
     BALLOON_ACC = -2.5   # m/s^2: well above target, command at least this
                          # much descent (was hover-60 PWM ~ -3.7 m/s^2)
     COS_TILT_MIN = 0.25  # cap the compensation at ~75 deg of tilt
+    CLIMB_ACC_MAX = 12.0 # m/s^2: most climb any altitude error may buy. The
+                         # plans' steepest is under 10 at the g9 climb, so this
+                         # never binds in normal flight - it exists so that one
+                         # bad altitude sample cannot ask for full throttle.
 
     def __init__(self, cfg):
         self.cfg = cfg
@@ -119,6 +123,18 @@ class AltitudeLoop:
         # the loop may not command a climb.
         if err < -0.4:
             a_cmd = min(a_cmd, self.BALLOON_ACC)
+        # CLIMB AUTHORITY CAP. A large altitude error otherwise asks for a
+        # proportionally large acceleration with nothing between it and the
+        # motors. d45, 2026-09-20: one prop-wash barometer sample read -3.86 m
+        # against a 0.15 m target, the loop concluded it was 4 m low, and asked
+        # for +32.9 m/s^2 - 4.35 g, near full throttle - on the strength of a
+        # single reading. The aircraft obeyed and a 0.4 m hover reached 2 m.
+        #
+        # The sensor is fixed at the source (FcStateSource rejects impossible
+        # jumps) and physically with foam over the port, but no altitude error,
+        # however genuine, justifies more climb than this. A plan's steepest
+        # climb asks for a few m/s^2; the ceiling at g9 is under 10.
+        a_cmd = min(a_cmd, self.CLIMB_ACC_MAX)
         # exact tilt compensation: only cos(tilt) of the thrust is vertical
         cos_tilt = max(float(est.R[2, 2]), self.COS_TILT_MIN)
         thrust = max(0.0, (G + a_cmd) / cos_tilt)
