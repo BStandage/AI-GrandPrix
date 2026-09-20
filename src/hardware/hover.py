@@ -289,8 +289,17 @@ def main(argv=None) -> int:
           f"net {a_tk - 9.80665:+.1f} m/s^2 upward")
     if a_tk - 9.80665 > 6.0:
         print("  WARNING: that is a hard launch. --takeoff-pwm 1350 is gentler.")
-    ceiling = args.ceiling if args.ceiling is not None else args.alt + 1.0
-    print(f"ceiling {ceiling:.2f} m: above this it disarms, no questions asked")
+    # The default has to clear the HIGHEST height this run may legitimately
+    # ask for, not just --alt: with --gate-z the vision target may climb to
+    # --gate-z-max, and a backstop that trips on the aircraft doing exactly
+    # what it was told is a backstop people start passing --ceiling to silence.
+    top = max(args.alt, args.gate_z_max if args.gate_z else args.alt)
+    ceiling = args.ceiling if args.ceiling is not None else top + 1.0
+    print(f"ceiling {ceiling:.2f} m: above this it disarms, no questions asked"
+          + (f" (vision may ask for {args.gate_z_max:.2f})" if args.gate_z else ""))
+    if ceiling <= top + 0.2:
+        print(f"  WARNING only {ceiling - top:.2f} m of margin above the highest "
+              f"target this run may ask for. Expect nuisance trips.")
     period = 1.0 / args.rc_hz
     t0 = time.monotonic()
     phase, t_phase = "climb", t0
