@@ -72,8 +72,20 @@ a percent or two, and every length here is proportional to it.
 python3 -m hardware.camcal_board grab
 ```
 
-It shows nothing and needs no display. It saves a frame each time it finds the
-board and prints the count. Aim for **20 views**, and make them different:
+It shows nothing and needs no display. Aim for **20 views**.
+
+**Move, then STOP, then let it capture.** It will not save a frame until the
+board has held still for two consecutive frames and the board area is sharp -
+it tells you which one it is waiting on. This is not fussiness: the sensor has
+a rolling shutter, so it reads the image one row at a time and anything moving
+comes out SKEWED rather than merely blurred. A skewed board fits no camera
+model at all, which is how d45 produced a 5.9 px RMS on 2026-09-20 while the
+drone was being walked around a fixed board.
+
+**Moving the drone instead of the board is fine** - only the relative pose
+matters - as long as you stop before each capture.
+
+Make the views genuinely different:
 
 - near (0.4 m) and far (1.5 m)
 - board tilted left, right, up, down - 20 to 40 degrees, not flat on

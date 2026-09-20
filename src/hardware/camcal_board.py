@@ -46,7 +46,8 @@ def grab(args) -> int:
     cap = _open(args.camera or DEFAULT_PIPELINE)
     if not cap.isOpened():
         raise SystemExit("camera did not open")
-    kept, seen, last = 0, 0, None
+    kept, seen, last, prev = 0, 0, None, None
+    CR = chr(13)
     print(f"looking for a {INNER[0]}x{INNER[1]} inner-corner board. "
           f"Ctrl+C when you have {args.want}.")
     try:
@@ -61,13 +62,44 @@ def grab(args) -> int:
             if not found:
                 continue
             c = corners.reshape(-1, 2).mean(axis=0)
+            pts = corners.reshape(-1, 2)
+
+            # STILLNESS. This sensor has a rolling shutter: it reads one row
+            # at a time, so a board that is moving is not blurred, it is
+            # SKEWED - and a skewed board fits no camera model at all. That is
+            # what a 5.9 px RMS with absurd distortion terms looks like
+            # (d45, 2026-09-20, where the drone was walked around a fixed
+            # board). Require two consecutive frames to agree before believing
+            # either of them.
+            moved = None if prev is None else float(np.abs(pts - prev).max())
+            prev = pts
+            if moved is None or moved > args.still_px:
+                if seen % 30 == 0:
+                    note = "hold it still" if moved is None else f"moving {moved:.0f} px"
+                    print(CR + f"  {kept}/{args.want} kept - {note}          ",
+                          end="", flush=True)
+                continue
+
+            # SHARPNESS, measured on the board itself rather than the whole
+            # frame, so a busy background cannot vouch for a soft target.
+            x0, y0 = pts.min(axis=0).astype(int)
+            x1, y1 = pts.max(axis=0).astype(int)
+            patch = g[max(0, y0):y1 + 1, max(0, x0):x1 + 1]
+            sharp = float(cv2.Laplacian(patch, cv2.CV_64F).var()) if patch.size else 0.0
+            if sharp < args.min_sharp:
+                if seen % 30 == 0:
+                    print(CR + f"  {kept}/{args.want} kept - too soft ({sharp:.0f} < "
+                               f"{args.min_sharp:.0f}): more light or hold stiller   ",
+                          end="", flush=True)
+                continue
+
             if last is not None and np.hypot(*(c - last)) < args.min_move_px:
-                continue          # same view again: move the board
+                continue          # same view again: change the angle
             last = c
             kept += 1
             cv2.imwrite(str(out / f"view_{kept:03d}.png"), frame)
-            print(f"  kept {kept}/{args.want}  (centre {c[0]:.0f},{c[1]:.0f}) "
-                  f"- move the board and hold still")
+            print(CR + f"  kept {kept}/{args.want}  centre {c[0]:.0f},{c[1]:.0f}  "
+                       f"sharpness {sharp:.0f}  - now CHANGE THE ANGLE, hold still  ")
     except KeyboardInterrupt:
         print()
     finally:
@@ -172,6 +204,13 @@ def main(argv=None) -> int:
     g.add_argument("--camera", default=None)
     g.add_argument("--out", default=DEFAULT_DIR)
     g.add_argument("--want", type=int, default=20)
+    g.add_argument("--still-px", type=float, default=2.0,
+                   help="a corner may not move more than this between consecutive "
+                        "frames. The sensor has a rolling shutter, so a moving board "
+                        "is SKEWED, not merely blurred, and fits no camera model.")
+    g.add_argument("--min-sharp", type=float, default=60.0,
+                   help="minimum Laplacian variance over the board itself; low means "
+                        "motion blur or a dim room")
     g.add_argument("--min-move-px", type=float, default=40.0,
                    help="reject a view whose board centre has not moved this far")
     g.set_defaults(func=grab)
