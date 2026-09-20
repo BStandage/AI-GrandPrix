@@ -24,7 +24,7 @@ name    = "archer-block2-8in-ESTIMATES"
 updated = "2026-08-28"
 
 [vehicle]
-mass_kg   = 2.2     # ESTIMATE: 8" Archer + Orin NX + carrier + camera + 6S
+mass_kg   = 1.751        # ALL-UP, weighed with props and prop protection 2026-09-20 (1.59 bare)
                     # pack; range 2.0-2.5. MEASURE day 1 (scale).
 drag_lin  = 0.0     # unknown; fit from cage flights
 drag_quad = 0.0
@@ -89,5 +89,5 @@ ki_z        = 0.5       # m/s^2 per m.s
 kyaw        = 200.0
 yaw_clamp   = 200
 yaw_lookahead_m = 3.0
-takeoff_pwm = 1550      # ESTIMATE: just above estimated hover
+takeoff_pwm = 1350      # MEASURED CURVE (2026-09-20): 13.0 m/s^2 = 1.32 g, net +3.2 m/s^2 up - lifts off in ~0.2 s and settles. Was 1700, which was tuned on the 0.8 kg SITL plant and is 33.6 m/s^2 = 3.43 g on the real aircraft: a 2.4 g launch off the start line. Held until the climb reaches 0.7 m/s, so a low value only costs a moment of spool-up.
 min_alt_translation_m = 1.0

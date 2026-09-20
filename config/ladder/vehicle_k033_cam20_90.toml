@@ -13,7 +13,7 @@ name    = "elodin-sitl-quad"        # becomes "neros-..." when day-1 sysid lands
 updated = "2026-09-09"
 
 [vehicle]                 # physical truth - sysid replaces this section wholesale
-mass_kg   = 0.9           # seeded from sim/config.py
+mass_kg   = 1.751        # ALL-UP, weighed with props and prop protection 2026-09-20 (1.59 bare)
 drag_lin  = 0.0           # N per (m/s)
 drag_quad = 0.23          # N per (m/s)^2 - MEASURED by solvers.sysid_sprint
 drag_quad_z = 0.45        # N per (m/s)^2 on the WORLD-vertical component: the
@@ -406,7 +406,7 @@ yaw_clamp   = 400       # RAISED from 200 to stay consistent with the
                         # per 60 PWM measured => 400 PWM ~ 2.0 rad/s, so the
                         # nose can actually deliver what the plan assumes
 yaw_lookahead_m = 3.0   # aim the nose at the tangent this far ahead
-takeoff_pwm = 1700
+takeoff_pwm = 1350      # MEASURED CURVE (2026-09-20): 13.0 m/s^2 = 1.32 g, net +3.2 m/s^2 up - lifts off in ~0.2 s and settles. Was 1700, which was tuned on the 0.8 kg SITL plant and is 33.6 m/s^2 = 3.43 g on the real aircraft: a 2.4 g launch off the start line. Held until the climb reaches 0.7 m/s, so a low value only costs a moment of spool-up.
 min_alt_translation_m = 0.0   # LOWERED 1.0 -> 0.3 -> 0.15 -> 0.0 (2026-09-10: lean toward g0 from throttle-up, the sim damps rotation in the first 0.5 m anyway): below this the follower
                               # climbs vertically (throttle only, no lean),
                               # which forced the elevator ride to ~1 m before
