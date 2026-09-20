@@ -65,8 +65,10 @@ def gate_dz(det, R, fy: float, tilt_rad: float, wh) -> tuple:
     difference. At the null it is zero and the range drops out entirely,
     which is the whole point of doing it this way.
 
-    Returns (dz_m, elevation_rad) or (None, None) without a usable range."""
-    if det is None or det.range_m is None or wh is None:
+    Returns (dz_m, elevation_rad). dz is None without a usable range; the
+    ELEVATION never needs one, which is the whole point - see the control
+    note in main()."""
+    if det is None or wh is None:
         return None, None
     w_px, h_px = wh
     # tangents from the optical axis (fwd_cam == 1 by construction)
@@ -80,7 +82,8 @@ def gate_dz(det, R, fy: float, tilt_rad: float, wh) -> tuple:
     n = float(np.linalg.norm(v)) or 1.0
     vw = R @ (v / n)                             # body -> world
     up = float(max(-1.0, min(1.0, vw[2])))
-    return det.range_m * up, math.asin(up)
+    el = math.asin(up)
+    return (det.range_m * up if det.range_m is not None else None), el
 
 
 def gate_azimuth(det, fy: float, tilt_rad: float, wh):
@@ -130,7 +133,11 @@ def main(argv=None) -> int:
     ap.add_argument("--gate-z-max", type=float, default=1.80, help="ceiling on the vision target, m")
     ap.add_argument("--gate-lost-s", type=float, default=0.50,
                     help="no detection for this long -> back to the barometer target")
-    ap.add_argument("--gate-slew", type=float, default=0.40, help="max target move, m/s")
+    ap.add_argument("--gate-slew", type=float, default=0.30,
+                    help="cap on how fast the vision target may move, m/s")
+    ap.add_argument("--gate-el-gain", type=float, default=0.03,
+                    help="target climb rate in m/s per degree of elevation error. "
+                         "0.03 means a 10 deg error moves the target 0.3 m/s")
     ap.add_argument("--gate-roll", action="store_true",
                     help="also CENTRE the gate with roll: slide sideways until it is "
                          "dead ahead. Converges on one point - the travel is "
@@ -246,7 +253,56 @@ def main(argv=None) -> int:
                 airborne_latch = True
             airborne = airborne_latch
 
-            roll_deg = 0.0        # vision may set this in hold; never elsewhere
+            # VISION. Read EVERY tick, so a props-off dry run on the bench
+            # shows el/az/dz immediately - it never reaches the hold phase,
+            # because nothing lifts it. APPLIED only in hold: takeoff and
+            # landing are always flown on the barometer, and roll is only ever
+            # commanded with a live detection while holding.
+            roll_deg = 0.0
+            roll_want = 0.0
+            if camera is not None:
+                det = camera.latest()
+                fresh = det is not None and (t - det.t) <= args.gate_lost_s
+                dz, el = gate_dz(det, est.R, args.fy, math.radians(args.cam_tilt),
+                                 camera.frame_wh) if fresh else (None, None)
+                if el is None:
+                    if gate_z_t is not None:
+                        print(f"  gate lost at t={t - t0:.1f}s: back to {args.alt:.2f} m")
+                    gate_z_t = None
+                    gate_el = gate_rng = gate_dz_m = gate_az = None
+                else:
+                    if gate_z_t is None:
+                        gate_z_t = z_t if phase == "hold" else z
+                        print(f"  gate acquired at t={t - t0:.1f}s: "
+                              f"el={math.degrees(el):+.1f} deg")
+                    # DRIVEN BY THE ELEVATION ANGLE ALONE, never by the range.
+                    # Range comes from the gate's apparent size and on d45's
+                    # first bench run it read 2.4, 3.4, 9.8 and then 140 m in
+                    # the space of ten seconds. Multiplying a good angle by
+                    # that to get a height in metres threw the whole point
+                    # away: the null is range-INDEPENDENT, so the controller
+                    # must be too. Climb at a rate proportional to how far
+                    # above us the gate centre sits, capped at --gate-slew.
+                    # A wrong angle can now only move the target slowly, and
+                    # the clamp still bounds where it can end up.
+                    rate = args.gate_el_gain * math.degrees(el)
+                    rate = max(-args.gate_slew, min(args.gate_slew, rate))
+                    gate_z_t = max(args.gate_z_min,
+                                   min(args.gate_z_max, gate_z_t + rate * period))
+                    gate_el, gate_rng, gate_dz_m = el, det.range_m, dz
+                    # ROLL CENTRING. Tilt toward the side the gate is on and the
+                    # aircraft slides that way until the gate is dead ahead - one
+                    # point, not an open chase. Capped hard, and released the
+                    # instant the gate is gone.
+                    if args.gate_roll:
+                        az = gate_azimuth(det, args.fy, math.radians(args.cam_tilt),
+                                          camera.frame_wh)
+                        gate_az = az
+                        if az is not None:
+                            roll_want = max(-args.gate_roll_tilt,
+                                            min(args.gate_roll_tilt,
+                                                args.gate_roll_gain * math.degrees(az)))
+
             if phase == "climb":
                 z_t = min(args.alt, z_t + args.climb * period)
                 vz_ff = args.climb
@@ -255,45 +311,9 @@ def main(argv=None) -> int:
                     print(f"  at altitude ({z:.2f} m) after {t - t0:.1f} s, holding")
             elif phase == "hold":
                 z_t, vz_ff = args.alt, 0.0
-                # VISION ALTITUDE. Only here - never during takeoff or landing.
-                if camera is not None:
-                    det = camera.latest()
-                    fresh = det is not None and (t - det.t) <= args.gate_lost_s
-                    dz, el = gate_dz(det, est.R, args.fy,
-                                     math.radians(args.cam_tilt), camera.frame_wh)                         if fresh else (None, None)
-                    if dz is None:
-                        if gate_z_t is not None:
-                            print(f"  gate lost at t={t - t0:.1f}s: back to {args.alt:.2f} m")
-                        gate_z_t, gate_el, gate_rng, gate_dz_m = None, None, None, None
-                    else:
-                        want = z + dz                     # where the gate centre is
-                        want = max(args.gate_z_min, min(args.gate_z_max, want))
-                        if gate_z_t is None:
-                            gate_z_t = z_t                # take over from where we are
-                            print(f"  gate acquired at t={t - t0:.1f}s: "
-                                  f"el={math.degrees(el):+.1f} deg rng={det.range_m:.1f} m")
-                        # slew limit: a bad frame moves the target a little, never a lot
-                        step = args.gate_slew * period
-                        gate_z_t += max(-step, min(step, want - gate_z_t))
-                        gate_el, gate_rng, gate_dz_m = el, det.range_m, dz
-                    if gate_z_t is not None:
-                        z_t = gate_z_t
-                    # ROLL CENTRING. Tilt toward the side the gate is on and the
-                    # aircraft slides that way until the gate is dead ahead -
-                    # one point, not an open chase. Capped hard, and released
-                    # the instant the gate is gone, because an uncommanded tilt
-                    # with no feedback is exactly what we are avoiding.
-                    if args.gate_roll:
-                        az = gate_azimuth(det, args.fy,
-                                          math.radians(args.cam_tilt),
-                                          camera.frame_wh) if fresh else None
-                        if az is None:
-                            gate_az, roll_deg = None, 0.0
-                        else:
-                            gate_az = az
-                            roll_deg = max(-args.gate_roll_tilt,
-                                           min(args.gate_roll_tilt,
-                                               args.gate_roll_gain * math.degrees(az)))
+                if gate_z_t is not None:
+                    z_t = gate_z_t
+                    roll_deg = roll_want
                 if t - t_phase > args.seconds:
                     phase, t_phase = "descend", t
                     print(f"  hold done, descending")
@@ -334,8 +354,8 @@ def main(argv=None) -> int:
                 log.flush()
                 vis = ""
                 if camera is not None:
-                    vis = (f" | GATE el={math.degrees(gate_el):+5.1f} rng={gate_rng:4.1f} "
-                           f"dz={gate_dz_m:+5.2f}"
+                    vis = (f" | GATE el={math.degrees(gate_el):+5.1f}"
+                           + (f" rng={gate_rng:5.1f}" if gate_rng is not None else " rng=  -- ")
                            + (f" az={math.degrees(gate_az):+5.1f} roll={roll_deg:+4.1f}"
                               if gate_az is not None else "")
                            if gate_el is not None
