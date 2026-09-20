@@ -87,5 +87,81 @@ class TestFcStateSource(unittest.TestCase):
         np.testing.assert_allclose(np.degrees(e.omega), [10.0, -20.0, -30.0])
 
 
+class ClimbBridge:
+    """A flight controller whose barometer works and whose vario does not.
+
+    That is d45, measured 2026-09-20: lifting the aircraft 0.76 m moved
+    `alt` cleanly every time and `vario` stayed at exactly 0.00 m/s. The
+    barometer also only resolves about 0.076 m (1 Pa), so the height arrives
+    in steps, which is the other half of what the filter has to cope with."""
+
+    LSB = 0.076
+
+    def __init__(self):
+        from hardware import msp
+        from hardware.bridge import FcState
+        self.msp = msp
+        self.t = 0.0
+        self.z = 0.0
+        self.s = FcState(t=0.0, attitude=msp.Attitude(0.0, 0.0, 0.0),
+                         altitude=msp.Altitude(0.0, 0.0),
+                         imu=msp.RawImu((0, 0, 512), (0, 0, 0), (0, 0, 0)))
+
+    def step(self, dt, vz):
+        self.t += dt
+        self.z += vz * dt
+        self.s.t = self.t
+        # a NEW Altitude object each tick, quantised, vario dead
+        q = round(self.z / self.LSB) * self.LSB
+        self.s.altitude = self.msp.Altitude(q, 0.0)
+
+    def state(self):
+        return self.s
+
+
+class TestVerticalSpeedWithoutFcVario(unittest.TestCase):
+    """The FC's vario is not trusted; we derive vertical speed ourselves.
+
+    Regression for the bug that would have grounded the whole race: the
+    airborne latch in `hardware.runtime` waits for vz > 0.5 m/s before it lets
+    dead reckoning integrate. Reading vz from the FC meant it was always 0.00,
+    the latch never fired, and the follower would have flown the entire course
+    believing it was still parked on the start line."""
+
+    def _climb(self, rate=1.0, seconds=2.0, dt=0.02):
+        br = ClimbBridge()
+        src = FcStateSource(br)
+        vzs = []
+        for _ in range(int(seconds / dt)):
+            br.step(dt, rate)
+            e = src.estimate()
+            vzs.append(float(e.v[2]))
+        return src, vzs
+
+    def test_fc_vario_is_zero_but_we_still_see_the_climb(self):
+        src, vzs = self._climb(rate=1.0, seconds=2.0)
+        self.assertFalse(src.fc_vario_alive)      # the FC never reported one
+        self.assertGreater(vzs[-1], 0.5)          # and we found the climb anyway
+
+    def test_the_runtime_airborne_latch_would_fire(self):
+        # exactly the test hardware.runtime applies: z > 0.30 AND vz > 0.5
+        br = ClimbBridge()
+        src = FcStateSource(br)
+        latched = False
+        for _ in range(150):
+            br.step(0.02, 1.5)
+            e = src.estimate()
+            if float(e.p[2]) > 0.30 and float(e.v[2]) > 0.5:
+                latched = True
+                break
+        self.assertTrue(latched, "the airborne latch never fired on a real climb")
+
+    def test_sitting_still_reports_no_vertical_speed(self):
+        # the other half: baro quantisation must not manufacture a climb that
+        # trips the latch while the aircraft waits to be armed
+        _, vzs = self._climb(rate=0.0, seconds=3.0)
+        self.assertLess(max(abs(v) for v in vzs), 0.5)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -7,7 +7,23 @@ altitude and vertical speed. No position - there is no sensor for it.
 
 Fills a StateEstimate the way the existing loops expect it:
     p = (0, 0, baro altitude)         horizontal position unknown -> 0
-    v = (0, 0, vario)                 horizontal velocity unknown -> 0
+    v = (0, 0, vertical speed)        horizontal velocity unknown -> 0
+
+VERTICAL SPEED IS COMPUTED HERE, not taken from the flight controller.
+Betaflight's MSP_ALTITUDE carries a vario field and on d45 (2026-09-20,
+BF 4.4.3) it reads exactly 0.00 m/s forever - verified by hand, lifting the
+aircraft 0.76 m onto a table and back a dozen times while `alt` tracked every
+lift cleanly and `vario` never moved. Trusting it cost us the altitude loop's
+damping term and, worse, the airborne latch in `hardware.runtime` that gates
+dead reckoning - that latch waits for vz > 0.5 m/s, so it would never have
+fired and the follower would have flown the whole course believing it was
+still sitting on the start line.
+
+So we run our own `VerticalFilter` (accel + baro) and report ITS vz. `p[2]`
+stays the raw barometer, because the dead-reckoning path downstream feeds it
+into a second VerticalFilter of its own and must not get a twice-filtered
+height. The FC's vario is still read and compared, and `fc_vario_alive` says
+whether this aircraft reports one at all.
     R = body->world from roll/pitch/yaw
     yaw = world yaw, CCW from +x (east), from the FC heading
     omega = body rates from the gyro (deg/s -> rad/s)
@@ -61,20 +77,48 @@ class FcStateSource:
         self.acc_signs = acc_signs
         self.bridge = bridge
         self.map_north_heading_deg = map_north_heading_deg
+        self.heading_drift_dpm = 0.0   # deg/min, from `bench drift`; 0 = off
+        self._drift_t0 = None
         self.pitch_sign = 1.0 if pitch_nose_up_positive else -1.0
         self.roll_sign = 1.0 if roll_right_positive else -1.0
         self.alt_offset_m = alt_offset_m
         self.last_t = 0.0
+        # our own vertical observer - see the note at the top of this file
+        from seeker.dr_estimator import VerticalFilter
+        self.vert = VerticalFilter()
+        self._vert_t = None          # monotonic clock of the last update
+        self._alt_obj = None         # identity of the last Altitude, for freshness
+        self.fc_vario_alive = False  # has the FC EVER reported a non-zero vario
 
     def zero_altitude(self) -> None:
         """Call on the ground before takeoff: baro altitude is relative."""
         s = self.bridge.state()
         if s.altitude is not None:
             self.alt_offset_m = s.altitude.alt_m
+        # the observer's height is relative to the offset we just took
+        from seeker.dr_estimator import VerticalFilter
+        self.vert = VerticalFilter()
+        self._vert_t = None
+        self._alt_obj = None
 
     def heading_to_world_yaw(self, heading_deg: float) -> float:
         """Compass heading (CW from north) -> world yaw (CCW from +x east)
-        in the map frame whose +y points at `map_north_heading_deg`."""
+        in the map frame whose +y points at `map_north_heading_deg`.
+
+        GYRO DRIFT. There is no magnetometer, so the FC's heading is
+        gyro-integrated and walks. Measured on d45 (2026-09-20):
+        +3.0 deg/min on the floor, +4.0 on a table, same direction both times,
+        which is 3 deg of map rotation over a 60 s run and 0.5 m of bearing
+        error at 10 m. `heading_drift_dpm`, from `bench drift`, takes the
+        measured rate back out. It is a linear correction to a bias that is
+        only roughly linear, so it halves the error rather than removing it -
+        which is still worth having. Zero = off, and the clock starts at the
+        first call."""
+        if self.heading_drift_dpm:
+            now = time.monotonic()
+            if self._drift_t0 is None:
+                self._drift_t0 = now
+            heading_deg -= self.heading_drift_dpm * (now - self._drift_t0) / 60.0
         rel = heading_deg - self.map_north_heading_deg      # CW from map +y
         yaw_deg = 90.0 - rel                                 # CCW from map +x
         return math.radians((yaw_deg + 180.0) % 360.0 - 180.0)
@@ -94,7 +138,6 @@ class FcStateSource:
         yaw = self.heading_to_world_yaw(a.yaw_deg)
         R = rot_zyx(roll, pitch, yaw)
         alt = (s.altitude.alt_m - self.alt_offset_m) if s.altitude is not None else 0.0
-        vz = s.altitude.vario_mps if s.altitude is not None else 0.0
         omega = None
         self.accel_body = None
         if s.imu is not None:
@@ -103,6 +146,22 @@ class FcStateSource:
             g0 = 9.80665
             self.accel_body = np.array([self.acc_signs[i] * s.imu.acc[i] / self.acc_lsb_per_g * g0
                                         for i in range(3)])       # body FLU specific force, m/s^2
+        # vertical speed, ours. The baro correction only counts on a genuinely
+        # fresh sample: the bridge polls altitude on a slow rotation and hands
+        # back the same object until the next reply, and feeding one reading
+        # in as new every tick over-weights it against the accelerometer.
+        # clocked off the STATE's timestamp, not the caller's: the bridge
+        # stamps s.t each time it gets fresh attitude, so polling estimate()
+        # faster than the link runs advances nothing, which is correct.
+        dt_v = 0.0 if self._vert_t is None else max(0.0, min(0.05, s.t - self._vert_t))
+        self._vert_t = s.t
+        fresh = s.altitude is not None and s.altitude is not self._alt_obj
+        if s.altitude is not None:
+            self._alt_obj = s.altitude
+            if s.altitude.vario_mps:
+                self.fc_vario_alive = True
+        az_w = float((R @ self.accel_body)[2]) - 9.80665 if self.accel_body is not None else 0.0
+        _, vz = self.vert.update(dt_v, az_w, alt, fresh)
         self.last_t = s.t
-        return StateEstimate(p=np.array([0.0, 0.0, alt]), v=np.array([0.0, 0.0, vz]),
+        return StateEstimate(p=np.array([0.0, 0.0, alt]), v=np.array([0.0, 0.0, float(vz)]),
                              R=R, yaw=yaw, omega=omega)

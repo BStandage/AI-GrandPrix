@@ -147,6 +147,17 @@ def fly(plan_path: Path, timeout_s: float = 200.0, solver: str = "solvers.follow
             result["core_s"] = round(cred[-1] - cred[0], 2) if len(cred) >= 2 else None
     except Exception as ex:
         result["log"] = f"log parse failed: {ex}"
+    # the debrief cam: this run's estimator trace as a picture over the plan it
+    # flew, and its per-leg drift appended to out/debrief/drift_log.csv. Never
+    # let a plot break a batch - the flight already happened.
+    try:
+        drs = sorted(glob.glob(str(AIGP_REPO / "out" / "flightlogs" / "dr_*.csv")),
+                     key=os.path.getmtime)
+        if drs and os.path.getmtime(drs[-1]) >= t0:       # this run's, not a stale one
+            from raceline.debrief import debrief_one
+            result["debrief"] = os.path.basename(str(debrief_one(drs[-1], plan_path)["png"]))
+    except Exception as ex:
+        result["debrief"] = f"debrief failed: {ex}"
     return result
 
 
@@ -181,9 +192,10 @@ def main():
         r["model_s"] = model
         rows.append(r)
         print(f"   -> {r.get('status')} {r.get('passed')}/{r.get('total')} "
-              f"time {r.get('time_s')} crash {r.get('crash') or '-'} ({r.get('wall_s')} s wall)", flush=True)
+              f"time {r.get('time_s')} crash {r.get('crash') or '-'} ({r.get('wall_s')} s wall)"
+              + (f"  debrief {r['debrief']}" if r.get("debrief") else ""), flush=True)
         with open(out_csv, "a", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=["plan", "model_s", "passed", "total", "time_s", "core_s", "g0_s", "liftoff_s", "log", "laps", "status", "crash", "crash_t", "wall_s", "error"])
+            w = csv.DictWriter(f, fieldnames=["plan", "model_s", "passed", "total", "time_s", "core_s", "g0_s", "liftoff_s", "log", "laps", "status", "crash", "crash_t", "wall_s", "error", "debrief"])
             if new_file:
                 w.writeheader(); new_file = False
             w.writerow({k: r.get(k) for k in w.fieldnames})

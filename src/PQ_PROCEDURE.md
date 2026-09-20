@@ -23,6 +23,30 @@ course and the Orin quickstart PDFs are alongside it.
    `save`. The default 11 leaves THROTTLE on the radio. With 15 MSP owns
    the four sticks only: the pilot arms, flips override and ANGLE, and can
    take the sticks back or disarm at any time. Our runtime cannot.
+
+   **Then prove it on the bench, props OFF.** The mask is only a claim until
+   the human pilot has taken the sticks back with MSP still sending. Per drone,
+   once. Watch the channels in the Betaflight Receiver tab (USB) while the
+   Jetson drives MSP over the UART - two separate links, so both run at once.
+   Only ONE process may hold /dev/ttyTHS1, so you cannot watch and send from
+   two SSH sessions.
+
+   - Props off, checked by eye on all four motors. Battery in. Transmitter on.
+   - Betaflight connected over the FC's USB, Receiver tab open.
+   - Flip switches one at a time: find the one that drives ch9 over 1700
+     (MSP OVERRIDE) and the one that drives ch5 over 1600 (ARM). Tape them.
+   - `fc-info`: RX_FAILSAFE must be gone from the blocked list. Sticks move
+     bars 1-4.
+   - MSP OVERRIDE on, then on the Jetson:
+     `python3 ~/target/msp/msp_bench.py --port /dev/ttyTHS1 rc`
+     (1) Bars 1-4 stop following the transmitter and take the MSP values,
+     bars 5+ still follow it.
+     (2) WITH rc STILL RUNNING, flip MSP OVERRIDE off: bars 1-4 must follow
+     the sticks again immediately.
+     (3) WITH rc STILL RUNNING and override on, throttle down, ARM on, then
+     ARM off: `fc-info` must read `Armed : False`.
+   - (2) and (3) are the test. Either one fails, the aircraft does not fly.
+
 5. Our link, from `AI-GrandPrix/src` (needs pyserial, numpy, opencv):
 
 ```
@@ -70,8 +94,9 @@ sight.
 
 ## Day 1: cage (manual piloting allowed)
 
-1. All-up weight and hover throttle -> `mass_kg`, `hover_pwm`.
-2. Short roll/pitch steps (<= 0.5 s) -> `a_lat_rate_max`. The 8" Archer
+1. All-up weight -> `mass_kg`. (`hover_pwm` 1291 and the thrust curve are DONE:
+   measured from the organizers' blackbox, 2026-09-19. No cage flight needed.)
+2. (`a_lat_rate_max` 150 is DONE from the same blackbox.) Short roll/pitch steps (<= 0.5 s) only if you want to confirm it. The 8" Archer
    is slew-limited before it is tilt-limited.
 3. Throttle sweep -> `curve_pwm` / `curve_acc`.
 4. First armed run: the 60 s rung in the cage or on the track.

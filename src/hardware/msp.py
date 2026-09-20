@@ -57,6 +57,24 @@ ARMING_DISABLE_FLAGS = [
 # (only the first few are stable across versions; enough to see ARM / ANGLE / HORIZON)
 FLIGHT_MODE_BOXES = ["ARM", "ANGLE", "HORIZON", "MAG", "HEADFREE", "PASSTHRU", "FAILSAFE", "GPSRESCUE"]
 
+MSP_BOXIDS = 119        # PERMANENT box ids, in flightModeFlags bit order
+
+# The qualifier FC (BF 4.4.3, BF_BLOCK2) never answers MSP_BOXNAMES - three
+# timeouts at 0.25, 1.0 and 2.0 s on d45, 2026-09-20 - so box_names() came back
+# empty, active_modes fell back to the 8-entry list above, and msp_override was
+# permanently False. The runtime waits on that flag, so it would have sat at
+# "waiting for the pilot" forever. MSP_BOXIDS does answer, and a permanent id
+# is a better key than a name string anyway.
+BOX_ID_NAMES = {0: "ARM", 1: "ANGLE", 2: "HORIZON", 6: "CAMSTAB", 7: "PASSTHRU",
+                8: "BEEPERON", 13: "SERVO1", 19: "3D", 20: "FPVANGLEMIX",
+                26: "PREARM", 27: "BEEPGPSCOUNT", 30: "USER1", 31: "USER2",
+                32: "USER3", 33: "USER4", 34: "PIDAUDIO", 35: "ACROTRAINER",
+                36: "VTXCONTROLDISABLE", 37: "LAUNCHCONTROL", 39: "STICKCOMMANDDISABLE",
+                40: "BEEPERMUTE", 41: "READY", 43: "LAPTIMERRESET", 45: "GPSRESCUE",
+                46: "AIRMODE", 48: "OSD", 49: "TELEMETRY", 50: "MSP OVERRIDE",
+                51: "BLACKBOX", 52: "FAILSAFE", 53: "CAMERA1"}
+BOX_ID_ARM, BOX_ID_ANGLE, BOX_ID_MSP_OVERRIDE = 0, 1, 50
+
 RC_CENTER = 1500
 RC_MIN = 1000
 RC_MAX = 2000
@@ -232,21 +250,39 @@ class Status:
     arming_disable_flags: Optional[int] = None
     armed: bool = False
     box_names: Optional[list] = None   # from MSP_BOXNAMES: bit i of flight_mode_flags = box_names[i]
+    box_ids: Optional[list] = None     # from MSP_BOXIDS: bit i -> permanent box id
+
+    @property
+    def active_ids(self) -> list[int]:
+        """Permanent box ids that are on right now. Empty when the FC did not
+        give us MSP_BOXIDS."""
+        ids = self.box_ids or []
+        return [b for i, b in enumerate(ids) if self.flight_mode_flags & (1 << i)]
 
     @property
     def active_modes(self) -> list[str]:
+        if self.box_ids:
+            return [BOX_ID_NAMES.get(b, f"BOX{b}") for b in self.active_ids]
         names = self.box_names or FLIGHT_MODE_BOXES
         return [n for i, n in enumerate(names) if self.flight_mode_flags & (1 << i)]
 
     @property
     def angle_mode(self) -> bool:
+        if self.box_ids:
+            return BOX_ID_ANGLE in self.active_ids
         return "ANGLE" in self.active_modes
 
     @property
     def msp_override(self) -> bool:
         """The MSP OVERRIDE box is on: our sticks are being used. ARM, the
         override switch and the mode switches stay on the transmitter
-        (msp_override_channels_mask = 15 covers channels 1-4 only)."""
+        (msp_override_channels_mask = 15 covers channels 1-4 only).
+
+        By permanent id 50 when the FC gives us MSP_BOXIDS, because this
+        firmware does not answer MSP_BOXNAMES and the name fallback silently
+        reported False forever."""
+        if self.box_ids:
+            return BOX_ID_MSP_OVERRIDE in self.active_ids
         return any("OVERRIDE" in n.upper() for n in self.active_modes)
 
     @property
@@ -432,11 +468,27 @@ class FlightController:
                 self._box_names = []
         return self._box_names
 
+    def box_ids(self) -> list[int]:
+        """Permanent box ids in flightModeFlags bit order (cached). Preferred
+        over box_names(): this firmware answers MSP_BOXIDS but not
+        MSP_BOXNAMES."""
+        if getattr(self, "_box_ids", None) is None:
+            try:
+                self._box_ids = list(self.request(MSP_BOXIDS))
+            except MspError:
+                self._box_ids = []
+        return self._box_ids
+
     def status(self) -> Status:
         try:
             st = decode_status(self.request(MSP_STATUS_EX))
         except MspError:
             st = decode_status(self.request(MSP_STATUS))
+        ids = self.box_ids()
+        if ids:
+            st.box_ids = ids
+            st.armed = BOX_ID_ARM in st.active_ids
+            return st
         names = self.box_names()
         if names:
             st.box_names = names

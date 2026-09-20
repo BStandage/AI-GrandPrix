@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import hashlib
 import math
-import tomllib
+try:
+    import tomllib                     # Python 3.11+
+except ModuleNotFoundError:            # JetPack 6.2 ships Python 3.10
+    import tomli as tomllib            # pip3 install --user tomli
 from pathlib import Path
 from types import SimpleNamespace
 
