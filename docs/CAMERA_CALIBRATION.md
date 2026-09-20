@@ -85,6 +85,22 @@ drone was being walked around a fixed board.
 **Moving the drone instead of the board is fine** - only the relative pose
 matters - as long as you stop before each capture.
 
+**Tilt in BOTH axes, and do not keep yaw constant.** This is the one that
+decides whether the solve works:
+
+| what you do | what it foreshortens | what it measures |
+|---|---|---|
+| yaw the drone / angle the board left-right | horizontally | **fx** |
+| pitch the drone / angle the board top-bottom | vertically | **fy** |
+| spin the board in its own plane | nothing - still face-on | little |
+
+Oblique in one axis only leaves the other focal length free to drift, and an
+`fx`/`fy` split is precisely that happening. d45 got 642 / 1210 on 2026-09-20.
+
+**The rule of thumb: if the board looks like a rectangle in frame, that view
+is worthless.** You want a trapezoid - near edge clearly bigger than the far
+edge.
+
 Make the views genuinely different:
 
 - near (0.4 m) and far (1.5 m)
