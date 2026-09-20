@@ -117,7 +117,9 @@ def main(argv=None) -> int:
     ap.add_argument("--climb", type=float, default=0.5, help="climb rate, m/s")
     ap.add_argument("--descend", type=float, default=0.3, help="descent rate, m/s")
     ap.add_argument("--rc-hz", type=float, default=50.0)
-    ap.add_argument("--acc-lsb-per-g", default="auto")
+    ap.add_argument("--acc-lsb-per-g", default="auto",
+                    help="raw accelerometer counts per g. 'auto' measures it at rest "
+                         "in the first second - the aircraft must be still and level.")
     ap.add_argument("--pitch-nose-down-positive", action="store_true")
     ap.add_argument("--takeoff-pwm", type=int, default=None,
                     help="throttle held until the aircraft is climbing at 0.7 m/s. "
@@ -196,6 +198,60 @@ def main(argv=None) -> int:
         print("ERROR no attitude from the FC after 10 s"); br.stop(); return 2
     if s.altitude is None:
         print("ERROR no MSP_ALTITUDE after 10 s: check `fc-info` lists BARO"); br.stop(); return 3
+    # ACCELEROMETER SCALE. This argument existed and was never applied, so
+    # every flight so far ran on the 512 counts/g default. That was invisible
+    # while the vertical filter ignored the accelerometer on the ground; the
+    # moment it started integrating at launch, a wrong scale became a constant
+    # phantom acceleration. d45 read vz of -15.8 m/s standing still in a hand
+    # on 2026-09-20, which is about -5 m/s^2 of integration - exactly what a
+    # 2x scale error looks like.
+    if args.acc_lsb_per_g == "auto":
+        mags, t_cal = [], time.monotonic()
+        while time.monotonic() - t_cal < 1.0:
+            st = br.state()
+            if st.imu is not None:
+                mags.append(math.sqrt(sum(float(v) ** 2 for v in st.imu.acc)))
+            time.sleep(0.02)
+        if mags:
+            import numpy as _n
+            med, spread = float(_n.median(mags)), max(mags) - min(mags)
+            if spread < 0.1 * med:
+                src.acc_lsb_per_g = med
+                print(f"accelerometer: {med:.0f} raw counts per g measured at rest "
+                      f"({len(mags)} samples, spread {spread:.0f})")
+            else:
+                print(f"ERROR accelerometer not at rest (median {med:.0f}, spread "
+                      f"{spread:.0f}). Put it down still and restart, or pass "
+                      f"--acc-lsb-per-g.")
+                br.stop(); return 4
+        else:
+            print("ERROR no MSP_RAW_IMU: cannot scale the accelerometer"); br.stop(); return 4
+    else:
+        src.acc_lsb_per_g = float(args.acc_lsb_per_g)
+        print(f"accelerometer: {src.acc_lsb_per_g:.0f} counts per g (given)")
+
+    # REST CHECK. With the scale applied, a still aircraft must measure zero
+    # vertical acceleration once gravity is removed. This is the one line that
+    # would have caught the wrong scale before it ever flew, so it is a hard
+    # stop rather than a warning: everything downstream integrates this number.
+    rest = []
+    t_rest = time.monotonic()
+    while time.monotonic() - t_rest < 0.5:
+        e = src.estimate()
+        if e is not None and src.accel_body is not None:
+            rest.append(float((e.R @ src.accel_body)[2]) - 9.80665)
+        time.sleep(0.02)
+    if rest:
+        import numpy as _n
+        resid = float(_n.median(rest))
+        print(f"accelerometer at rest: {resid:+.2f} m/s^2 after gravity "
+              f"({len(rest)} samples)")
+        if abs(resid) > 1.0:
+            print(f"  ERROR that should be near zero. {resid:+.2f} m/s^2 integrates "
+                  f"into {abs(resid) * 2:.0f} m/s of phantom climb in two seconds.")
+            print(f"  The aircraft was not still or level, or the scale is wrong.")
+            br.stop(); return 5
+
     src.zero_altitude()
     print(f"altitude zeroed. hover target {args.alt:.2f} m for {args.seconds:.0f} s")
 
