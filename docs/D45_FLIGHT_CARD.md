@@ -11,23 +11,36 @@ in them. Copy-paste these; do not retype the numbers.
 
 | | value | measured |
 |---|---|---|
-| `--fy` | **830** | checkerboard, 20 views, RMS 0.165 px |
-| `--cam-hfov` | **75** | 74.9 measured, confirms the organizers |
-| `--cam-tilt` | **20** | 19.4 deg at 70 in, 20.6 at 40 in |
-| `AIGP_CAM_CX` | **613.1** | optical axis, NOT the image centre |
-| `AIGP_CAM_CY` | **387.0** | same |
+| `--fy` | **824** | checkerboard, 17 views, RMS 0.281 px, 2026-09-20 (2nd camera) |
+| `--cam-hfov` | **76** | 75.8 measured; organizers say 75, 1st camera gave 74.9 |
+| `--cam-tilt` | **20** | 19.8 at 70 in, 20.1 at 40 in, airframe LEVEL |
+| `AIGP_CAM_CX` | **627.2** | optical axis, NOT the image centre |
+| `AIGP_CAM_CY` | **368.8** | same |
 | `--heading-drift-dpm` | **3.0** | on the floor, warmed up |
 | override test | **PASS** | 2026-09-20, all three parts |
+| attitude signs | **PASS** | tiltcheck, 30 deg all four ways; pitch reads NOSE DOWN positive |
 | hover dry run | **PASS** | 2026-09-20, 1350 = 1.32 g |
 | `hover_pwm` 1291 | **CONFIRMED** | table test, first clean sample 1294 (+3 PWM) |
 | barometer resolution | **0.076 m** | 1 Pa steps; accurate to 2 cm, quantised to 8 |
 | FC vario | **DEAD** | reads 0.00 always; we compute vertical speed ourselves |
 | mask | **15** | verified after reboot |
 | ANGLE | always on | aux row 5 |
-| all-up weight | **not weighed** | 1.59 kg bare, 1.7 assumed |
+| all-up weight | **1.751 kg** | weighed with props and prop protection, 2026-09-20 |
 
-Leaving `AIGP_CAM_CX/CY` off carries a constant 1.8 deg bearing bias into
-every camera fix - about 0.26 m of lateral error at 8 m, always the same way.
+Leaving `AIGP_CAM_CX/CY` off carries a constant bearing bias into every camera
+fix - about 0.9 deg here, 0.13 m of lateral error at 8 m, always the same way.
+
+**How well we know these.** Two good solves of this camera put the principal
+point at (613.1, 387.0) and (627.2, 368.8) - 14 and 18 px apart, about a
+degree. The principal point is the least well determined thing a calibration
+produces. Using the measured value is still much better than assuming the
+image centre, but treat a residual degree of boresight as expected rather than
+as something to chase.
+
+The mount tilt is 20 deg on an airframe that is LEVEL. Measured with the
+aircraft 7 deg nose down it reads 13, and agrees with itself beautifully at
+two distances while doing so - `camtilt` now reads the body pitch from the FC
+rather than assuming it.
 
 ---
 
@@ -73,7 +86,7 @@ v4l2-ctl -d /dev/video0 --set-fmt-video=width=1920,height=1080,pixelformat=RG10 
 
 **The whole stack, dry, with the real camera numbers:**
 ```
-AIGP_CAM_CX=613.1 AIGP_CAM_CY=387.0 \
+AIGP_CAM_CX=627.2 AIGP_CAM_CY=368.8 \
 python3 -m hardware.hover --port /dev/ttyTHS1 --alt 1.2 --seconds 30 \
   --config ../config/ladder/vehicle_k025_cam20_75.toml --dry-run
 ```
@@ -120,9 +133,9 @@ The one test that proves camera -> estimator end to end, and it needs no
 props and no transmitter. Put a real gate in front of the drone.
 
 ```
-AIGP_CAM_CX=613.1 AIGP_CAM_CY=387.0 \
+AIGP_CAM_CX=627.2 AIGP_CAM_CY=368.8 \
 python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north here \
-  --cam-tilt 20 --fy 830 --cam-hfov 75 --heading-drift-dpm 3.0 \
+  --cam-tilt 20 --fy 824 --cam-hfov 76 --heading-drift-dpm 3.0 \
   --pilot follower \
   --config ../config/ladder/vehicle_k025_cam20_75.toml \
   --traj ../out/plans/plan_LADDER_k025_cam20_75.json \
@@ -155,7 +168,7 @@ Betaflight change.
 ## 5. With a transmitter and props: the cage hover
 
 ```
-AIGP_CAM_CX=613.1 AIGP_CAM_CY=387.0 \
+AIGP_CAM_CX=627.2 AIGP_CAM_CY=368.8 \
 python3 -m hardware.hover --port /dev/ttyTHS1 --alt 1.2 --seconds 30 \
   --config ../config/ladder/vehicle_k025_cam20_75.toml --arm
 ```
