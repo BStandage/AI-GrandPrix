@@ -83,6 +83,23 @@ def gate_dz(det, R, fy: float, tilt_rad: float, wh) -> tuple:
     return det.range_m * up, math.asin(up)
 
 
+def gate_azimuth(det, fy: float, tilt_rad: float, wh):
+    """Body-frame azimuth of the gate centre, radians, + is to the RIGHT.
+
+    Deliberately BODY frame, not world: the answer is "which way do I tilt",
+    and the aircraft tilts in its own frame. The mount tilt still has to come
+    out, because a camera pitched up 20 deg turns a bit of vertical offset
+    into apparent horizontal offset once the body rolls."""
+    if det is None or wh is None:
+        return None
+    w_px, h_px = wh
+    down_cam = det.offset_y * (h_px / 2.0) / fy
+    right_cam = det.offset_x * (w_px / 2.0) / fy
+    c, s_ = math.cos(tilt_rad), math.sin(tilt_rad)
+    fwd_b = c + s_ * down_cam
+    return math.atan2(right_cam, fwd_b)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--port", default="/dev/ttyTHS1")
@@ -114,6 +131,15 @@ def main(argv=None) -> int:
     ap.add_argument("--gate-lost-s", type=float, default=0.50,
                     help="no detection for this long -> back to the barometer target")
     ap.add_argument("--gate-slew", type=float, default=0.40, help="max target move, m/s")
+    ap.add_argument("--gate-roll", action="store_true",
+                    help="also CENTRE the gate with roll: slide sideways until it is "
+                         "dead ahead. Converges on one point - the travel is "
+                         "range x tan(heading error), so aim the nose at the gate. "
+                         "Removes the lateral drift a plain hover has no control over.")
+    ap.add_argument("--gate-roll-tilt", type=float, default=4.0,
+                    help="hard cap on the commanded roll angle, deg")
+    ap.add_argument("--gate-roll-gain", type=float, default=0.25,
+                    help="commanded roll angle per degree of azimuth error")
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--dry-run", action="store_true")
     g.add_argument("--arm", action="store_true")
@@ -196,7 +222,8 @@ def main(argv=None) -> int:
     phase, t_phase = "climb", t0
     airborne_latch = False
     gate_z_t = None                  # vision target, None = barometer
-    gate_el = gate_rng = gate_dz_m = None
+    gate_el = gate_rng = gate_dz_m = gate_az = None
+    roll_deg = 0.0
     z_t = 0.0
     hover_pwms = []
     n = 0
@@ -219,6 +246,7 @@ def main(argv=None) -> int:
                 airborne_latch = True
             airborne = airborne_latch
 
+            roll_deg = 0.0        # vision may set this in hold; never elsewhere
             if phase == "climb":
                 z_t = min(args.alt, z_t + args.climb * period)
                 vz_ff = args.climb
@@ -250,6 +278,22 @@ def main(argv=None) -> int:
                         gate_el, gate_rng, gate_dz_m = el, det.range_m, dz
                     if gate_z_t is not None:
                         z_t = gate_z_t
+                    # ROLL CENTRING. Tilt toward the side the gate is on and the
+                    # aircraft slides that way until the gate is dead ahead -
+                    # one point, not an open chase. Capped hard, and released
+                    # the instant the gate is gone, because an uncommanded tilt
+                    # with no feedback is exactly what we are avoiding.
+                    if args.gate_roll:
+                        az = gate_azimuth(det, args.fy,
+                                          math.radians(args.cam_tilt),
+                                          camera.frame_wh) if fresh else None
+                        if az is None:
+                            gate_az, roll_deg = None, 0.0
+                        else:
+                            gate_az = az
+                            roll_deg = max(-args.gate_roll_tilt,
+                                           min(args.gate_roll_tilt,
+                                               args.gate_roll_gain * math.degrees(az)))
                 if t - t_phase > args.seconds:
                     phase, t_phase = "descend", t
                     print(f"  hold done, descending")
@@ -262,7 +306,11 @@ def main(argv=None) -> int:
                 hover_pwms.append(thr)
 
             done = phase == "descend" and z < 0.15 and t - t_phase > 2.0
-            out = dict(throttle=(1000 if done else thr), roll=1500, pitch=1500,
+            # roll_deg is zero unless --gate-roll has a live detection in hold
+            roll_stick = 1500 + int(round(500.0 * roll_deg / cfg.follower.angle_limit_deg))
+            roll_stick = max(1400, min(1600, roll_stick))    # belt and braces
+            out = dict(throttle=(1000 if done else thr),
+                       roll=(1500 if done else roll_stick), pitch=1500,
                        yaw=1500, arm=(1000 if done else 1800), aux2=1500)
             if args.arm:
                 br.set_rc(**out)
@@ -287,7 +335,10 @@ def main(argv=None) -> int:
                 vis = ""
                 if camera is not None:
                     vis = (f" | GATE el={math.degrees(gate_el):+5.1f} rng={gate_rng:4.1f} "
-                           f"dz={gate_dz_m:+5.2f}" if gate_el is not None
+                           f"dz={gate_dz_m:+5.2f}"
+                           + (f" az={math.degrees(gate_az):+5.1f} roll={roll_deg:+4.1f}"
+                              if gate_az is not None else "")
+                           if gate_el is not None
                            else f" | gate: none ({camera.detections}/{camera.frames})")
                 print(f"t={t - t0:5.1f} {phase:8s} z={z:5.2f} (target {z_t:4.2f}) vz={vz:+5.2f} "
                       f"thr={out['throttle']:4d} a_cmd={alt.a_cmd:+5.2f}{vis}")
