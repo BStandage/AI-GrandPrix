@@ -120,7 +120,10 @@ def main(argv=None) -> int:
     ap.add_argument("--acc-lsb-per-g", default="auto",
                     help="raw accelerometer counts per g. 'auto' measures it at rest "
                          "in the first second - the aircraft must be still and level.")
-    ap.add_argument("--pitch-nose-down-positive", action="store_true")
+    ap.add_argument("--pitch-nose-up-positive", action="store_true",
+                    help="this firmware reads pitch positive NOSE DOWN (measured on "
+                         "d45, 2026-09-20), which is the default. Pass this only if "
+                         "hardware.tiltcheck says otherwise on YOUR aircraft.")
     ap.add_argument("--takeoff-pwm", type=int, default=None,
                     help="throttle held until the aircraft is climbing at 0.7 m/s. "
                          "The config default (1700) was tuned on the 0.8 kg sim plant; "
@@ -180,8 +183,8 @@ def main(argv=None) -> int:
     br = FcBridge.open(port=args.port, tcp=args.tcp, baud=args.baud)
     br.start()
     src = FcStateSource(br)
-    if args.pitch_nose_down_positive:
-        src.pitch_sign = -1.0
+    if args.pitch_nose_up_positive:
+        src.pitch_sign = 1.0
 
     # Wait for BOTH. The bridge polls attitude every tick but altitude,
     # battery and status on a slower rotation, so altitude can still be None

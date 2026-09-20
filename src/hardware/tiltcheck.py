@@ -34,9 +34,15 @@ value that matters, not the swing while you are moving it.
 Anything that grows with tilt is a sign error, and `worst` at the end says how
 bad. Under 1 m/s^2 is fine. Over 3 is the bug.
 
-If NOSE UP and NOSE DOWN are wrong by opposite amounts, the pitch sign is
-inverted: pass --pitch-nose-down-positive to the flying tools. If ROLL LEFT
-and ROLL RIGHT are wrong by opposite amounts, it is the roll sign.
+A wrong sign has a signature: the error is g * (cos 2t - 1), so it is always
+NEGATIVE, it is zero when level, and it grows fast - about -2.3 m/s^2 at 20
+degrees and -5.2 at 31. This tool prints what an inverted sign would predict
+at the worst tilt it saw, so you can compare.
+
+Measured on d45, 2026-09-20: -5.24 m/s^2 at 31 degrees against a predicted
+-5.20. Betaflight on this firmware reads pitch positive NOSE DOWN, and that
+is now the default. `--pitch-nose-up-positive` flips back to the old
+assumption if some other aircraft disagrees.
 """
 
 from __future__ import annotations
@@ -53,7 +59,8 @@ def main(argv=None) -> int:
     ap.add_argument("--baud", type=int, default=115200)
     ap.add_argument("--seconds", type=float, default=60.0)
     ap.add_argument("--acc-lsb-per-g", default="auto")
-    ap.add_argument("--pitch-nose-down-positive", action="store_true")
+    ap.add_argument("--pitch-nose-up-positive", action="store_true",
+                    help="flip back to the old assumption, to compare")
     args = ap.parse_args(argv)
 
     import numpy as np
@@ -64,8 +71,8 @@ def main(argv=None) -> int:
     br = FcBridge.open(port=args.port, tcp=args.tcp, baud=args.baud)
     br.start()
     src = FcStateSource(br)
-    if args.pitch_nose_down_positive:
-        src.pitch_sign = -1.0
+    if args.pitch_nose_up_positive:
+        src.pitch_sign = 1.0
 
     deadline = time.monotonic() + 10.0
     while time.monotonic() < deadline and br.state().attitude is None:
@@ -91,8 +98,8 @@ def main(argv=None) -> int:
     print(f"{'roll':>7} {'pitch':>7} {'|acc|':>7} {'az_world':>9}   verdict")
     print("-" * 52)
 
-    worst = 0.0
-    worst_at = (0.0, 0.0)
+    worst = 0.0          # SIGNED, and kept by magnitude - a sign inversion
+    worst_at = (0.0, 0.0)  # reads negative, and printing abs() hid that once
     t0 = time.monotonic()
     last = 0.0
     try:
@@ -106,8 +113,8 @@ def main(argv=None) -> int:
             # only judge it when it is actually still: a moving hand produces
             # real acceleration and that is not what is being measured
             still = abs(mag - 9.80665) < 1.0
-            if still and abs(a.pitch_deg) + abs(a.roll_deg) > 10.0 and abs(az) > worst:
-                worst, worst_at = abs(az), (a.roll_deg, a.pitch_deg)
+            if still and abs(a.pitch_deg) + abs(a.roll_deg) > 10.0 and abs(az) > abs(worst):
+                worst, worst_at = az, (a.roll_deg, a.pitch_deg)
             now = time.monotonic()
             if now - last > 0.25:
                 last = now
@@ -125,14 +132,19 @@ def main(argv=None) -> int:
     print("\n")
     print(f"  worst az_world while tilted and still: {worst:+.2f} m/s^2")
     print(f"  at roll {worst_at[0]:+.0f}, pitch {worst_at[1]:+.0f}")
-    if worst < 1.0:
+    tilt = math.radians(max(abs(worst_at[0]), abs(worst_at[1])))
+    predicted = 9.80665 * (math.cos(2.0 * tilt) - 1.0)
+    if abs(worst) > 1.0:
+        print(f"  an inverted sign at that tilt predicts {predicted:+.2f} m/s^2")
+    if abs(worst) < 1.0:
         print("\n  PASS: gravity is removed correctly at every attitude.")
         return 0
     print(f"\n  FAIL: {worst:.1f} m/s^2 of phantom vertical acceleration under tilt.")
     print(f"  Integrated for half a second that is {worst * 0.5:.1f} m/s of vertical")
     print("  speed the aircraft is not doing, and the altitude loop will answer it")
-    print("  with throttle. Re-run with --pitch-nose-down-positive; if that fixes")
-    print("  it, the pitch sign is inverted and every flying tool needs that flag.")
+    print("  with throttle. If that figure matches the prediction above, a sign is")
+    print("  inverted: re-run with --pitch-nose-up-positive and see which way is")
+    print("  right for THIS aircraft, then say so before anything flies.")
     return 1
 
 

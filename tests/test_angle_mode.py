@@ -75,11 +75,45 @@ class TestFcStateSource(unittest.TestCase):
         self.assertAlmostEqual(e.yaw, 0.0)                     # heading east = world +x
         np.testing.assert_allclose(e.R, np.eye(3), atol=1e-9)
 
-    def test_nose_up_tilts_body_z_backward(self):
+    def test_betaflight_pitch_is_positive_nose_down(self):
+        """A positive MSP_ATTITUDE pitch means NOSE DOWN on this firmware.
+
+        Measured on d45, 2026-09-20, with hardware.tiltcheck: held still and
+        pitched 31 degrees, the vertical acceleration with gravity removed
+        read -5.24 m/s^2 where it must read zero. An inverted sign predicts
+        g * (cos 2t - 1) = -5.20 at that angle. Held level it read 0.00,
+        which is why every at-rest check we had passed.
+
+        The same rotation carries the accelerometer into the world frame for
+        the dead reckoning, so this was not only an altitude problem.
+        """
         src = FcStateSource(FakeBridge(pitch=30.0, heading=90.0))
         e = src.estimate()
         zb = e.R[:, 2]                                         # body z in world
-        self.assertLess(zb[0], 0.0)                            # nose up -> thrust points backward (-x)
+        self.assertGreater(zb[0], 0.0)     # nose DOWN -> thrust tips forward (+x)
+
+    def test_negative_pitch_is_nose_up(self):
+        src = FcStateSource(FakeBridge(pitch=-30.0, heading=90.0))
+        zb = src.estimate().R[:, 2]
+        self.assertLess(zb[0], 0.0)        # nose up -> thrust tips backward (-x)
+
+    def test_gravity_is_removed_at_any_attitude(self):
+        """The check hardware.tiltcheck runs on the aircraft, run here on a
+        perfect one: a stationary aircraft has zero vertical acceleration
+        whatever way it is pointing."""
+        import numpy as _np
+        for pitch in (-30.0, -10.0, 0.0, 10.0, 30.0):
+            for roll in (-30.0, 0.0, 30.0):
+                br = FakeBridge(roll=roll, pitch=pitch)
+                src = FcStateSource(br)
+                src.acc_lsb_per_g = 512.0
+                # what a still aircraft at that attitude really measures:
+                # gravity expressed in its own body frame
+                e = src.estimate()
+                g_body = e.R.T @ _np.array([0.0, 0.0, 9.80665])
+                az = float((e.R @ g_body)[2]) - 9.80665
+                self.assertAlmostEqual(az, 0.0, places=6,
+                                       msg=f"roll {roll} pitch {pitch}: az={az:+.3f}")
 
     def test_gyro_frd_to_flu(self):
         src = FcStateSource(FakeBridge(gyro=(10.0, 20.0, 30.0)))
