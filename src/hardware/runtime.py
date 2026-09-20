@@ -59,6 +59,7 @@ class CameraThread(threading.Thread):
         self.dets = []              # up to 3 blobs, biggest first, for the estimator to choose from
         self.frames = 0
         self.detections = 0
+        self.frame_wh = None        # actual capture size, for bearing maths
         self.fps = 0.0
         self.error = None
         self._stop = threading.Event()
@@ -97,6 +98,8 @@ class CameraThread(threading.Thread):
             t = time.monotonic()
             self.frames += 1
             n_win += 1
+            if self.frame_wh is None:
+                self.frame_wh = (bgr.shape[1], bgr.shape[0])
             gs = mask_to_detections(gate_mask(bgr), bgr.shape)
             out = []
             h, w = bgr.shape[:2]
