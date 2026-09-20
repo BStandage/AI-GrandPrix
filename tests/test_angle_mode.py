@@ -199,3 +199,65 @@ class TestVerticalSpeedWithoutFcVario(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BaroBridge:
+    """A flight controller whose barometer is being blown about by prop wash.
+
+    The exact sequence d45 logged on its first props-on flight, 2026-09-20:
+    -0.10, -3.86, -0.49, +1.00 m within half a second, sitting at about 0.4 m.
+    """
+
+    SEQ = [-0.10, -0.10, -3.86, -0.49, -0.49, 1.00]
+
+    def __init__(self):
+        from hardware import msp
+        from hardware.bridge import FcState
+        self.msp = msp
+        self.i = 0
+        self.t = 0.0
+        self.s = FcState(t=0.0, attitude=msp.Attitude(0.0, 0.0, 0.0),
+                         altitude=msp.Altitude(self.SEQ[0], 0.0),
+                         imu=msp.RawImu((0, 0, 512), (0, 0, 0), (0, 0, 0)))
+
+    def step(self):
+        self.i += 1
+        self.t += 0.1
+        self.s.t = self.t
+        self.s.altitude = self.msp.Altitude(self.SEQ[min(self.i, len(self.SEQ) - 1)], 0.0)
+
+    def state(self):
+        return self.s
+
+
+class TestBarometerOutliers(unittest.TestCase):
+    """A 3.8 m step in 100 ms is 37 m/s. That is not an altitude.
+
+    d45's first props-on flight: the altitude loop believed the -3.86 m sample,
+    decided it was 3.9 m low, and commanded 1837 PWM - near full throttle. A
+    0.4 m hover reached 2 m. The aircraft responded correctly to fiction.
+    """
+
+    def test_impossible_jumps_are_rejected(self):
+        br = BaroBridge()
+        src = FcStateSource(br)
+        seen = [float(src.estimate().p[2])]
+        for _ in range(len(BaroBridge.SEQ) - 1):
+            br.step()
+            seen.append(float(src.estimate().p[2]))
+        worst = max(abs(b - a) for a, b in zip(seen, seen[1:]))
+        self.assertLess(worst, 1.3,
+                        f"a {worst:.2f} m step in 100 ms survived: {seen}")
+        self.assertGreater(src.alt_rejected, 0, "nothing was rejected")
+
+    def test_a_real_climb_is_not_rejected(self):
+        # 3 m/s is a hard but entirely real climb: every sample must survive
+        br = BaroBridge()
+        br.SEQ = [0.0, 0.3, 0.6, 0.9, 1.2, 1.5]
+        src = FcStateSource(br)
+        vals = [float(src.estimate().p[2])]
+        for _ in range(5):
+            br.step()
+            vals.append(float(src.estimate().p[2]))
+        self.assertEqual(src.alt_rejected, 0, f"a real climb was rejected: {vals}")
+        self.assertAlmostEqual(vals[-1], 1.5, places=2)

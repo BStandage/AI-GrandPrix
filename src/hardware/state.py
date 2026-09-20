@@ -92,6 +92,12 @@ class FcStateSource:
         self._vert_t = None          # monotonic clock of the last update
         self._alt_obj = None         # identity of the last Altitude, for freshness
         self.fc_vario_alive = False  # has the FC EVER reported a non-zero vario
+        # barometer outlier rejection - see the note in estimate()
+        self.alt_max_rate = 12.0     # m/s: generous against this aircraft's climb
+        self._alt_last = None
+        self._alt_last_t = 0.0
+        self.alt_rejected = 0        # how many samples were thrown away
+        self._alt_rej_seen = 0       # a rejected sample is not a fresh one
 
     def zero_altitude(self) -> None:
         """Call on the ground before takeoff: baro altitude is relative."""
@@ -141,6 +147,30 @@ class FcStateSource:
         yaw = self.heading_to_world_yaw(a.yaw_deg)
         R = rot_zyx(roll, pitch, yaw)
         alt = (s.altitude.alt_m - self.alt_offset_m) if s.altitude is not None else 0.0
+        # BAROMETER OUTLIER REJECTION. The sensor is an open port on the flight
+        # controller and prop wash blows across it: d45, 2026-09-20, first
+        # props-on flight, logged -0.10, then -3.86, then -0.49, then +1.00 in
+        # half a second. A 3.8 m step in 100 ms is 37 m/s, which this aircraft
+        # cannot do, so it is not an altitude - it is weather at the sensor.
+        #
+        # It is not a harmless wobble either. The altitude loop believed it was
+        # 3.9 m low and commanded 1837 PWM, near full throttle, which is how a
+        # 0.4 m hover reached 2 m. Nothing downstream can tell a real climb
+        # from this, so it is rejected here, at the only place that still knows
+        # what the sensor actually said.
+        #
+        # THE REAL FIX IS FOAM over the barometer port. This bounds the damage;
+        # it does not give you an altitude you can hold a hover with.
+        if s.altitude is not None:
+            if self._alt_last is not None:
+                dt_a = max(1e-3, s.t - self._alt_last_t)
+                if abs(alt - self._alt_last) / dt_a > self.alt_max_rate:
+                    self.alt_rejected += 1
+                    alt = self._alt_last          # hold the last believable one
+                else:
+                    self._alt_last, self._alt_last_t = alt, s.t
+            else:
+                self._alt_last, self._alt_last_t = alt, s.t
         omega = None
         self.accel_body = None
         if s.imu is not None:
@@ -163,6 +193,8 @@ class FcStateSource:
             self._alt_obj = s.altitude
             if s.altitude.vario_mps:
                 self.fc_vario_alive = True
+        fresh = fresh and self.alt_rejected == self._alt_rej_seen
+        self._alt_rej_seen = self.alt_rejected
         az_w = float((R @ self.accel_body)[2]) - 9.80665 if self.accel_body is not None else 0.0
         _, vz = self.vert.update(dt_v, az_w, alt, fresh)
         self.last_t = s.t
