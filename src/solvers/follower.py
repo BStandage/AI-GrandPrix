@@ -501,7 +501,8 @@ def _dr_trace(t, est, truth, truth_v):
         path = next_numbered(str(AIGP_REPO / "out" / "flightlogs" / "dr_XXX.csv"))
         path.parent.mkdir(parents=True, exist_ok=True)
         _DR["fh"] = open(path, "w", encoding="utf-8")
-        _DR["fh"].write("t,ev,x,y,z,tx,ty,tz,vx,vy,tvx,tvy,fixes,rej,unm,lm,res,det_area,det_range,reason" + chr(10))
+        _DR["fh"].write("t,ev,x,y,z,tx,ty,tz,vx,vy,tvx,tvy,fixes,rej,unm,lm,res,det_area,det_range,"
+                        "cross_ev,cross_lat,cross_dz,fix_cx_sum,fix_al_sum,reason" + chr(10))
         print(f"[RACELINE] estimator trace -> {path}")
     lm = _SOURCE.last_landmark
     _DR["fh"].write(f"{t:.2f},{_SOURCE.next_event},{est.p[0]:.3f},{est.p[1]:.3f},{est.p[2]:.3f},"
@@ -510,6 +511,9 @@ def _dr_trace(t, est, truth, truth_v):
                     f"{'' if lm is None else lm},{_SOURCE.fix_residual:.3f},"
                     f"{'' if _DR['det'] is None else '%.4f' % _DR['det'].area_frac},"
                     f"{'' if _DR['det'] is None or not _DR['det'].range_m else '%.2f' % _DR['det'].range_m},"
+                    # the no-truth debrief columns, identical to the hardware log
+                    f"{_SOURCE.cross_ev},{_SOURCE.cross_lat:.3f},{_SOURCE.cross_dz:.3f},"
+                    f"{_SOURCE.fix_cross_sum:.3f},{_SOURCE.fix_along_sum:.3f},"
                     f"{_SOURCE.last_reason}" + chr(10))
     if _DR["n"] % 1000 == 0:
         _DR["fh"].flush()

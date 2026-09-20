@@ -125,6 +125,23 @@ class DeadReckonSource:
         self.assoc_max_rad = math.radians(40.0)
         self.max_fix_range_m = 15.0      # farther gates are not fixed on: a 6 deg tolerance at 20 m is a
                                          # 2 m jump when the wrong one matches (race_238, lap 1 hairpin)
+        # DEBRIEF BOOKKEEPING. Read by the logs, never by the estimate. These
+        # are the only two things the drone can measure about its own error
+        # with NO ground truth, so they are what tuning on the real airframe
+        # has to run on:
+        #   the offset it believed it had as it went through a gate (the drone
+        #   physically fitted through a 1.5 m opening, so reality is asserting
+        #   the answer), and
+        #   the camera-vs-dead-reckoning disagreement at each fix, summed, so a
+        #   log at any rate can difference the sums and get the exact mean over
+        #   a leg without catching every fix.
+        self.cross_ev = -1         # event index of the last counted crossing
+        self.cross_lat = 0.0       # + left of centre, looking along the crossing
+        self.cross_dz = 0.0        # + above the opening centre
+        self.fix_cross_sum = 0.0   # + the camera says we are left of dead reckoning
+        self.fix_along_sum = 0.0   # + the camera says we are nearer the gate
+        self.fix_cross_last = 0.0  # this fix only; added to the sums iff it is kept
+        self.fix_along_last = 0.0
 
     def set_events(self, events):
         self.events = [(float(x), float(y), float(z), None if h is None else float(h)) for x, y, z, h in events]
@@ -171,6 +188,9 @@ class DeadReckonSource:
             # (race_177: circling g4 until the g5 frame) is worse than moving on
             if clean or abs(lat) <= self.miss_lat_m:
                 self.next_event += 1
+                self.cross_ev = self.next_event - 1        # debrief: where it
+                self.cross_lat = float(lat)                # believed it was in
+                self.cross_dz = float(cz - gz)             # the opening
                 if clean and self.crossing_fix_gain > 0.0:
                     # we went through the opening: the map says where that is.
                     # Move the estimate across the crossing direction toward the
@@ -181,13 +201,37 @@ class DeadReckonSource:
                 return
 
     # --- prediction -------------------------------------------------------------
-    def integrate(self, t: float, R: np.ndarray, accel_body, z_meas: float | None, baro_fresh: bool = True):
-        """One tick: attitude, body specific force, barometric altitude."""
+    def integrate(self, t: float, R: np.ndarray, accel_body, z_meas: float | None,
+                  baro_fresh: bool = True, on_ground: bool = False):
+        """One tick: attitude, body specific force, barometric altitude.
+
+        ZERO-VELOCITY UPDATE. `on_ground` says the aircraft is demonstrably not
+        moving - sitting on the start line before takeoff - so velocity is held
+        at zero and position is frozen instead of integrated.
+
+        Without it the accelerometer's residual bias integrates the whole time
+        the drone waits to be armed. Measured on d45 (2026-09-20): 0.15 m/s^2
+        of residual after gravity removal, which is 1.9 m of phantom position
+        after 5 s on the ground and 7.5 m after 10 s. A gate opening is 1.5 m,
+        so the estimate is lost before the aircraft leaves the ground. Sitting
+        still for 55 s it reached 7 m/s and 200 m.
+
+        This is the honest behaviour of dead reckoning, not a fault: the camera
+        fixes are what bound it in flight. On the ground there are no fixes
+        worth having, so we use the one thing we know for free - it is not
+        moving."""
         if self.t_prev is None:
             self.t_prev = t
         dt = max(0.0, min(0.05, t - self.t_prev))
         self.t_prev = t
         self.R = R
+        if on_ground:
+            self.v[0] = self.v[1] = self.v[2] = 0.0
+            z, vz = self.vert.update(dt, 0.0, z_meas, baro_fresh)
+            self.p[2] = z
+            self.hist.append((t, self.p.copy()))
+            self.hist = [h for h in self.hist if t - h[0] <= 0.5]
+            return
         a_w = R @ np.asarray(accel_body, dtype=float) - np.array([0.0, 0.0, G])
         self.v[0] += a_w[0] * dt
         self.v[1] += a_w[1] * dt
@@ -335,6 +379,11 @@ class DeadReckonSource:
         self.last_full_residual = float(np.hypot(r_full[0], r_full[1]))
         along = float(np.dot(r_full, d_h))
         r_lat = r_full - along * d_h                       # across the line of sight: the bearing, precise
+        # the same split, signed and unweighted, for the debrief: a bearing
+        # disagreement that is always one sign is the camera's boresight, a
+        # range disagreement that is always one sign is its scale
+        self.fix_cross_last = float(-r_full[0] * d_h[1] + r_full[1] * d_h[0])
+        self.fix_along_last = along
         # far sightings are worth less: the bearing error grows with range, and
         # the range (ring size) is only worth using up close: full weight to
         # 8 m, none beyond 20 m (race_188: 30 m sightings across the field
@@ -388,5 +437,7 @@ class DeadReckonSource:
             self.rejected += 1
             self.last_landmark = None
             return None, r
+        self.fix_cross_sum += self.fix_cross_last     # debrief: kept fixes only
+        self.fix_along_sum += self.fix_along_last
         self.last_landmark = i
         return i, r

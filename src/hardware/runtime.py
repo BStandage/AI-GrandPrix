@@ -143,6 +143,10 @@ def main(argv=None) -> int:
                     help="raw accelerometer counts per g (2048 on the Archer per its blackbox, 256 on the SITL); "
                          "'auto' measures |acc| over 1 s at rest before takeoff")
     ap.add_argument("--pitch-nose-down-positive", action="store_true")
+    ap.add_argument("--heading-drift-dpm", type=float, default=0.0,
+                    help="measured gyro heading drift in deg/min (from `bench drift`), "
+                         "subtracted linearly over the run. d45 measured +3.0 on the floor. "
+                         "0 = no correction")
     ap.add_argument("--angle-mode", action="store_true", default=True, help="ANGLE-mode sticks (default on)")
     ap.add_argument("--acro", action="store_true", help="rate sticks through our attitude loop instead of ANGLE mode")
     ap.add_argument("--max-s", type=float, default=240.0, help="hard stop: land and disarm after this many seconds")
@@ -202,14 +206,23 @@ def main(argv=None) -> int:
         time.sleep(0.05)
     while bridge.state().altitude is None and time.monotonic() - t_wait < 5.0:
         time.sleep(0.05)
+    # The bridge polls attitude every tick but altitude on a slower rotation,
+    # so it can still be None several hundred ms in. Checking too early reads
+    # as "no barometer" on an aircraft that has one (hit on d45, 2026-09-20).
+    _deadline = time.monotonic() + 10.0
+    while bridge.state().altitude is None and time.monotonic() < _deadline:
+        time.sleep(0.05)
     if bridge.state().altitude is None:
-        print("ERROR no MSP_ALTITUDE from the FC: no barometer, no altitude, nothing can fly"); bridge.stop(); return 3
+        print("ERROR no MSP_ALTITUDE after 10 s: check `fc-info` lists BARO"); bridge.stop(); return 3
     src.zero_altitude()
     st0 = bridge.state().status
     has_mag = bool(st0 and (st0.sensors & 0x04))
     if args.map_north.strip().lower() == "here":
         src.map_north_heading_deg = float(bridge.state().attitude.yaw_deg)
         print(f"map north = FC heading now: {src.map_north_heading_deg:.1f} deg (the drone is on the start line pointing along gate 1)")
+    src.heading_drift_dpm = float(args.heading_drift_dpm)
+    if src.heading_drift_dpm:
+        print(f"heading drift correction: {src.heading_drift_dpm:+.1f} deg/min taken out over the run")
     else:
         src.map_north_heading_deg = float(args.map_north)
         if not has_mag:
@@ -250,8 +263,11 @@ def main(argv=None) -> int:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log = open(log_path, "w", newline="", encoding="utf-8")
     w = csv.writer(log)
+    # cross_* / fix_*_sum are the debrief columns: what the drone can measure
+    # about its own error with no ground truth (raceline.debrief reads them)
     w.writerow(["t", "phase_or_event", "x", "y", "z", "vx", "vy", "vz", "yaw_deg", "det_x", "det_y", "det_area", "det_range",
-                "fixes", "fix_res", "throttle", "roll", "pitch", "yaw", "arm", "att_hz", "rtt_ms", "timeouts", "cam_fps", "vbat"])
+                "fixes", "fix_res", "rej", "unm", "cross_ev", "cross_lat", "cross_dz", "fix_cx_sum", "fix_al_sum",
+                "throttle", "roll", "pitch", "yaw", "arm", "att_hz", "rtt_ms", "timeouts", "cam_fps", "vbat"])
     print(f"log -> {log_path}")
     if args.dry_run:
         print("DRY RUN: commands computed and logged; the FC receives neutral sticks")
@@ -274,6 +290,7 @@ def main(argv=None) -> int:
     fixes = 0
     fix_res = 0.0
     t_fix = -1.0
+    airborne_latch = False    # see the on_ground note in the loop
     try:
         while True:
             t = time.monotonic()
@@ -288,7 +305,23 @@ def main(argv=None) -> int:
                 # state: integrate the FC's IMU on its attitude; altitude from
                 # the accel + baro filter fed by the FC's altitude
                 if src.accel_body is not None:
-                    dr.integrate(t, est.R, src.accel_body, float(est.p[2]), True)
+                    # ON THE GROUND it is not moving, so hold velocity at zero
+                    # rather than integrate the accelerometer's bias while it
+                    # waits to be armed (0.15 m/s^2 measured on d45 = 1.9 m of
+                    # phantom position after 5 s, 200 m after a minute).
+                    #
+                    # Height alone cannot decide this: the barometer drifts
+                    # ~0.25 m per minute at rest, so any fixed threshold is
+                    # eventually crossed while the aircraft sits still. Require
+                    # a real climb as well, and LATCH it - once genuinely
+                    # airborne we never go back, because a descent through the
+                    # threshold mid-flight must not freeze the estimate.
+                    if not airborne_latch and float(est.p[2]) > 0.30 and float(est.v[2]) > 0.5:
+                        airborne_latch = True
+                        print(f"airborne at t={t - t_start:.1f}s "
+                              f"(z={float(est.p[2]):.2f} vz={float(est.v[2]):+.2f})")
+                    dr.integrate(t, est.R, src.accel_body, float(est.p[2]), True,
+                                 on_ground=not airborne_latch)
                 est_dr = StateEstimate(p=dr.p.copy(), v=dr.v.copy(), R=est.R, yaw=est.yaw, omega=est.omega)
                 # a sighting: the estimator decides which gate it is (same code
                 # as the sim) and fixes on it; implausible fixes are dropped
@@ -328,13 +361,21 @@ def main(argv=None) -> int:
                             f"{est_log.v[0]:.2f}", f"{est_log.v[1]:.2f}", f"{est_log.v[2]:.2f}", f"{math.degrees(est_log.yaw):.1f}",
                             f"{det.offset_x:.3f}" if det else "", f"{det.offset_y:.3f}" if det else "",
                             f"{det.area_frac:.4f}" if det else "", f"{det.range_m:.2f}" if det and det.range_m else "",
-                            fixes, f"{fix_res:.2f}", out["throttle"], out["roll"], out["pitch"], out["yaw"], out["arm"],
+                            fixes, f"{fix_res:.2f}",
+                            dr.rejected if dr is not None else "", dr.unmatched if dr is not None else "",
+                            dr.cross_ev if dr is not None else "",
+                            f"{dr.cross_lat:.3f}" if dr is not None else "",
+                            f"{dr.cross_dz:.3f}" if dr is not None else "",
+                            f"{dr.fix_cross_sum:.3f}" if dr is not None else "",
+                            f"{dr.fix_along_sum:.3f}" if dr is not None else "",
+                            out["throttle"], out["roll"], out["pitch"], out["yaw"], out["arm"],
                             f"{s.attitude_hz:.0f}", f"{s.link.last_rtt_ms:.1f}", s.link.timeouts,
                             f"{camera.fps:.0f}" if camera else "", f"{s.battery.voltage_v:.2f}" if s.battery and s.battery.voltage_v else ""])
             if n % int(args.rc_hz) == 0:
                 log.flush()
                 print(f"t={t - t_start:6.1f} {label:7s} p=({est_log.p[0]:+5.1f},{est_log.p[1]:+5.1f},{est_log.p[2]:4.2f}) "
-                      f"yaw={math.degrees(est_log.yaw):5.0f} det={'%.2fm' % det.range_m if det and det.range_m else '-':>6} fixes={fixes}"
+                      f"yaw={math.degrees(est_log.yaw):5.0f} det={'%.2fm' % det.range_m if det and det.range_m else '-':>6} "
+                      f"fixes={fixes} res={fix_res:5.2f}"
                       + (f" rej={dr.rejected} unm={dr.unmatched} " if dr is not None else " ") +
                       f"stk=({out['roll']},{out['pitch']},{out['throttle']},{out['yaw']}) arm={out['arm']} "
                       f"link {s.attitude_hz:.0f}Hz/{s.link.last_rtt_ms:.0f}ms healthy={s.healthy}")

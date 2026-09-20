@@ -37,7 +37,6 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import hashlib
 import io
 import json
 import math
@@ -60,10 +59,15 @@ PLANS_DIR = REPO / "out" / "plans"
 # race limits). Each rung is a full solve; the time is whatever comes out.
 # vz_up_max is NOT a lever: a climbing turn crosses off centre above about
 # 1.25 m/s whatever the speed (race_297 at 1.75), and the cap costs 1 s.
+
+# Change safe floor here if you want to make the ladder more or less aggressive.
 FLOOR = {"max_tilt_deg": 20.0, "v_max_mps": 5.0,
          "a_lat_rate_max": 40.0, "a_lat_margin": 0.7}
 SECTION_OF = {"max_tilt_deg": "limits", "v_max_mps": "limits",
               "a_lat_rate_max": "limits", "a_lat_margin": "planner"}
+
+# Change the frame margin to allow the line to be closer to the gate. 
+# The default is 0.75 m (half the opening) minus 0.15 m (the body radius).
 FRAME_MARGIN_M = 0.75 - 0.15     # half opening minus body radius
 
 # CAMERA-AWARE TILT CAP. A plan is only flyable on vision if the next gate

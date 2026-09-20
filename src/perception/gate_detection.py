@@ -22,6 +22,8 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import cv2
+import os
+
 import numpy as np
 
 # Camera calibration: single source of truth (ground truth, spec VADR-TS-002).
@@ -68,6 +70,16 @@ def ring_corners(contour):
                      quad[np.argmax(s)], quad[np.argmin(d)]], dtype=np.float32)
 
 
+def principal_point(w, h):
+    """Optical centre in pixels. AIGP_CAM_CX / AIGP_CAM_CY override it with
+    what camcal_board measured; unset means the image centre, which is what
+    the sim's synthetic camera assumes."""
+    cx = os.environ.get("AIGP_CAM_CX")
+    cy = os.environ.get("AIGP_CAM_CY")
+    return (float(cx) if cx else w / 2.0,
+            float(cy) if cy else h / 2.0)
+
+
 def mask_to_detections(mask, img_shape, min_area_frac=MIN_GATE_AREA_FRAC):
     """Turn a black-and-white gate mask into a list of GateDetection, nearest gate first. This is
     the geometry a mask-based detector inherits, so it only has to mark the gate pixels.
@@ -111,9 +123,16 @@ def mask_to_detections(mask, img_shape, min_area_frac=MIN_GATE_AREA_FRAC):
         # Map elevation must use opening_bbox when present — ring vs opening is ~1 m
         # vertically (atan(1/3)≈18°) and that was the false "+17° tilt" on z.
         cx, cy = rx + rw / 2.0, ry + rh / 2.0
+        # Bearings are measured from the OPTICAL axis, not the image centre.
+        # camcal_board on d45 (2026-09-20) put the principal point at
+        # (613, 387) in a 1280x720 frame - 27 px off in both axes, which is a
+        # CONSTANT -1.84 deg horizontal and +1.87 deg vertical bias on every
+        # fix, about 0.26 m of lateral error at 8 m, always the same way.
+        # Defaults are the image centre, so the sim is unchanged.
+        px, py = principal_point(w, h)
         dets.append(GateDetection(
-            offset_x=(cx - w / 2.0) / (w / 2.0),
-            offset_y=(cy - h / 2.0) / (h / 2.0),
+            offset_x=(cx - px) / (w / 2.0),
+            offset_y=(cy - py) / (h / 2.0),
             area=ring_area,
             # distance from the outer ring box (rw,rh ~ 2.7 m frame), not the aim box. When we aim at
             # the inner opening the box shrinks, and dividing by 2.7 would read ~1.8x too far.

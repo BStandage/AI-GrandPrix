@@ -1,0 +1,146 @@
+"""Camera intrinsics from a printed checkerboard.
+
+Two steps, both on the drone.
+
+    python3 -m hardware.camcal_board grab                 # capture views
+    python3 -m hardware.camcal_board solve --square-mm 25.0
+
+`grab` shows nothing and needs no display: it saves a frame every time it finds
+the board, and prints how many it has. Move the board (or the drone) between
+captures - different angles and distances, not 20 copies of the same view.
+
+`solve` runs OpenCV's calibration over the saved frames and prints the numbers
+the runtime wants, plus the principal point and distortion, which the wall
+method cannot give you.
+
+The board is `out/caltarget/checkerboard_letter_25mm.png`. Print at 100 %,
+tape it FLAT to card, then MEASURE a square and pass the real number to
+--square-mm. Printers scale, and every length here is proportional to it.
+"""
+
+from __future__ import annotations
+
+import argparse
+import glob
+import math
+import os
+from pathlib import Path
+
+import numpy as np
+
+DEFAULT_DIR = "out/camcal_board"
+INNER = (6, 8)        # inner corners of the 7x9-square board
+
+
+def _open(camera):
+    import cv2
+    if str(camera).isdigit() or str(camera).startswith("/dev/video"):
+        return cv2.VideoCapture(camera if not str(camera).isdigit() else int(camera))
+    return cv2.VideoCapture(camera, cv2.CAP_GSTREAMER)
+
+
+def grab(args) -> int:
+    import cv2
+    from hardware.runtime import DEFAULT_PIPELINE
+    out = Path(args.out); out.mkdir(parents=True, exist_ok=True)
+    cap = _open(args.camera or DEFAULT_PIPELINE)
+    if not cap.isOpened():
+        raise SystemExit("camera did not open")
+    kept, seen, last = 0, 0, None
+    print(f"looking for a {INNER[0]}x{INNER[1]} inner-corner board. "
+          f"Ctrl+C when you have {args.want}.")
+    try:
+        while kept < args.want:
+            ok, frame = cap.read()
+            if not ok:
+                continue
+            seen += 1
+            g = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            found, corners = cv2.findChessboardCorners(
+                g, INNER, cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_FAST_CHECK)
+            if not found:
+                continue
+            c = corners.reshape(-1, 2).mean(axis=0)
+            if last is not None and np.hypot(*(c - last)) < args.min_move_px:
+                continue          # same view again: move the board
+            last = c
+            kept += 1
+            cv2.imwrite(str(out / f"view_{kept:03d}.png"), frame)
+            print(f"  kept {kept}/{args.want}  (centre {c[0]:.0f},{c[1]:.0f}) "
+                  f"- move the board and hold still")
+    except KeyboardInterrupt:
+        print()
+    finally:
+        cap.release()
+    print(f"{kept} views in {out} from {seen} frames")
+    if kept < 8:
+        print("fewer than 8 views: calibration will be poor. Grab more.")
+    return 0
+
+
+def solve(args) -> int:
+    import cv2
+    files = sorted(glob.glob(str(Path(args.out) / "view_*.png")))
+    if len(files) < 5:
+        raise SystemExit(f"only {len(files)} views in {args.out}; grab more")
+    sq = args.square_mm / 1000.0
+    objp = np.zeros((INNER[0] * INNER[1], 3), np.float32)
+    objp[:, :2] = np.mgrid[0:INNER[0], 0:INNER[1]].T.reshape(-1, 2) * sq
+    objpoints, imgpoints, shape = [], [], None
+    crit = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+    for f in files:
+        img = cv2.imread(f)
+        g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        shape = g.shape[::-1]
+        found, corners = cv2.findChessboardCorners(g, INNER, None)
+        if not found:
+            print(f"  {Path(f).name}: board not found, skipped"); continue
+        corners = cv2.cornerSubPix(g, corners, (11, 11), (-1, -1), crit)
+        objpoints.append(objp); imgpoints.append(corners)
+    print(f"{len(objpoints)} usable views at {shape[0]}x{shape[1]}")
+    if len(objpoints) < 5:
+        raise SystemExit("not enough usable views")
+    rms, K, dist, rvecs, tvecs = cv2.calibrateCamera(objpoints, imgpoints, shape, None, None)
+    fx, fy = K[0, 0], K[1, 1]
+    cx, cy = K[0, 2], K[1, 2]
+    w, h = shape
+    hfov = math.degrees(2 * math.atan((w / 2.0) / fx))
+    vfov = math.degrees(2 * math.atan((h / 2.0) / fy))
+    print(f"\nreprojection RMS: {rms:.3f} px   (under ~0.5 is good, over 1.0 means redo it)")
+    print(f"fx {fx:8.1f}   fy {fy:8.1f}")
+    print(f"cx {cx:8.1f}   cy {cy:8.1f}     image centre is {w/2:.1f}, {h/2:.1f}")
+    print(f"principal point offset: {cx - w/2:+.1f}, {cy - h/2:+.1f} px "
+          f"= {math.degrees(math.atan((cx - w/2)/fx)):+.2f} deg horizontal bias")
+    print(f"hfov {hfov:.1f} deg   vfov {vfov:.1f} deg")
+    print(f"distortion k1 k2 p1 p2 k3: " + " ".join(f"{v:+.4f}" for v in dist.ravel()[:5]))
+    print(f"\n  -> --fy {fy:.0f} --cam-hfov {hfov:.0f}")
+    print("\nNotes:")
+    print("  * the runtime uses a pinhole model with no undistortion, so k1/k2")
+    print("    are measured here but not applied. A large k1 means gates near")
+    print("    the frame edge carry a bearing error the estimator cannot see.")
+    print("  * a non-zero principal-point offset is a CONSTANT bearing bias on")
+    print("    every fix. The debrief reports that as a camera boresight error.")
+    return 0
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    g = sub.add_parser("grab", help="capture board views")
+    g.add_argument("--camera", default=None)
+    g.add_argument("--out", default=DEFAULT_DIR)
+    g.add_argument("--want", type=int, default=20)
+    g.add_argument("--min-move-px", type=float, default=40.0,
+                   help="reject a view whose board centre has not moved this far")
+    g.set_defaults(func=grab)
+    s = sub.add_parser("solve", help="calibrate from the captured views")
+    s.add_argument("--out", default=DEFAULT_DIR)
+    s.add_argument("--square-mm", type=float, required=True,
+                   help="MEASURED square size of the printed board, mm")
+    s.set_defaults(func=solve)
+    args = ap.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
