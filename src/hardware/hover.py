@@ -152,6 +152,10 @@ def main(argv=None) -> int:
                          "--alt + 1.0. This is a dumb backstop on the RAW barometer "
                          "and does not trust any filter, because on 2026-09-20 it was "
                          "the filter that was wrong.")
+    ap.add_argument("--ceiling-hold", type=float, default=0.35,
+                    help="the RAW barometer must stay above --ceiling this long to "
+                         "abort. A real climb does; a prop-wash spike does not. The "
+                         "FUSED height aborts immediately - it cannot spike.")
     ap.add_argument("--gate-z", action="store_true",
                     help="hold the altitude of the gate centre in view, not --alt")
     ap.add_argument("--camera", default=None, help="GStreamer pipeline or /dev/videoN")
@@ -362,6 +366,7 @@ def main(argv=None) -> int:
     phase, t_phase = "climb", t0
     airborne_latch = False
     vz_bad = 0.0                     # seconds of vertical speed runaway
+    ceil_bad = 0.0                   # seconds the RAW baro has been over the line
     rng_hist = []                    # (t, range) over the last second
     gate_range_t = None              # the distance being held
     gate_rng_med = None
@@ -573,19 +578,34 @@ def main(argv=None) -> int:
                     args.no_baro or abs(z - args.alt) < 0.15):
                 hover_pwms.append(thr)
 
-            # HARD CEILING. Raw barometer, no filter, no controller: if the
-            # aircraft is above this it stops flying, full stop. d45 coasted to
-            # the ceiling on 2026-09-20 because the velocity estimate read
-            # +0.6 m/s during a 3.5 m/s climb and the loop saw nothing to
-            # damp - every clever layer agreed with itself and was wrong.
-            if (not args.no_baro) and (z_raw > ceiling or z > ceiling):
-                print("")
-                print(f"  CEILING HIT: z={z_raw:.2f} m raw / {z:.2f} filtered "
-                      f"> {ceiling:.2f}. "
-                      f"Throttle to minimum, disarming.")
-                br.set_rc(throttle=1000, roll=1500, pitch=1500, yaw=1500,
-                          arm=1000, aux2=1500)
-                break
+            # HARD CEILING, and which number it reads matters.
+            #
+            # It used to trip on EITHER the raw barometer or the fused height,
+            # on the argument that a backstop should not trust a filter. That
+            # is right when the filter is the suspect and wrong when the SENSOR
+            # is: d44, 2026-09-21, aborted a good flight at "1.76 m raw / 0.91
+            # filtered" - the barometer spiked a metre with the props running
+            # and the fusion correctly ignored it. A backstop that fires on
+            # sensor noise instead of runaways is worse than none, because
+            # people start flying through it.
+            #
+            # So: the FUSED height trips immediately, because it is smooth and
+            # cannot spike. The raw barometer still trips - that is the check
+            # on a filter gone wrong - but only when it has been over the line
+            # continuously for --ceiling-hold. A real climb stays above it; a
+            # prop-wash spike does not.
+            if not args.no_baro:
+                ceil_bad = ceil_bad + period if z_raw > ceiling else 0.0
+                why = ("fused" if z > ceiling else
+                       "raw, sustained" if ceil_bad > args.ceiling_hold else None)
+                if why:
+                    print("")
+                    print(f"  CEILING HIT ({why}): z={z_raw:.2f} m raw / "
+                          f"{z:.2f} filtered > {ceiling:.2f}. "
+                          f"Throttle to minimum, disarming.")
+                    br.set_rc(throttle=1000, roll=1500, pitch=1500, yaw=1500,
+                              arm=1000, aux2=1500)
+                    break
 
             # Landing with no height: descend at --descend for as long as the
             # climb took plus a margin, then cut. It cannot know it has touched
