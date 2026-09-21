@@ -19,7 +19,7 @@ drag_lin  = 0.0           # N per (m/s) - unmeasured, 0 until a sim sweep exists
 drag_quad = 0.0           # N per (m/s)^2
 
 [thrust]
-hover_pwm = 1240          # measured steady-state hover RC on the SITL plant
+hover_pwm = 1228          # MEASURED IN FLIGHT, d45 2026-09-20: vertical speed held constant here, so this is where thrust cancels gravity. Was 1291 from the organizers' blackbox, which is their aircraft's mass, not ours.
 pwm_min   = 1000
 pwm_max   = 2000          # full range; measured ceiling from solvers.sysid_thrust
 # Thrust curve, pwm -> vertical accel (m/s^2). PLACEHOLDER 3-point
@@ -27,7 +27,7 @@ pwm_max   = 2000          # full range; measured ceiling from solvers.sysid_thru
 # measured sweep. Not consumed by the v1 planner (it uses the a_accel/a_brake
 # scalars below) - the slot exists for exactly that swap.
 curve_pwm = [1000, 1240, 1350, 1500, 1650, 1800, 2000]
-curve_acc = [0.0, 9.81, 16.2, 22.7, 31.1, 37.2, 37.5]   # copied from vehicle.toml (thrust_002 peaks); must bracket hover_pwm
+curve_acc = [1.18, 5.87, 13.03, 21.86, 31.03, 44.35, 58.61]   # MEASURED IN FLIGHT on d45, 2026-09-20. The blackbox curve was the ORGANIZERS' aircraft: specific thrust is force per kilogram, and theirs is heavier, so ours makes the same thrust about 60 PWM lower. Two points from hover_20260921_002631 agree: vz held CONSTANT at ~1228 PWM (so thrust there is exactly 9.81), and 1350 PWM reached 2.79 m/s in 0.45 s (16.0). The old curve needed 1291 and 1407 for those, so -63 and -57 PWM; -60 applied. Commanding 1 g used to deliver 1.45 g, which is why every flight climbed.
 
 [limits]                  # ceilings shared by planner AND follower
 max_tilt_deg     = 35.0   # 12-gate-proven envelope; raise ONE lever at a time
@@ -79,5 +79,5 @@ ki_z        = 0.5       # m/s^2 per m.s
 kyaw        = 200.0     # yaw error (rad) -> stick PWM
 yaw_clamp   = 200       # ~1.0 rad/s at the measured 0.31 rad/s per 60 PWM
 yaw_lookahead_m = 3.0   # aim the nose at the tangent this far ahead
-takeoff_pwm = 1350      # MEASURED CURVE (2026-09-20): 13.0 m/s^2 = 1.32 g, net +3.2 m/s^2 up - lifts off in ~0.2 s and settles. Was 1700, which was tuned on the 0.8 kg SITL plant and is 33.6 m/s^2 = 3.43 g on the real aircraft: a 2.4 g launch off the start line. Held until the climb reaches 0.7 m/s, so a low value only costs a moment of spool-up.
+takeoff_pwm = 1289      # 1.32 g on the IN-FLIGHT curve (2026-09-20). Was 1350, which is 1.66 g on the corrected curve. Held until the climb reaches 0.7 m/s.
 min_alt_translation_m = 1.0
