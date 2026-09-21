@@ -348,7 +348,8 @@ def main(argv=None) -> int:
                 # worst signal.
                 if args.vert == "vision":
                     el = None
-                    if det is not None and t - det.t <= 0.5 and camera is not None:
+                    if (det is not None and t - det.t <= 0.5 and camera is not None
+                            and getattr(det, "v_usable", True)):
                         from hardware.hover import gate_dz as _gate_dz
                         _, el = _gate_dz(det, est.R, args.fy,
                                          math.radians(args.cam_tilt), camera.frame_wh)

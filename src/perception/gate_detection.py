@@ -32,6 +32,15 @@ from common.camera import FX as FOCAL_LENGTH_PX, GATE_OUTER_M as GATE_REAL_HEIGH
 MIN_GATE_AREA_FRAC = 0.00015  # ignore blobs smaller than this fraction of the frame
 
 
+# Reconstruct the centre of a vertically clipped ring from its width. On by
+# default; AIGP_GATE_UNCLIP=0 restores the raw centroid.
+UNCLIP_V = os.environ.get("AIGP_GATE_UNCLIP", "1") != "0"
+CLIP_EDGE_PX = 3          # within this many px of the edge counts as cut off
+# COMMIT. Past this apparent size the gate is too close to steer height on:
+# release the vertical reference and fly through on the height already held.
+# 0.85 of the frame is about 3.9 m for a 2.7 m ring in a 45.5 deg field.
+COMMIT_FRAC = float(os.environ.get("AIGP_GATE_COMMIT_FRAC", "0.85"))
+
 @dataclass
 class GateDetection:
     """One gate as seen by perception. See the module docstring for what each field means."""
@@ -46,6 +55,8 @@ class GateDetection:
     bbox: Optional[Tuple] = None       # (x, y, w, h) of the aim target (opening, else ring)
     ring_bbox: Optional[Tuple] = None  # outer orange ring box (stable; offsets use its center)
     opening_bbox: Optional[Tuple] = None  # hole-to-fly-through box (None if not found)
+    clipped_v: bool = False            # ring ran off the top/bottom edge; offset_y reconstructed
+    v_usable: bool = True             # False = offset_y carries no usable elevation, do not steer height on it
     center: Optional[Tuple] = None     # (cx, cy) pixel center of the aim target
     corners: Optional[np.ndarray] = None   # ordered ring corners (TL,TR,BR,BL) for solvePnP
     gate_id: Optional[int] = None      # ground-truth id, when a synthetic source knows it (sim only)
@@ -123,6 +134,56 @@ def mask_to_detections(mask, img_shape, min_area_frac=MIN_GATE_AREA_FRAC):
         # Map elevation must use opening_bbox when present — ring vs opening is ~1 m
         # vertically (atan(1/3)≈18°) and that was the false "+17° tilt" on z.
         cx, cy = rx + rw / 2.0, ry + rh / 2.0
+        # VERTICALLY CLIPPED RING (d44, race day 1, 2026-09-21). The camera is
+        # tilted UP 20 deg with a 45.5 deg vertical field, so the frame bottom
+        # sits at -2.75 deg of elevation: a gate at the aircraft's OWN height
+        # is cut off along the bottom at every useful range. The visible
+        # centroid then sits ABOVE the true centre, the vertical loop reads
+        # that as "the gate is above you", dz_vision pins at its +0.35 m cap
+        # and the aircraft climbs - and climbing cuts off more of the gate, so
+        # it runs away. Flown: takeoff put her on gate centre correctly, then
+        # she climbed to roughly a metre over the top bar.
+        #
+        # The ring is SQUARE - 2.7 x 2.7 m per the course map - and the WIDTH
+        # is never clipped (the horizontal channel was accurate throughout the
+        # same flight). So the true height in pixels IS the width, and the
+        # true centre is reconstructed from the unclipped edge. Exact for a
+        # square gate, not a fudge factor.
+        #
+        # Guarded on rw > rh: yaw foreshortening makes a gate NARROWER, never
+        # taller, so a box wider than it is tall means vertical truncation.
+        clipped_v, v_usable = False, True
+        if UNCLIP_V:
+            at_bottom = (ry + rh) >= (h - CLIP_EDGE_PX)
+            at_top = ry <= CLIP_EDGE_PX
+            # COMMIT THROUGH THE GATE (d44, race day 1, 2026-09-21). Flown:
+            # she tracked beautifully from 7.4 m in to 2.5 m - xtrack 0.22 m,
+            # res 0.02 - then at det 1.81 m corrected UP, 0.89 -> 1.44 -> 1.91,
+            # and clipped the top bar. She really was low, but a vertical
+            # correction begun 1.8 m from a gate has nowhere to go except into
+            # a bar. Inside this range the aircraft is committed: hold the
+            # height it already has and fly through.
+            #
+            # Measured by APPARENT SIZE, not range_m - range is the camera's
+            # worst signal and read 12.6, 22.9, 59.5 m on this same flight,
+            # while the ring's height in pixels is a direct observation.
+            if rh >= COMMIT_FRAC * h:
+                v_usable = False
+            elif at_bottom and at_top:
+                # BOTH edges cut: the gate overfills the frame and there is no
+                # unclipped vertical edge to rebuild the centre from. Flown on
+                # d44 2026-09-21: she held gate centre out to 4 m, then climbed
+                # from the moment `det` fell under ~3 m, which is where a 2.7 m
+                # ring stops fitting in a 45.5 deg vertical field. Reconstruction
+                # silently switched off there and the raw centroid took over.
+                # Say so instead of guessing - the follower then fades its
+                # vertical reference out and holds the height it already had,
+                # which is the height the gate gave it while it could still see
+                # the whole thing.
+                v_usable = False
+            elif rw > rh and at_bottom != at_top:      # exactly one edge cut
+                cy = (ry + rw / 2.0) if at_bottom else ((ry + rh) - rw / 2.0)
+                clipped_v = True
         # Bearings are measured from the OPTICAL axis, not the image centre.
         # camcal_board on d45 (2026-09-20) put the principal point at
         # (613, 387) in a 1280x720 frame - 27 px off in both axes, which is a
@@ -142,6 +203,8 @@ def mask_to_detections(mask, img_shape, min_area_frac=MIN_GATE_AREA_FRAC):
             bbox=(x, y, bw, bh),
             ring_bbox=ring_bbox,
             opening_bbox=opening_bbox,
+            clipped_v=clipped_v,
+            v_usable=v_usable,
             center=(cx, cy),
             corners=ring_corners(c),
         ))
