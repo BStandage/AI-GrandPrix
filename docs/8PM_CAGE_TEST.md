@@ -1,12 +1,18 @@
 # 8pm cage test - Sally
 
-**What we are actually testing: can she hold a position relative to a gate,
-by eye?**
+**Two separate capabilities, and we want both.**
 
-Not a hover. A three-axis null against the gate - elevation for height,
-azimuth for left-right, range for distance. And because the gate's centre
-height is known, holding that null IS an absolute altitude. **The barometer
-stops mattering.** That is the point.
+**A. Can she hold an assigned altitude?** A pure hover - you name a height,
+she holds it on the barometer. This is what the course needs between gates,
+and it is the thing that has never once worked on this team's aircraft.
+
+**B. Can she hold a position relative to a gate, by eye?** A three-axis null -
+elevation for height, azimuth for left-right, range for distance. Because the
+gate's centre height is known, holding that null is an ABSOLUTE altitude that
+never touches the barometer. This is the fallback if A keeps failing, and it
+is what every gate crossing depends on regardless.
+
+They are independent. A can fail and B can still work.
 
 **ABORT, ALWAYS: MSP OVERRIDE off.** Throttle stick near hover position
 throughout.
@@ -88,13 +94,12 @@ Note the hit rate it prints at the end.
 
 ---
 
-## Step 4 - FLIGHT 1: plain hover, 10 seconds
+## Step 4 - FLIGHT 1: pure hover at 0.6 m, 10 seconds
 
 Props on, fresh battery, aircraft level, foam on the FC.
 
 ```
-python3 -m hardware.hover --port /dev/ttyTHS1 --alt 0.6 --seconds 10 \
-  --ceiling 1.6 --config ../config/ladder/vehicle_k025_cam20_75.toml --arm
+python3 -m hardware.hover --port /dev/ttyTHS1 --alt 0.6 --seconds 10   --ceiling 1.6 --config ../config/ladder/vehicle_k025_cam20_75.toml --arm
 ```
 
 1. Run it. Wait for `LIVE: waiting for the pilot`.
@@ -103,32 +108,50 @@ python3 -m hardware.hover --port /dev/ttyTHS1 --alt 0.6 --seconds 10 \
 4. **MSP OVERRIDE on.** She lifts off by herself.
 5. Hands on the sticks. Correct drift if you need to, otherwise touch nothing.
 
-**This exists to answer one question: does the barometer work now?** With the
-corrected curve she sits at ~1227 PWM and ~17 A, which is where her barometer
-was clean. Randy's garbage came at 35-55 A while the wrong curve had him
-climbing.
-
-### Read the log before flying again
-
-```
-tail -20 ../out/flightlogs/hover_*.csv
-```
-
-| column | good |
-|---|---|
-| `z` | smooth, near 0.60, no metre-sized jumps |
-| `throttle` | settles near **1227** |
-| `amps` | around **17** |
-| `roll_deg` / `pitch_deg` | NEW - is she really leaning, or level and translating anyway |
-
-| outcome | then |
-|---|---|
-| holds 0.6 m | the barometer theory was right. Good news for the course |
-| jumps by metres | it is genuinely broken. Does NOT block tonight - step 5 does not use it |
+Low and short, to see that the corrected curve behaves before asking for
+anything. If this is clean, go straight to flight 2 - do not spend a battery
+repeating it.
 
 ---
 
-## Step 5 - FLIGHT 2: the actual test, 15 seconds
+## Step 5 - FLIGHT 2: pure hover at gate height, 20 seconds
+
+**This is capability A, and it is a result in its own right.**
+
+```
+python3 -m hardware.hover --port /dev/ttyTHS1 --alt 1.35 --seconds 20   --ceiling 2.4 --config ../config/ladder/vehicle_k025_cam20_75.toml --arm
+```
+
+**1.35 m is the course's gate centre height.** If she holds that, she can hold
+the altitude the race actually needs.
+
+### Read the log
+
+```
+tail -25 ../out/flightlogs/hover_*.csv
+```
+
+| column | what good looks like |
+|---|---|
+| `z` | sits near **1.35**, no metre-sized jumps |
+| `z` wander over the hold | **under 0.2 m** is good, under 0.5 m is usable |
+| `vz` | small, and NOT oscillating - a sine wave means the gains are wrong |
+| `throttle` | settles near **1227** |
+| `amps` | around **17** |
+| `roll_deg` / `pitch_deg` | is she really leaning, or level and translating anyway |
+
+It also prints `HOVER THROTTLE = NNNN PWM` at the end. **Write it down** -
+that is the third independent measurement of the corrected curve.
+
+| outcome | means |
+|---|---|
+| holds 1.35 within ~0.2 m | **capability A works.** The barometer recovered with the curve, and the course is a real possibility |
+| wanders 0.5 m or so | usable, and vision height would tighten it |
+| metre-sized jumps | the barometer is genuinely broken at this airframe's vibration. Does NOT block flight 3 - that one does not use it |
+
+---
+
+## Step 6 - FLIGHT 3: the vision hold, 15 seconds
 
 **Back wall. Nose on the gate. Arm.**
 
@@ -205,7 +228,8 @@ costs.
 ## Before you leave
 
 - [ ] every `.csv` from `~/AI-GrandPrix/out/flightlogs/`
-- [ ] did `z` behave in flight 1
-- [ ] did `el` and `az` reach zero in flight 2
+- [ ] did she hold 1.35 m in flight 2, and to what
+- [ ] `HOVER THROTTLE` from flight 2
+- [ ] did `el` and `az` reach zero in flight 3
 - [ ] `roll_deg`/`pitch_deg` - settles the drift question
 - [ ] battery voltage
