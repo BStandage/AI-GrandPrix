@@ -6,9 +6,6 @@
   |_| \_\__,_||_| |_|\__,_| \__, |
                              |___/   d45  "Randy The Vanguard"
 
-   flew first, broke a camera and an arm, and his crash log is where
-   the thrust curve correction came from.  repaired.  still flying.
-
    hover_pwm 1228   cam tilt 20 deg   ANGLE on aux row 5
    fy 824  hfov 76  cx 627.2  cy 368.8   <- the calibrated camera
 

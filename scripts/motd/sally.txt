@@ -6,8 +6,6 @@
   |____/ \__,_||_| |_| \__, |
                        |___/      d44  "Sally the Brave"
 
-   first aircraft to hold a hover.  2 flights, 2 clean, 0 crashes.
-
    hover_pwm 1228   cam tilt 20 deg   ANGLE on aux row 2
    camera NOT calibrated - fy/cx/cy are Randy's, tilt is hers
 
