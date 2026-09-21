@@ -70,6 +70,23 @@ RETRY_CONFIRM_TICKS = 20
 # place with no possible payoff.
 MAX_RETRIES_PER_GATE = 3
 
+# SETTLE ON g0 BEFORE THE CLOCK STARTS. The race clock does not run until g0 is
+# crossed, so every second spent getting centred on it is free. During the
+# start-settle the tracker holds position horizontally while VERT_VISION
+# overwrites z_target with est.p[2] + dz_vis - so she is ALREADY climbing to
+# null g0's elevation. This just waits for that climb to converge before
+# releasing the horizontal, instead of starting the run at whatever dz happened
+# to be and correcting on the move. d44 flight 4 made its vertical correction at
+# 1.8 m from the gate, which is the worst possible moment; this makes it at 7 m
+# standing still, which is the best one.
+#
+# TIMEOUT-BOUNDED ON PURPOSE. If the detector never gives a steady reference -
+# no gate in view, bad light, nothing there - this releases anyway and the
+# behaviour is exactly what it was before. The worst case is the old case.
+SETTLE_DZ_M = 0.08         # the "level" band the narration already uses
+SETTLE_DWELL_S = 1.5       # how long it must stay inside it
+SETTLE_TIMEOUT_S = 10.0    # release regardless; the plan takes 11 s to g0 anyway
+
 _TRAJ_PATH = os.environ.get("AIGP_TRAJ")
 # ANGLE MODE (the hardware control shape): the FC closes the attitude loop,
 # our sticks are tilt angles (rc_backend.angle_sticks) and AUX2 is held high
@@ -149,6 +166,8 @@ class Tracker:
         self._retry_gate = -1    # which event the retry counter below is for
         self._retry_count = 0    # confirmed retries fired for _retry_gate
         self._abandoned = set()  # gates given up on - cap dropped for these
+        self._settle_t0 = None   # when the start-settle began
+        self._dz_ok_since = None # when dz first entered the level band
 
     def _advance(self, p: np.ndarray, next_event: int) -> int:
         """Monotonic nearest-sample search, forward window, CAPPED at the
@@ -165,7 +184,7 @@ class Tracker:
         return min(self.n - 1,
                    int(np.searchsorted(self.s, s_target)))
 
-    def step(self, est: StateEstimate, next_event: int = -1):
+    def step(self, est: StateEstimate, next_event: int = -1, t: float | None = None):
         f = self.cfg.follower
 
         # Start-settle: hover onto the first plan point before releasing the
@@ -174,9 +193,32 @@ class Tracker:
         # x=-1.0 after the drone drifted during climb-out.
         if not self.started:
             err0 = self.pos[0] - est.p
-            if (float(np.linalg.norm(err0)) < 0.6
-                    and float(np.linalg.norm(est.v)) < 1.0):
+            pos_ok = (float(np.linalg.norm(err0)) < 0.6
+                      and float(np.linalg.norm(est.v)) < 1.0)
+            if t is not None and self._settle_t0 is None:
+                self._settle_t0 = t
+            timed_out = (t is not None and self._settle_t0 is not None
+                         and t - self._settle_t0 >= SETTLE_TIMEOUT_S)
+            # Vertical settle: a FRESH gate, and dz inside the level band for
+            # SETTLE_DWELL_S. No gate, no steady reference, no dwell - and the
+            # timeout carries it.
+            vert_ok = True
+            if VERT_VISION and t is not None and not timed_out:
+                fresh = (_GATE_EL is not None
+                         and (t - _GATE_EL[0]) <= VERT_EL_STALE_S)
+                if fresh and abs(_DZ["v"]) <= SETTLE_DZ_M:
+                    if self._dz_ok_since is None:
+                        self._dz_ok_since = t
+                else:
+                    self._dz_ok_since = None
+                vert_ok = (self._dz_ok_since is not None
+                           and t - self._dz_ok_since >= SETTLE_DWELL_S)
+            if pos_ok and (vert_ok or timed_out):
                 self.started = True
+                if t is not None:
+                    print(f"[RACELINE] released at t={t:.1f}s "
+                          f"({'timed out on' if timed_out else 'settled on'} g0: "
+                          f"dz={_DZ['v']:+.3f} m)")
             else:
                 a_des = f.kp_pos * err0[:2] - f.kd_pos * est.v[:2]
                 return a_des, float(self.pos[0][2]), 0.0, None, False
@@ -677,7 +719,7 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
     the thrust budget, the sticks and the trace. Pure with respect to the
     sensor source, so the Orin runtime calls it with FC-fed estimates and
     the sim wrapper below calls it with the sim's."""
-    a_des, z_target, vz_ff, yaw_des, done = _TRACKER.step(est, next_event)
+    a_des, z_target, vz_ff, yaw_des, done = _TRACKER.step(est, next_event, t)
     if AIM_AT_GATE and not done and 0 <= next_event < len(_TRACKER.event_xyz):
         gx, gy, _gz = _TRACKER.event_xyz[next_event]
         dxg, dyg = gx - float(est.p[0]), gy - float(est.p[1])
