@@ -158,6 +158,11 @@ def main(argv=None) -> int:
                          "the loop reacts to a spike, the throttle moves, the prop "
                          "wash moves, and the barometer spikes again. Lower leans on "
                          "the accelerometer through the transient.")
+    ap.add_argument("--bail-s", type=float, default=4.0,
+                    help="after a ceiling hit, descend under power for this long "
+                         "before disarming. Cutting throttle at height is a fall, and "
+                         "a guard that stops a runaway by dropping the aircraft has "
+                         "traded one crash for another.")
     ap.add_argument("--thr-band", type=int, default=80,
                     help="hard limit on throttle, PWM either side of hover_pwm. A "
                          "hover needs 1 g; +-80 allows 0.6 to 1.4. Randy asked for "
@@ -390,6 +395,7 @@ def main(argv=None) -> int:
     vz_bad = 0.0                     # seconds of vertical speed runaway
     thr_clipped = 0                  # ticks the band had to step in
     baro_lost = False                # the estimator stopped believing it
+    bailing, t_bail = False, 0.0     # ceiling hit: descending under power
     ceil_bad = 0.0                   # seconds the RAW baro has been over the line
     rng_hist = []                    # (t, range) over the last second
     gate_range_t = None              # the distance being held
@@ -669,11 +675,29 @@ def main(argv=None) -> int:
                 ceil_bad = ceil_bad + period if z_raw > ceiling else 0.0
                 why = ("fused" if z > ceiling else
                        "raw, sustained" if ceil_bad > args.ceiling_hold else None)
-                if why:
+                if why and not bailing:
+                    # STOP THE CLIMB, DO NOT DROP IT. This used to write
+                    # throttle 1000 and disarm, which from 1.6 m is a fall -
+                    # and very likely what broke d44's leg on 2026-09-21. A
+                    # guard that stops a runaway by turning the aircraft into a
+                    # brick has traded one crash for another.
+                    #
+                    # Hover throttle stops a climb by itself; it does not need
+                    # zero. So: descend at a controlled rate, and only cut when
+                    # the aircraft is low enough that cutting is harmless.
+                    bailing, t_bail = True, t
                     print("")
                     print(f"  CEILING HIT ({why}): z={z_raw:.2f} m raw / "
                           f"{z:.2f} filtered > {ceiling:.2f}. "
-                          f"Throttle to minimum, disarming.")
+                          f"Descending under power - PILOT TAKE OVER.")
+
+            if bailing:
+                # a touch under hover: about -1 m/s^2, which arrests a climb in
+                # under a second and then walks it down rather than dropping it
+                thr = int(max(cfg.thrust.pwm_min,
+                              min(cfg.thrust.hover_pwm - 25, thr)))
+                if t - t_bail > args.bail_s:
+                    print(f"  {args.bail_s:.0f} s of powered descent done, disarming.")
                     br.set_rc(throttle=1000, roll=1500, pitch=1500, yaw=1500,
                               arm=1000, aux2=1500)
                     break
