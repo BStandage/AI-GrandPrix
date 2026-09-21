@@ -481,7 +481,13 @@ def main(argv=None) -> int:
                     break
             else:
                 vz_bad = 0.0
-            if phase == "hold" and abs(z - args.alt) < 0.15 and abs(vz) < 0.2:
+            # In --no-baro there is no height to be near, and demanding one
+            # threw away the only number these flights exist to measure:
+            # d44 held vz inside 0.07 m/s for five seconds at 1224-1229 PWM on
+            # 2026-09-21 and the summary still said "never settled at
+            # altitude". Steady VERTICAL SPEED is the hover condition here.
+            if phase == "hold" and abs(vz) < 0.15 and (
+                    args.no_baro or abs(z - args.alt) < 0.15):
                 hover_pwms.append(thr)
 
             # HARD CEILING. Raw barometer, no filter, no controller: if the
