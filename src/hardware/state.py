@@ -114,6 +114,36 @@ class FcStateSource:
         self.alt_rejected = 0        # how many samples were thrown away
         self._alt_rej_seen = 0       # a rejected sample is not a fresh one
         self.z_filtered = 0.0        # accel+baro fused height - see estimate()
+        # THROTTLE GATING. The barometer's spikes are throttle-coupled: it is
+        # honest when the throttle is steady and violent when it moves. That is
+        # the whole difference between d44's clean --no-baro trace and its
+        # altitude-hold aborts, minutes apart at the same current. So only
+        # accept a reading taken while the throttle was holding still.
+        self.thr_quiet_pwm = 25      # PWM of movement that still counts as steady
+        self.thr_quiet_s = 0.15      # how long it must have been steady
+        self._thr_hist = []          # (t, throttle)
+        self.alt_gated = 0           # samples dropped for a moving throttle
+        # TRUST MONITOR. The barometer's own slope and the accelerometer's
+        # integral should agree. When they do not, one of them is lying and it
+        # is not the accelerometer - that has been right on every flight.
+        self.baro_trusted = True
+        self._distrust_s = 0.0
+        self.baro_distrust_mps = 1.5  # m/s of disagreement that counts
+        self.baro_distrust_s = 0.5    # for this long before we stop believing it
+
+    def note_throttle(self, thr: int, t: float | None = None) -> None:
+        """Tell the estimator what throttle is being commanded. Without this
+        it cannot know whether a barometer reading was taken during a
+        disturbance it caused itself."""
+        t = time.monotonic() if t is None else t
+        self._thr_hist.append((t, int(thr)))
+        self._thr_hist = [e for e in self._thr_hist if t - e[0] <= 1.0]
+
+    def throttle_is_steady(self, t: float) -> bool:
+        win = [e[1] for e in self._thr_hist if t - e[0] <= self.thr_quiet_s]
+        if len(win) < 3:
+            return True          # nothing to go on: do not gate
+        return (max(win) - min(win)) <= self.thr_quiet_pwm
 
     def zero_altitude(self) -> None:
         """Call on the ground before takeoff: baro altitude is relative."""
@@ -220,6 +250,10 @@ class FcStateSource:
                 self.fc_vario_alive = True
         fresh = fresh and self.alt_rejected == self._alt_rej_seen
         self._alt_rej_seen = self.alt_rejected
+        # a reading taken while the throttle was moving is not evidence
+        if fresh and not self.throttle_is_steady(s.t):
+            self.alt_gated += 1
+            fresh = False
         az_w = float((R @ self.accel_body)[2]) - 9.80665 if self.accel_body is not None else 0.0
         # z_filtered is the accelerometer and the barometer fused. It is what a
         # controller should close on: the accelerometer does not care about
@@ -231,6 +265,16 @@ class FcStateSource:
         # a second VerticalFilter and must not be twice filtered.
         z_f, vz = self.vert.update(dt_v, az_w, alt, fresh)
         self.z_filtered = float(z_f)
+        # Does the barometer's own slope agree with the accelerometer? If it
+        # disagrees for long enough, stop believing it and say so - the caller
+        # can drop to a mode that does not need a height. The accelerometer
+        # has been right on every flight this week; the barometer has not.
+        vzb = self.vert._baro_slope(alt, fresh)
+        if vzb is not None and abs(vzb - float(vz)) > self.baro_distrust_mps:
+            self._distrust_s += dt_v
+        else:
+            self._distrust_s = max(0.0, self._distrust_s - dt_v)
+        self.baro_trusted = self._distrust_s < self.baro_distrust_s
         self.last_t = s.t
         return StateEstimate(p=np.array([0.0, 0.0, alt]), v=np.array([0.0, 0.0, float(vz)]),
                              R=R, yaw=yaw, omega=omega)
