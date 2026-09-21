@@ -45,11 +45,20 @@ class VerticalFilter:
     Feed it every tick; the baro correction only applies on fresh samples."""
 
     def __init__(self, w: float = 3.0, bias_gain: float = 0.5, lift_m: float = 0.25,
-                 launch_acc: float = 2.0, bias_max: float = 1.0,
+                 launch_acc: float = 0.5, bias_max: float = 1.0,
                  vz_margin: float = 2.0, slope_window_s: float = 0.4):
         self.w = w
         self.bias_gain = bias_gain
         self.lift_m = lift_m
+        # 0.5 m/s^2. This was 2.0, chosen when takeoff was 1.32 g and the net
+        # push was 3.1 m/s^2. Lowering takeoff to 1.12 g on 2026-09-21 made the
+        # net 1.14 and silently disabled the whole launch detector: vz stayed
+        # pinned at zero, the altitude loop had nothing to damp, and d44
+        # climbed away exactly as it had before the detector existed. A
+        # threshold tied to one throttle setting is a threshold that breaks
+        # when somebody changes the throttle. 0.5 still clears the measured
+        # accelerometer residual - 0.02 to 0.15 m/s^2 - by three to twenty
+        # times, and it must hold for five consecutive ticks.
         self.launch_acc = launch_acc   # m/s^2 of upward push that means "launch"
         self.bias_max = bias_max       # the accel is measured at rest; a real bias is small
         self.vz_margin = vz_margin     # how far vz may stray from the barometer's own slope

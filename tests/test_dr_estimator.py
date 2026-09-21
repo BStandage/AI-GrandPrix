@@ -427,3 +427,39 @@ class TestGroundFix(unittest.TestCase):
         src.integrate(0.02, R, np.array([0.0, 0.0, G]), 0.0, True, on_ground=True)
         p, Rback = src.state_at(0.02)
         np.testing.assert_allclose(Rback, R, atol=1e-9)
+
+
+class TestLaunchThresholdSurvivesAGentleTakeoff(unittest.TestCase):
+    """The launch detector must not be tied to one throttle setting.
+
+    It fired on 2.0 m/s^2, chosen when takeoff was 1.32 g and the net push was
+    3.1. Lowering takeoff to 1.12 g on 2026-09-21 made the net 1.14 and
+    silently disabled the whole thing: vz stayed pinned at zero, the altitude
+    loop had nothing to damp, and d44 climbed away exactly as aircraft had
+    before the detector existed.
+    """
+
+    def _latch_time(self, net_acc, dt=0.005, limit=2.0):
+        vf = VerticalFilter()
+        vf.update(dt, 0.0, 0.0, True)
+        t = 0.0
+        while t < limit:
+            t += dt
+            vf.update(dt, net_acc, None, False)   # no barometer at all
+            if vf.airborne:
+                return t
+        return None
+
+    def test_a_gentle_112g_takeoff_is_detected(self):
+        t = self._latch_time(1.14)          # --takeoff-pwm 1250
+        self.assertIsNotNone(t, "a 1.12 g takeoff never latched airborne")
+        self.assertLess(t, 0.2, f"latched only after {t:.2f} s")
+
+    def test_the_original_132g_takeoff_still_is(self):
+        t = self._latch_time(3.12)          # --takeoff-pwm 1289
+        self.assertIsNotNone(t)
+        self.assertLess(t, 0.2)
+
+    def test_the_accelerometer_residual_never_latches_it(self):
+        # 0.15 m/s^2 is the worst residual measured on either aircraft
+        self.assertIsNone(self._latch_time(0.15, limit=5.0))
