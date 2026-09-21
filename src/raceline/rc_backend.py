@@ -86,6 +86,23 @@ class AltitudeLoop:
     BALLOON_ACC = -2.5   # m/s^2: well above target, command at least this
                          # much descent (was hover-60 PWM ~ -3.7 m/s^2)
     COS_TILT_MIN = 0.25  # cap the compensation at ~75 deg of tilt
+    MAX_THRUST_G = 2.0   # HARD CEILING ON THE ACTUATOR, not on any estimate.
+                         # The only previous bound here was pwm_max, which on
+                         # the measured curve is 5.98 g - six times the
+                         # aircraft's weight, available on every tick of every
+                         # flight. d45's hover loop used it: it asked for 1837
+                         # PWM, 4.8 g, to reach a target 0.76 m off the ground,
+                         # because a bad barometer sample said it was four
+                         # metres low and nothing downstream said that was
+                         # absurd.
+                         #
+                         # Every other guard in this file reasons about whether
+                         # a NUMBER is trustworthy. This one asks what the
+                         # aircraft is being told to DO. The k 0.10 plan's
+                         # steepest climb between gates is 1.30 m/s, which with
+                         # tilt compensation needs about 1.4 g, so 2.0 leaves
+                         # half again as much headroom as the course asks for
+                         # and still refuses to send six.
     CLIMB_ACC_MAX = 12.0 # m/s^2: most climb any altitude error may buy. The
                          # plans' steepest is under 10 at the g9 climb, so this
                          # never binds in normal flight - it exists so that one
@@ -138,6 +155,7 @@ class AltitudeLoop:
         # exact tilt compensation: only cos(tilt) of the thrust is vertical
         cos_tilt = max(float(est.R[2, 2]), self.COS_TILT_MIN)
         thrust = max(0.0, (G + a_cmd) / cos_tilt)
+        thrust = min(thrust, self.MAX_THRUST_G * G)
         self.a_cmd, self.thrust = a_cmd, thrust
         pwm = self.cfg.pwm_for_thrust(thrust)
         return int(round(clamp(pwm, th.pwm_min, th.pwm_max)))
