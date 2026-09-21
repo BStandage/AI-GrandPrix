@@ -129,6 +129,9 @@ def main(argv=None) -> int:
                          "The config default (1700) was tuned on the 0.8 kg sim plant; "
                          "on the measured curve it is 3.4 g and the aircraft leaps. "
                          "1350 is about 1.3 g, which lifts off gently. Default: the config.")
+    ap.add_argument("--raw-alt", action="store_true",
+                    help="close the altitude loop on the RAW barometer instead of the "
+                         "accel+baro fusion. Only to reproduce the old behaviour.")
     ap.add_argument("--ceiling", type=float, default=None,
                     help="ABORT height, m above the start point. Throttle to minimum "
                          "and disarm if the barometer ever reads above it. Default: "
@@ -316,7 +319,14 @@ def main(argv=None) -> int:
             est = src.estimate()
             if est is None:
                 time.sleep(period); continue
-            z, vz = float(est.p[2]), float(est.v[2])
+            # CONTROL on the fused height, not the raw barometer. The
+            # accelerometer rides through the moments prop wash makes the
+            # barometer lie; the barometer stops the accelerometer drifting.
+            # z_raw stays for the CEILING, because a backstop that trusts a
+            # filter is trusting the thing most likely to be wrong.
+            z_raw = float(est.p[2])
+            z = float(getattr(src, "z_filtered", z_raw)) if not args.raw_alt else z_raw
+            vz = float(est.v[2])
             # LATCHED. AltitudeLoop falls back to a fixed takeoff throttle
             # while "not airborne", which is right once, on the way up, and
             # wrong every time after. Unlatched, the landing descent drops
@@ -406,9 +416,10 @@ def main(argv=None) -> int:
             # the ceiling on 2026-09-20 because the velocity estimate read
             # +0.6 m/s during a 3.5 m/s climb and the loop saw nothing to
             # damp - every clever layer agreed with itself and was wrong.
-            if z > ceiling:
+            if z_raw > ceiling or z > ceiling:
                 print("")
-                print(f"  CEILING HIT: z={z:.2f} m > {ceiling:.2f}. "
+                print(f"  CEILING HIT: z={z_raw:.2f} m raw / {z:.2f} filtered "
+                      f"> {ceiling:.2f}. "
                       f"Throttle to minimum, disarming.")
                 br.set_rc(throttle=1000, roll=1500, pitch=1500, yaw=1500,
                           arm=1000, aux2=1500)
