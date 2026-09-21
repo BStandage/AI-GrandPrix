@@ -177,7 +177,7 @@ def main(argv=None) -> int:
                     help="hold the altitude of the gate centre in view, not --alt")
     ap.add_argument("--camera", default=None, help="GStreamer pipeline or /dev/videoN")
     ap.add_argument("--fy", type=float, default=830.0, help="focal length in px at the capture size")
-    ap.add_argument("--cam-tilt", type=float, default=20.0, help="camera up-tilt above body forward, deg")
+    ap.add_argument("--cam-tilt", type=float, default=10.0, help="camera up-tilt above body forward, deg")
     ap.add_argument("--gate-z-min", type=float, default=0.40, help="floor on the vision target, m")
     ap.add_argument("--gate-z-max", type=float, default=1.80, help="ceiling on the vision target, m")
     ap.add_argument("--gate-lost-s", type=float, default=0.50,

@@ -26,7 +26,7 @@ import cv2
 import numpy as np
 
 from perception.detectors.hsv_classic import gate_mask
-from perception.gate_detection import mask_to_detections
+from perception.gate_detection import UNCLIP_V, commit_reason, mask_to_detections
 
 GATE_OUTER_M = 2.7
 
@@ -39,6 +39,10 @@ def main(argv=None) -> int:
     ap.add_argument("--seconds", type=float, default=None, help="how much to process (default: all)")
     ap.add_argument("--step", type=int, default=1, help="process every Nth frame")
     ap.add_argument("--fy", type=float, default=None, help="focal length px, for the range readout (default: frame width, i.e. 90 deg)")
+    ap.add_argument("--csv", default=None,
+                    help="also write one row per processed frame: offsets, the ring box, "
+                         "the clip/commit state and the range. Diff two of these to A/B "
+                         "AIGP_GATE_UNCLIP over the same recording")
     ap.add_argument("--still", type=float, default=0.0,
                     help="the first N seconds show a STILL camera: report the biggest blob's width jitter there. "
                          "That jitter is the range error the estimator lives with; the hairpin needs it under 3 %%")
@@ -58,6 +62,19 @@ def main(argv=None) -> int:
     print(f"{args.video}: {w}x{h} {fps:.1f} fps, {n} frames; processing every {args.step} from {args.start:.0f} s -> {out_path}")
 
     stats = {"frames": 0, "with_det": 0, "blobs": 0, "big_area": [], "big_w": [], "still_w": [], "still_cx": []}
+    cw = cfh = None
+    if args.csv:
+        import csv as _csv
+        cfh = open(args.csv, "w", newline="")
+        cw = _csv.writer(cfh)
+        cw.writerow(["frame", "t", "n_blobs", "off_x", "off_y", "area_frac",
+                     "rx", "ry", "rw_px", "rh_px", "rh_frac",
+                     "clipped_v", "v_usable", "has_opening", "range_m",
+                     "commit", "commit_why", "unclip"])
+    # The optical axis, not the middle of the picture: on d44 those are 30 px
+    # apart (2.0 deg) and on d43 34 px the other way. Drawn so you can see
+    # which row the elevation is actually measured from.
+    pp_row = int(round(float(os.environ.get("AIGP_CAM_CY", h / 2.0))))
     t_print = -1.0
     while True:
         pos = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
@@ -88,11 +105,39 @@ def main(argv=None) -> int:
             if g.opening_bbox:
                 ox, oy, ow, oh = g.opening_bbox
                 cv2.rectangle(vis, (ox, oy), (ox + ow, oy + oh), (255, 0, 0), 2)
+            # WHERE THE HEIGHT COMES FROM. The vertical channel steers on the
+            # ring's centre ROW, so draw it: magenta is the row the detector
+            # used, and when the ring is clipped the dashed yellow row is the
+            # raw centroid it would have used without the reconstruction. The
+            # gap between them IS the false climb from d44 flight 4.
+            rx, ry, rw, rh = g.ring_bbox or g.bbox
+            used_cy = int(round(g.center[1])) if g.center else ry + rh // 2
+            cv2.line(vis, (rx, used_cy), (rx + rw, used_cy), (255, 0, 255), 2)
+            if g.clipped_v:
+                raw_cy = ry + rh // 2
+                for xs in range(rx, rx + rw, 16):
+                    cv2.line(vis, (xs, raw_cy), (min(xs + 8, rx + rw), raw_cy), (0, 255, 255), 2)
+            cv2.line(vis, (0, pp_row), (w, pp_row), (160, 160, 160), 1)   # optical axis
+            committed, why = commit_reason(g, bgr.shape)
             rng = fy * GATE_OUTER_M / max(bw, 1)
+            tag = ("COMMIT: " + why if committed
+                   else ("clipped -> reconstructed" if g.clipped_v else "clean"))
+            cv2.putText(vis, f"{tag}   ring {rw}x{rh}px  {100.0 * rh / h:.0f}% of frame",
+                        (8, 44), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                        (0, 0, 255) if committed else ((0, 200, 255) if g.clipped_v else (0, 255, 0)),
+                        2, cv2.LINE_AA)
             cv2.putText(vis, f"biggest: off ({g.offset_x:+.2f},{g.offset_y:+.2f}) w {bw}px range {rng:.1f} m  blobs {len(dets)}",
                         (8, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+            if cw is not None:
+                cw.writerow([pos, f"{t:.3f}", len(dets), f"{g.offset_x:.4f}", f"{g.offset_y:.4f}",
+                             f"{g.area_frac:.5f}", rx, ry, rw, rh, f"{rh / float(h):.4f}",
+                             int(g.clipped_v), int(g.v_usable), int(g.has_opening),
+                             f"{rng:.3f}", int(committed), why, int(UNCLIP_V)])
         else:
             cv2.putText(vis, "no detection", (8, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1, cv2.LINE_AA)
+            if cw is not None:
+                cw.writerow([pos, f"{t:.3f}", 0, "", "", "", "", "", "", "", "",
+                             "", "", "", "", 1, "lost", int(UNCLIP_V)])
         cv2.putText(vis, f"t={t:6.2f}s", (8, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
         side = np.hstack([vis, cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)])
         writer.write(side)
@@ -102,6 +147,9 @@ def main(argv=None) -> int:
             print(f"t={t:6.1f} blobs={len(dets):2d} " + (f"biggest off=({g.offset_x:+.2f},{g.offset_y:+.2f}) area={g.area_frac:.4f} w={(g.ring_bbox or g.bbox)[2]}px opening={'yes' if g.opening_bbox else 'no'}" if g else "none"))
     writer.release()
     cap.release()
+    if cfh is not None:
+        cfh.close()
+        print(f"per-frame csv: {args.csv}  (unclip {'ON' if UNCLIP_V else 'OFF'})")
     f = max(1, stats["frames"])
     print(f"frames {stats['frames']}, with a detection {stats['with_det']} ({100.0 * stats['with_det'] / f:.0f} %), "
           f"blobs per frame {stats['blobs'] / f:.1f}, biggest blob area median {np.median(stats['big_area']) if stats['big_area'] else 0:.4f}, "

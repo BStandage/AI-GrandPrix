@@ -91,6 +91,77 @@ def principal_point(w, h):
             float(cy) if cy else h / 2.0)
 
 
+def _commit_px(rx, ry, rw, rh, w, h):
+    """The commit rule, in pixels. See commit_reason for what it means."""
+    at_bottom = (ry + rh) >= (h - CLIP_EDGE_PX)
+    at_top = ry <= CLIP_EDGE_PX
+    at_left = rx <= CLIP_EDGE_PX
+    at_right = (rx + rw) >= (w - CLIP_EDGE_PX)
+    w_clipped = at_left or at_right
+    if at_top and at_bottom:
+        return True, "both_edges"
+    # WIDTH CLIPPED WHILE LEANING ON THE WIDTH. The reconstruction rebuilds the
+    # centre row from rw, so a clipped rw rebuilds it from a number that is
+    # itself too small - and silently, because the rw > rh guard still passes.
+    # Measured on a synthetic walk-in (2026-09-21): at 1.81 m rw pins at the
+    # frame width, offset_y reads -2.47 against a truth of +0.87, and that is
+    # 66 deg of elevation error driving dz straight to its +0.35 cap. Exactly
+    # the flight-4 runaway, one gate-length later. If the ring is NOT clipped
+    # vertically the centroid is measured directly and rw does not matter.
+    if (at_top != at_bottom) and w_clipped:
+        return True, "width_clipped"
+    # SIZE on the TRUE ring size. rh under-reads precisely when the ring is
+    # clipped, which is when this test matters: at 2.01 m the visible box read
+    # 81 % of the frame while the real ring was 160 % of it, so the old rh-only
+    # test did not fire until 1.81 m instead of the intended 3.8 m. The gate is
+    # square, so the unclipped dimension IS the size.
+    size_px = rh if w_clipped else max(rw, rh)
+    if size_px >= COMMIT_FRAC * h:
+        return True, "size"
+    return False, "-"
+
+
+def commit_reason(det, img_shape):
+    """WHEN TO COMMIT, and why. Returns (committed, reason).
+
+    Not "the gate left the frame" - it never does. It OVERFILLS it. Two
+    different things end the vertical reference, at two different ranges:
+
+    BOTH_EDGES (~3.2 m, geometry, not negotiable). A 2.7 m ring subtends more
+    than the 45.5 deg vertical field closer than 3.2 m, so the top and the
+    bottom both run off the frame. With no unclipped vertical edge there is
+    nothing left to rebuild the true centre from, and the raw centroid is
+    whatever the crop happens to be. This one is the lens, not a policy.
+
+    WIDTH_CLIPPED. The reconstruction rebuilds the centre from the ring's
+    width, so a width that is itself cut off by the side of the frame cannot
+    rebuild anything. Only matters while we are leaning on it - a vertically
+    unclipped ring has its centroid measured directly.
+
+    SIZE (~3.8 m, policy, tunable via AIGP_GATE_COMMIT_FRAC). Deliberately a
+    little earlier than the geometric floor, because a vertical correction
+    begun that late has nowhere to go: d44 flight 4, 2026-09-21, started one
+    at 1.8 m and clipped the top bar. Inside this range the aircraft is
+    committed - hold the height the gate gave you while you could still see
+    all of it, and fly through.
+
+    LOST - no detection at all. Callers fade the reference to zero at their
+    slew rate rather than dropping it, so a dropout becomes a vertical speed
+    hold instead of a step.
+
+    Anything else and the reference is LIVE, clipped or not: a singly-clipped
+    ring is reconstructed from its width, which is exact for a square gate.
+
+    This is the one place the rule lives. mask_to_detections applies it to set
+    v_usable; the offline tools call it to say WHICH branch fired."""
+    if det is None:
+        return True, "lost"
+    if det.ring_bbox is None:
+        return True, "no_ring"
+    h, w = img_shape[:2]
+    return _commit_px(*det.ring_bbox, w, h)
+
+
 def mask_to_detections(mask, img_shape, min_area_frac=MIN_GATE_AREA_FRAC):
     """Turn a black-and-white gate mask into a list of GateDetection, nearest gate first. This is
     the geometry a mask-based detector inherits, so it only has to mark the gate pixels.
@@ -154,6 +225,7 @@ def mask_to_detections(mask, img_shape, min_area_frac=MIN_GATE_AREA_FRAC):
         # taller, so a box wider than it is tall means vertical truncation.
         clipped_v, v_usable = False, True
         if UNCLIP_V:
+            committed, _why = _commit_px(rx, ry, rw, rh, w, h)
             at_bottom = (ry + rh) >= (h - CLIP_EDGE_PX)
             at_top = ry <= CLIP_EDGE_PX
             # COMMIT THROUGH THE GATE (d44, race day 1, 2026-09-21). Flown:
@@ -166,20 +238,15 @@ def mask_to_detections(mask, img_shape, min_area_frac=MIN_GATE_AREA_FRAC):
             #
             # Measured by APPARENT SIZE, not range_m - range is the camera's
             # worst signal and read 12.6, 22.9, 59.5 m on this same flight,
-            # while the ring's height in pixels is a direct observation.
-            if rh >= COMMIT_FRAC * h:
-                v_usable = False
-            elif at_bottom and at_top:
-                # BOTH edges cut: the gate overfills the frame and there is no
-                # unclipped vertical edge to rebuild the centre from. Flown on
-                # d44 2026-09-21: she held gate centre out to 4 m, then climbed
-                # from the moment `det` fell under ~3 m, which is where a 2.7 m
-                # ring stops fitting in a 45.5 deg vertical field. Reconstruction
-                # silently switched off there and the raw centroid took over.
-                # Say so instead of guessing - the follower then fades its
-                # vertical reference out and holds the height it already had,
-                # which is the height the gate gave it while it could still see
-                # the whole thing.
+            # while the ring's size in pixels is a direct observation. The
+            # branches (size / both_edges / width_clipped) live in _commit_px,
+            # so the offline tools can report WHICH one fired without a second
+            # copy of the rule drifting away from this one.
+            if committed:
+                # No usable elevation. The follower fades its vertical
+                # reference out and holds the height it already had - which is
+                # the height the gate gave it while it could still see all of
+                # the gate.
                 v_usable = False
             elif rw > rh and at_bottom != at_top:      # exactly one edge cut
                 cy = (ry + rw / 2.0) if at_bottom else ((ry + rh) - rw / 2.0)
