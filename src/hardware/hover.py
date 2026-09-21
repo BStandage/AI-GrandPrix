@@ -280,7 +280,17 @@ def main(argv=None) -> int:
     log = open(log_path, "w", newline="", encoding="utf-8")
     w = csv.writer(log)
     w.writerow(["t", "phase", "z", "vz", "z_target", "a_cmd", "thrust_cmd",
-                "throttle", "roll", "pitch", "yaw_deg", "armed", "vbat", "amps",
+                "throttle", "roll", "pitch", "yaw_deg",
+                # ACTUAL attitude, not the sticks. hover.py commands 1500/1500
+                # throughout, so the roll/pitch columns above are constants and
+                # say nothing about what the aircraft did. d44 drifted forward
+                # on centred sticks, 2026-09-21, and the log could not
+                # distinguish a flight controller whose idea of level is
+                # tilted (it really leans, and accelerates) from an
+                # aerodynamic asymmetry such as prop guards (it holds level
+                # and translates anyway). These two columns settle it.
+                "roll_deg", "pitch_deg",
+                "armed", "vbat", "amps",
                 "gate_seen", "gate_el_deg", "gate_rng", "gate_dz"])
     print(f"log -> {log_path}")
 
@@ -528,6 +538,8 @@ def main(argv=None) -> int:
                 w.writerow([f"{t - t0:.3f}", phase, f"{z:.3f}", f"{vz:.3f}", f"{z_t:.3f}",
                             f"{alt.a_cmd:.2f}", f"{alt.thrust:.2f}", out["throttle"],
                             out["roll"], out["pitch"], f"{math.degrees(est.yaw):.1f}",
+                            f"{s.attitude.roll_deg:.2f}" if s.attitude else "",
+                            f"{s.attitude.pitch_deg:.2f}" if s.attitude else "",
                             int(bool(s.status and s.status.armed)),
                             f"{s.battery.voltage_v:.2f}" if s.battery and s.battery.voltage_v else "",
                             f"{s.battery.current_a:.1f}" if s.battery and s.battery.current_a else "",

@@ -2,9 +2,9 @@
 
 **20-21 September 2026.** First autonomous flights on the real aircraft.
 
-Two airframes damaged and repaired. One root cause behind every failure. One
-clean autonomous hover at the end, and a thrust model that is now measured
-instead of assumed.
+One airframe damaged twice and repaired twice - Randy, both times. Sally was
+never touched. One root cause behind every failure, one clean autonomous hover
+at the end, and a thrust model that is now measured instead of assumed.
 
 ---
 
@@ -33,8 +33,8 @@ Sally hovered on the first attempt with no oscillation at all.
 | 5 | Sally | `--no-baro`, gentle | **clean hover.** No oscillation |
 | 6 | Sally | same again | **clean hover.** Confirmed |
 
-Both airframes were repaired. Randy's camera was replaced and recalibrated;
-his arm was fixed.
+**Every one of those was Randy.** Sally flew twice, cleanly, and was never
+damaged. Randy's camera was replaced and recalibrated, and his arm was fixed.
 
 ---
 
@@ -110,7 +110,7 @@ Her barometer, which behaved throughout this flight, puts her at:
 | where she was when the pilot took over | **0.56 m** |
 
 So roughly **half a metre to three quarters**, slowly sinking. Deliberately
-low - this was the first flight after two crashes.
+low - this was the first flight after Randy's two.
 
 ### The number we came for
 
@@ -162,6 +162,10 @@ was largely a **symptom of the over-thrust**, not an independent fault.
 **So fixing the thrust curve may have fixed the barometer too.** That is the
 first thing to test next session: a normal altitude-hold hover on Sally.
 
+The prop protection is a candidate too - it changes the airflow around the
+whole frame, and Sally carries the same foam. Neither explanation is settled;
+both are cheap to test.
+
 ---
 
 ## Four other bugs, all real, none the cause
@@ -199,7 +203,7 @@ believing it was parked on the start line.
 ## What we got right
 
 **The abort works.** MSP OVERRIDE off returned control instantly, every single
-time, including on the flight that hit the net. It is the reason two repairs
+time, including on the flight that hit the net. It is the reason Randy's two repairs
 cost us an evening rather than the competition. The bench test that proved it
 paid for itself twice in one day.
 
@@ -257,19 +261,33 @@ all wrong together. The ceiling does not reason at all, which is why it worked.
 | `--no-baro` drift | **0.11 m/s per 1.5 s** - about a metre over a 15 s hold |
 | accelerometer at rest | **0.00 m/s^2**, both aircraft |
 | camera fix residual (bench) | **1-6 cm** |
-| aircraft damaged | 2 |
-| aircraft repaired | 2 |
+| airframes damaged | **1** (Randy, twice) |
+| repairs | 2 - camera, then arm |
+| Sally | undamaged, 2 for 2 |
 
 ---
 
 ## Next session, in order
 
-**1. Level-calibrate both flight controllers.** Sally drifted forward the
-whole hover on centred sticks, which means the FC's idea of level is tilted.
-A 2 degree trim error is `0.34 m/s^2` of unopposed acceleration - and it
-corrupts dead reckoning identically, which is about 2.7 m of phantom position
-by the time you reach gate 1. Betaflight **Setup -> Calibrate Accelerometer**
-on a surface checked with a level, then verify with `hardware.tiltcheck`.
+**1. Work out why Sally drifts forward.** She translated the whole hover on
+centred sticks. Two candidates, and they are distinguishable in thirty
+seconds:
+
+| cause | FC on a level surface | in the hover |
+|---|---|---|
+| flight controller level trim | roll/pitch **not** 0 | really leans, so it accelerates |
+| foam prop protection | roll/pitch **~0** | holds level, translates from asymmetric airflow |
+
+Run `hardware.tiltcheck` on a surface checked with a level and read the first
+line. If the FC is honest, it is aerodynamic. `hover.py` now logs the ACTUAL
+roll and pitch alongside the commanded sticks, so the next flight answers this
+by itself.
+
+Either way it matters beyond the drift: a 2 degree attitude error is
+`0.34 m/s^2` of acceleration our dead reckoning does not know about, which is
+about 2.7 m of phantom position by the time you reach gate 1 - wider than the
+opening. If it IS the trim, Betaflight **Setup -> Calibrate Accelerometer** on
+a level surface fixes it.
 
 **2. Normal altitude-hold hover on Sally** (no `--no-baro`). With the
 corrected curve she sits at 17 A, where her barometer behaves. If it holds
