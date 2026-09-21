@@ -308,3 +308,53 @@ class TestBarometerSpikeRejection(unittest.TestCase):
         # a median of three costs one sample of lag and nothing else
         out = self._run([0.0, 0.3, 0.6, 0.9, 1.2, 1.5])
         self.assertGreater(out[-1], 1.1, f"a real climb was flattened: {out}")
+
+
+class TestThrottleGating(unittest.TestCase):
+    """A barometer reading taken while the throttle was moving is not evidence.
+
+    The spikes are throttle-coupled: d44 logged a clean trace under --no-baro
+    at a constant ~1227 PWM, then spiked to 1.76 m minutes later with the
+    altitude loop chasing. Same aircraft, same current, minutes apart. The
+    difference was whether the loop was disturbing its own sensor.
+    """
+
+    def test_a_steady_throttle_is_accepted(self):
+        src = FcStateSource(BaroBridge())
+        for i in range(20):
+            src.note_throttle(1228, t=i * 0.02)
+        self.assertTrue(src.throttle_is_steady(0.4))
+
+    def test_a_moving_throttle_is_not(self):
+        src = FcStateSource(BaroBridge())
+        for i in range(20):
+            src.note_throttle(1000 + i * 30, t=i * 0.02)   # 1500 PWM/s
+        self.assertFalse(src.throttle_is_steady(0.4))
+
+    def test_it_does_not_gate_before_it_has_evidence(self):
+        # with no throttle history at all, gating would silence the barometer
+        # entirely - which is worse than the problem
+        src = FcStateSource(BaroBridge())
+        self.assertTrue(src.throttle_is_steady(0.0))
+
+
+class TestBaroTrustMonitor(unittest.TestCase):
+    """The aircraft should notice its own barometer lying.
+
+    Five flights chased an altitude the sensor was not delivering, and the one
+    mode that worked never asked for a height at all. Throwing that switch was
+    a human decision each time.
+    """
+
+    def test_it_trusts_a_sane_barometer(self):
+        br = BaroBridge()
+        br.SEQ = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+        src = FcStateSource(br)
+        for _ in range(len(br.SEQ)):
+            src.estimate()
+            br.step()
+        self.assertTrue(src.baro_trusted)
+
+    def test_the_monitor_starts_trusting(self):
+        src = FcStateSource(BaroBridge())
+        self.assertTrue(src.baro_trusted)

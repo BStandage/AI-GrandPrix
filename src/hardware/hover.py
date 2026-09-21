@@ -389,6 +389,7 @@ def main(argv=None) -> int:
     airborne_latch = False
     vz_bad = 0.0                     # seconds of vertical speed runaway
     thr_clipped = 0                  # ticks the band had to step in
+    baro_lost = False                # the estimator stopped believing it
     ceil_bad = 0.0                   # seconds the RAW baro has been over the line
     rng_hist = []                    # (t, range) over the last second
     gate_range_t = None              # the distance being held
@@ -547,7 +548,7 @@ def main(argv=None) -> int:
                 z_t = max(0.0, z_t - args.descend * period)
                 vz_ff = -args.descend
 
-            if args.no_baro:
+            if args.no_baro or baro_lost:
                 # NO BAROMETER IN THE LOOP AT ALL. d45, 2026-09-20: with props
                 # running the barometer read -2.08 m while the aircraft sat at
                 # about 0.3, held that for 0.4 s, then jumped to +0.85. No
@@ -598,6 +599,19 @@ def main(argv=None) -> int:
                 # previous attempt set a local and changed nothing.
                 est.p[2] = z
                 thr = alt.throttle(t - t0, est, z_t, vz_ff, airborne, integrate=True)
+            # AUTOMATIC FALLBACK. If the barometer has stopped agreeing with
+            # the accelerometer, stop flying on a height. This is the switch we
+            # kept throwing by hand - five flights chased an altitude the
+            # sensor was not delivering, and the one mode that worked was the
+            # one that never asked for a height at all. The aircraft can
+            # notice this for itself.
+            if (not args.no_baro) and not src.baro_trusted and not baro_lost:
+                baro_lost = True
+                print("")
+                print(f"  BAROMETER NOT TRUSTED at t={t - t0:.1f}s: its slope and the "
+                      f"accelerometer disagree. Holding vertical speed instead of "
+                      f"height from here.")
+
             # THROTTLE BAND. The last thing before it goes out, and the only
             # guard that does not depend on believing anything. A hover needs
             # 1 g. Randy's altitude loop asked for 1837 PWM on an aircraft
@@ -682,6 +696,9 @@ def main(argv=None) -> int:
                        roll=(1500 if done else roll_stick),
                        pitch=(1500 if done else pitch_stick),
                        yaw=1500, arm=(1000 if done else 1800), aux2=1500)
+            # the estimator needs to know what we commanded, so it can refuse
+            # barometer readings taken while the throttle was moving
+            src.note_throttle(out["throttle"], t)
             if args.arm:
                 br.set_rc(**out)
             else:
@@ -750,6 +767,10 @@ def main(argv=None) -> int:
         print("")
         print(f"  the throttle band stepped in on {thr_clipped} ticks - "
               f"the loop asked for more than {args.thr_band} PWM off hover")
+    if src.alt_gated:
+        print(f"  {src.alt_gated} barometer samples dropped for a moving throttle")
+    if baro_lost:
+        print("  the barometer lost the estimator's trust during this flight")
     if hover_pwms:
         hover_pwms.sort()
         med = hover_pwms[len(hover_pwms) // 2]
