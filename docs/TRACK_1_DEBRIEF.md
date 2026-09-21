@@ -2,9 +2,9 @@
 
 **20-21 September 2026.** First autonomous flights on the real aircraft.
 
-One airframe damaged twice and repaired twice - Randy, both times. Sally was
-never touched. One root cause behind every failure, one clean autonomous hover
-at the end, and a thrust model that is now measured instead of assumed.
+Randy flew once and broke his arm. Sally flew twice and hovered cleanly both
+times. Between those two facts sits the finding the whole day had been
+pointing at, and it came out of Randy's crash log.
 
 ---
 
@@ -23,22 +23,36 @@ Sally hovered on the first attempt with no oscillation at all.
 
 ## The flights
 
+**Three flights on the track. Randy got one.**
+
 | # | aircraft | what we asked for | what happened |
 |---|---|---|---|
-| 1 | Randy | hover 0.76 m | climbed to ~3.3 m, throttle cut, fell. **Camera destroyed** |
-| 2 | Randy | hover 0.40 m, ceiling 1.0 | reached 1.00 m in 0.5 s. Ceiling caught it |
-| 3 | Randy | hover 0.40 m, ceiling 1.0 | reached 0.85 m in 0.8 s. Ceiling caught it |
-| 4 | Randy | `--no-baro`, hold vertical speed | climbed steadily to **5.1 m**, drifted left, hit the net. **Arm broken** |
-| - | - | **thrust curve corrected from flight 4's own log** | - |
-| 5 | Sally | `--no-baro`, gentle | **clean hover.** No oscillation |
-| 6 | Sally | same again | **clean hover.** Confirmed |
+| 1 | **Randy** | `--no-baro`, hold vertical speed | climbed steadily to **5.1 m**, drifted left, hit the net. **Arm broken.** His only flight |
+| - | - | **thrust curve corrected from flight 1's own log** | - |
+| 2 | Sally | `--no-baro`, gentle | **clean hover.** No oscillation |
+| 3 | Sally | same again | **clean hover.** Confirmed |
 
-**Every one of those was Randy.** Sally flew twice, cleanly, and was never
-damaged. Randy's camera was replaced and recalibrated, and his arm was fixed.
+Randy's arm was repaired. Sally was never damaged.
+
+### What came before, in the cage
+
+Context for why Randy was flying `--no-baro` at all. Earlier the same day, in
+the cage:
+
+- a hover at 0.76 m climbed to about 3.3 m and fell. **Camera destroyed** -
+  replaced and recalibrated (`fy 824`, `hfov 75.8`, RMS 0.281 px, tilt 20 deg)
+- two hovers at 0.40 m with a 1.0 m ceiling were caught and disarmed
+  automatically at 1.06 and 1.29 m
+- the barometer was found to read `-0.10 -> -3.86 -> -0.49 -> +1.00` with
+  props running, so it was taken out of the loop entirely
+
+Every one of those was read as an instrument fault. They were real faults. The
+aircraft was also being told to climb the whole time, and nobody had asked
+whether the thrust model was right.
 
 ---
 
-## Flight 4 - how Randy broke his arm
+## Randy's flight - how he broke his arm
 
 Worth walking through, because the log contains the answer to the whole day.
 
@@ -81,7 +95,7 @@ curve_acc = [1.18, 5.87, 13.03, 21.86, 31.03, 44.35, 58.61]
 
 ---
 
-## Flights 5 and 6 - Sally's hover
+## Sally's two - the hover that worked
 
 Applied the corrected curve, synced, and flew her gently: 1.12 g of takeoff
 for 0.6 s, then hold vertical speed at zero.
@@ -110,7 +124,7 @@ Her barometer, which behaved throughout this flight, puts her at:
 | where she was when the pilot took over | **0.56 m** |
 
 So roughly **half a metre to three quarters**, slowly sinking. Deliberately
-low - this was the first flight after Randy's two.
+low - this was the first flight after Randy's crash.
 
 ### The number we came for
 
@@ -203,7 +217,7 @@ believing it was parked on the start line.
 ## What we got right
 
 **The abort works.** MSP OVERRIDE off returned control instantly, every single
-time, including on the flight that hit the net. It is the reason Randy's two repairs
+time, including on the flight that hit the net. It is the reason Randy's repairs
 cost us an evening rather than the competition. The bench test that proved it
 paid for itself twice in one day.
 
@@ -261,9 +275,8 @@ all wrong together. The ceiling does not reason at all, which is why it worked.
 | `--no-baro` drift | **0.11 m/s per 1.5 s** - about a metre over a 15 s hold |
 | accelerometer at rest | **0.00 m/s^2**, both aircraft |
 | camera fix residual (bench) | **1-6 cm** |
-| airframes damaged | **1** (Randy, twice) |
-| repairs | 2 - camera, then arm |
-| Sally | undamaged, 2 for 2 |
+| Randy | 1 flight, 1 crash, arm repaired |
+| Sally | 2 flights, 2 clean hovers, undamaged |
 
 ---
 
