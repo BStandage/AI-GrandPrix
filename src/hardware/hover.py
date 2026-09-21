@@ -545,6 +545,20 @@ def main(argv=None) -> int:
                     thr = int(cfg.follower.takeoff_pwm)
                     alt.a_cmd, alt.thrust = 0.0, 0.0
                 else:
+                    # VISION WITHOUT ANY HEIGHT AT ALL. With --gate-z the
+                    # elevation to the gate sets the vertical SPEED to fly, and
+                    # the accelerometer measures that speed. No barometer
+                    # appears anywhere in this loop: not as a height, not as a
+                    # target, not as a correction.
+                    #
+                    # This is what makes the vision hold independent. --gate-z
+                    # on its own still turns the null into a height target and
+                    # then uses the barometer to reach it, so it inherits
+                    # whatever the sensor is doing. Here it does not.
+                    if phase == "hold" and gate_el is not None:
+                        vz_ff = max(-args.gate_slew,
+                                    min(args.gate_slew,
+                                        args.gate_el_gain * math.degrees(gate_el)))
                     a_cmd = args.vz_gain * (vz_ff - vz)
                     a_cmd = max(-4.0, min(4.0, a_cmd))
                     cos_tilt = max(float(est.R[2, 2]), 0.25)
@@ -554,6 +568,12 @@ def main(argv=None) -> int:
                                         min(cfg.thrust.pwm_max,
                                             cfg.pwm_for_thrust(thrust)))))
             else:
+                # Hand the loop the FUSED height. est.p[2] is the raw
+                # barometer, which is what AltitudeLoop closes on, and on this
+                # airframe it spikes by a metre with props running. Setting it
+                # here is the only place that reaches the controller - a
+                # previous attempt set a local and changed nothing.
+                est.p[2] = z
                 thr = alt.throttle(t - t0, est, z_t, vz_ff, airborne, integrate=True)
             # RUNAWAY GUARD on vertical SPEED, which is the signal we trust.
             # With no height to compare against, a climb that keeps climbing is
