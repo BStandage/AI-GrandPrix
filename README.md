@@ -73,6 +73,31 @@ python -m perception.video_probe ../event_files/archer_AIGP.mkv --still 1.6   # 
 
 `AIGP_CAM_NOISE=0` = perfect detector (diagnostics only). Traces: `out/flightlogs/race_NNN.csv`, `dr_NNN.csv`.
 
+## Debrief: what it thought, and what that proves
+
+`raceline.debrief` draws where the drone believed it was over the plan it flew
+and writes a PNG per flight, sim or Archer, same tool either way. It reads NO
+ground truth: only the two things the real drone can measure about itself.
+
+- **The offset it believed it had at each gate.** It fitted through a 1.5 m
+  opening, so the true offset was inside +-0.75 m; anything it believed beyond
+  that is position error proven without measuring anything.
+- **Camera versus dead reckoning at each fix**, split across the line of sight
+  (bearing) and along it (range). One sign at every gate is calibration, not
+  drift: across is the boresight or `--map-north`, along is `--fy` and the gate
+  width the range divides by.
+
+```
+python -m raceline.debrief ../out/flightlogs/hw_follower_20260919_141233.csv
+python -m raceline.debrief --aggregate      # the table over every logged run
+```
+
+Each flight appends a row per leg to `out/debrief/drift_log.csv`; `--aggregate`
+reports mean +- sd per gate and flags what is off the same way over 3+ runs.
+`batch_fly` debriefs each sim run automatically. Two runs never establish a
+bias, and a sim-only bias is a bias of the sim's noise model: fly it on the
+Archer before changing anything.
+
 ## Archer (Orin, from `src`, props off until the last line)
 
 ```
