@@ -322,7 +322,17 @@ def main(argv=None) -> int:
             st = br.state().status
             br.set_rc(throttle=1000, roll=1500, pitch=1500, yaw=1500, arm=1000, aux2=1500)
             if st is not None and st.armed and st.msp_override:
-                print(f"armed, MSP OVERRIDE on, modes {', '.join(st.active_modes)}: lifting off")
+                # RE-ZERO HERE, not at startup. The barometer drifts about
+                # 0.25 m/min at rest and the wait for the pilot is open-ended,
+                # so a zero taken a minute ago is a minute stale. d44's bench
+                # run, 2026-09-21, read -0.51 m one second after a zero and
+                # took six seconds to settle: at liftoff that is the controller
+                # believing it is half a metre low and asking for the climb to
+                # match. Zeroing now costs nothing and the aircraft is still on
+                # the ground, which is the only moment the zero is true.
+                src.zero_altitude()
+                print(f"armed, MSP OVERRIDE on, modes {', '.join(st.active_modes)}: "
+                      f"altitude re-zeroed, lifting off")
                 break
             time.sleep(0.05)
 
