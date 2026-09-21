@@ -524,7 +524,7 @@ def _reset_vision_dz():
 _ALT = AltitudeLoop(CFG)
 _YAW = YawLoop(CFG)
 LAND_RATE_MPS = 1.0   # descent after the finish (see autopilot)
-_state = {"done_t": None, "dbg_t": 0.0, "trace": None, "trace_n": 0}
+_state = {"done_t": None, "dbg_t": 0.0, "trace": None, "trace_n": 0, "airborne_latch": False}
 
 # Per-tick trace, decimated to TRACE_EVERY ticks (~100 Hz at the 1 kHz
 # control rate), flushed every second so a crash still leaves the file.
@@ -567,7 +567,7 @@ def reset_state() -> None:
     _YAW.reset()
     if _state["trace"] is not None:
         _state["trace"].close()
-    _state.update(done_t=None, dbg_t=0.0, trace=None, trace_n=0)
+    _state.update(done_t=None, dbg_t=0.0, trace=None, trace_n=0, airborne_latch=False)
 
 
 _DR = {"fh": None, "n": 0, "det": None}
@@ -670,7 +670,22 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
         if est.p[2] < 0.10 and dt_done > 0.5:
             return RCCommand(arm=1000, throttle=1000, aux2=AUX2)
 
-    airborne = est.p[2] >= CFG.follower.min_alt_translation_m
+    # AIRBORNE LATCHES (d44, race day 1, 2026-09-21). AltitudeLoop returns an
+    # OPEN-LOOP takeoff_pwm whenever `not airborne`, and airborne was recomputed
+    # every tick from est.p[2] against min_alt_translation_m = 0.0. The height
+    # estimate swings through zero under prop wash - flown: +1.60, -0.30, +1.52,
+    # -1.44, +1.64, -0.85 in consecutive seconds - so the controller was thrown
+    # out of closed loop and back into TAKEOFF several times a second, each time
+    # commanding 1250 PWM with no feedback. That is a limit cycle: she bounced
+    # off the ground and reclimbed to gate height repeatedly, and `air=False`
+    # appears with `thr=1250` on every bounce in the log.
+    #
+    # An aircraft that has left the ground has left it. Latch it: once true it
+    # stays true for the run, so a lying barometer can no longer re-arm the
+    # takeoff branch. reset_state() clears it between runs.
+    if est.p[2] >= CFG.follower.min_alt_translation_m:
+        _state["airborne_latch"] = True
+    airborne = _state["airborne_latch"]
     if VERT_VISION:
         # est.p[2] cancels out of the loop's error term, so the barometer is
         # not in the vertical channel at all. See the note at VERT_VISION.
