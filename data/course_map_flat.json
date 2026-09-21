@@ -1,0 +1,343 @@
+{
+ "frame": "ENU, metres. Origin = SW corner of the published track boundary. +X east = PDF +X; +Y north = PDF -Y (y_m = (165 ft - Y_ft) * 0.3048). Headings CCW from +X; published rot (deg CW from up) -> heading = 90 - rot.",
+ "source": "published",
+ "footprint_m": [
+  25.908,
+  50.292
+ ],
+ "gate_geometry": {
+  "outer_m": 2.7,
+  "opening_m": 1.5,
+  "depth_m": 0.26,
+  "opening_center_height_m": 1.35
+ },
+ "gates": [
+  {
+   "id": 1,
+   "order": 0,
+   "xy": [
+    3.658,
+    28.651
+   ],
+   "yaw_rad": -3.1416,
+   "entry_heading_rad": 1.5708,
+   "type": "single",
+   "openings": [
+    {
+     "z": 1.35
+    }
+   ],
+   "confidence": "high",
+   "published": {
+    "x_ft": 12.0,
+    "y_ft": 71.0,
+    "rot_deg_cw": 0,
+    "flight_direction": "Up"
+   }
+  },
+  {
+   "id": 2,
+   "order": 1,
+   "xy": [
+    4.877,
+    38.405
+   ],
+   "yaw_rad": -3.1416,
+   "entry_heading_rad": 1.5708,
+   "type": "single",
+   "openings": [
+    {
+     "z": 1.35
+    }
+   ],
+   "confidence": "high",
+   "published": {
+    "x_ft": 16.0,
+    "y_ft": 39.0,
+    "rot_deg_cw": 0,
+    "flight_direction": "Up"
+   }
+  },
+  {
+   "id": 3,
+   "order": 2,
+   "xy": [
+    12.192,
+    45.11
+   ],
+   "yaw_rad": 1.5708,
+   "entry_heading_rad": 0.0,
+   "type": "single",
+   "openings": [
+    {
+     "z": 1.35
+    }
+   ],
+   "confidence": "high",
+   "published": {
+    "x_ft": 40.0,
+    "y_ft": 17.0,
+    "rot_deg_cw": 90,
+    "flight_direction": "Right"
+   }
+  },
+  {
+   "id": 4,
+   "order": 3,
+   "xy": [
+    21.946,
+    38.1
+   ],
+   "yaw_rad": 0.0,
+   "entry_heading_rad": -1.5708,
+   "type": "single",
+   "openings": [
+    {
+     "z": 1.35
+    }
+   ],
+   "confidence": "high",
+   "published": {
+    "x_ft": 72.0,
+    "y_ft": 40.0,
+    "rot_deg_cw": 180,
+    "flight_direction": "Down"
+   }
+  },
+  {
+   "id": 5,
+   "order": 4,
+   "xy": [
+    20.117,
+    28.956
+   ],
+   "yaw_rad": -0.6109,
+   "entry_heading_rad": -2.1817,
+   "type": "single",
+   "openings": [
+    {
+     "z": 1.35
+    }
+   ],
+   "confidence": "high",
+   "published": {
+    "x_ft": 66.0,
+    "y_ft": 70.0,
+    "rot_deg_cw": 215,
+    "flight_direction": "Down-left"
+   }
+  },
+  {
+   "id": 6,
+   "order": 5,
+   "xy": [
+    12.497,
+    24.079
+   ],
+   "yaw_rad": 1.5708,
+   "entry_heading_rad": 0.0,
+   "type": "single",
+   "openings": [
+    {
+     "z": 1.35
+    }
+   ],
+   "confidence": "high",
+   "published": {
+    "x_ft": 41.0,
+    "y_ft": 86.0,
+    "rot_deg_cw": 90,
+    "flight_direction": "Right",
+    "flight_direction_note": "published direction only; the gate may be BYPASSED on either side or over the top on the way to its entry (organizers, 2026-09-17)"
+   },
+   "either_direction": false
+  },
+  {
+   "id": 7,
+   "order": 6,
+   "xy": [
+    21.488,
+    17.8
+   ],
+   "yaw_rad": 0.0,
+   "entry_heading_rad": -1.5708,
+   "type": "single",
+   "openings": [
+    {
+     "z": 1.35
+    }
+   ],
+   "confidence": "high",
+   "published": {
+    "x_ft": 70.5,
+    "y_ft": 106.6,
+    "rot_deg_cw": 180,
+    "flight_direction": "Down"
+   }
+  },
+  {
+   "id": 8,
+   "order": 7,
+   "xy": [
+    18.288,
+    10.973
+   ],
+   "yaw_rad": -0.6109,
+   "entry_heading_rad": -2.1817,
+   "type": "single",
+   "openings": [
+    {
+     "z": 1.35
+    }
+   ],
+   "confidence": "high",
+   "published": {
+    "x_ft": 60.0,
+    "y_ft": 129.0,
+    "rot_deg_cw": 215,
+    "flight_direction": "Down-left"
+   }
+  },
+  {
+   "id": 9,
+   "order": 8,
+   "xy": [
+    12.101,
+    5.273
+   ],
+   "yaw_rad": 0.0,
+   "entry_heading_rad": -1.5708,
+   "type": "single",
+   "openings": [
+    {
+     "z": 1.35,
+     "entry_heading_rad": 1.5708
+    }
+   ],
+   "confidence": "med",
+   "published": {
+    "x_ft": 39.7,
+    "y_ft": 147.7,
+    "rot_deg_cw": 180,
+    "flight_direction": "Down"
+   },
+   "note": "double gate: published ONCE (rot 180 = southbound) but flown twice (organizer FAQ 2026-08-28): south through the top opening, U-turn, north through the low opening. Opening heights are NOT published: 4.05 m top is the 2026-08-27 overhead estimate."
+  },
+  {
+   "id": 10,
+   "order": 9,
+   "xy": [
+    3.962,
+    16.764
+   ],
+   "yaw_rad": -3.1416,
+   "entry_heading_rad": 1.5708,
+   "type": "single",
+   "openings": [
+    {
+     "z": 1.35
+    }
+   ],
+   "confidence": "high",
+   "published": {
+    "x_ft": 13.0,
+    "y_ft": 110.0,
+    "rot_deg_cw": 0,
+    "flight_direction": "Up"
+   }
+  }
+ ],
+ "meta": {
+  "published_source": "Drone_Race_Track_Gate_Coordinates_with_doublegate.pdf (organizer, rev 2026-09)",
+  "published_frame": "origin top-left (NW) of the 85 ft x 165 ft boundary, X right, Y down, rot CW from up",
+  "naming": "id = organizer gate number (1..10); order = traversal index; code labels gK use order, so published gate N = g(N-1)",
+  "race": "gates in numerical order starting at gate 1; 2 laps",
+  "traversal_order_verified": true,
+  "direction_assumed": false,
+  "cones_xy": [
+   [
+    0.0,
+    50.292
+   ],
+   [
+    14.935,
+    50.292
+   ],
+   [
+    0.0,
+    32.614
+   ],
+   [
+    14.935,
+    32.614
+   ],
+   [
+    0.0,
+    15.24
+   ],
+   [
+    14.935,
+    15.24
+   ]
+  ],
+  "cones_note": "6 orange circles eyeballed from the PDF figure, +-1.5 m; NOT in the published table (the overhead image had 10)",
+  "landmarks": [
+   {
+    "what": "solid orange bar 1.5 m past gate 1: probably the timing line (spec: timed from the first timing-line cross)",
+    "xy_ft": [
+     12,
+     66
+    ],
+    "xy": [
+     3.658,
+     30.175
+    ],
+    "confidence": "low"
+   },
+   {
+    "what": "dashed orange line behind gate 1: the START position (see meta.start)",
+    "xy_ft": [
+     12,
+     93
+    ],
+    "xy": [
+     3.17,
+     21.36
+    ],
+    "confidence": "med"
+   }
+  ],
+  "overhead_estimate": "data/course_map_overhead_estimate.json (2026-08-27) - see alignment below",
+  "overhead_estimate_alignment": {
+   "old_id_to_published_gate": {
+    "9": 10,
+    "4": 1,
+    "1": 2,
+    "0": 3,
+    "2": 4,
+    "3": 5,
+    "5": 6,
+    "7": 7,
+    "8": 8,
+    "10": 9
+   },
+   "dyaw_deg": 0.058,
+   "tx_m": 0.336,
+   "ty_m": 0.243,
+   "worst_residual_m": 0.482,
+   "dropped_old_id": 6
+  },
+  "start": {
+   "xy": [
+    3.17,
+    21.36
+   ],
+   "heading_rad": 1.5708,
+   "what": "dashed orange line behind gate 1 = drone start position (Brian, 2026-09-15)",
+   "source": "overhead extraction (grid-verified, 2.26 m bar) rigid-aligned onto the published frame; the PDF figure itself reads ~(12, 91-95) ft",
+   "to_g0_m": 7.31,
+   "confidence": "med"
+  },
+  "variant": "FLAT: the stacked gate's TOP opening (4.05 m) is removed, so every crossing on the course is at 1.35 m. Deliberate competition choice, 2026-09-21 - the high gate is the only climb on the course, and the vertical channel is what has broken every flight. Four gates plus the hairpin puts us in the finals; the missed top opening costs time we are not competing for anyway."
+ }
+}
