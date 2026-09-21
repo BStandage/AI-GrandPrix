@@ -469,7 +469,23 @@ VERT_EL_GAIN = 0.06        # metres of height correction per degree of elevation
                            # that it does not need one.
 VERT_DZ_MAX = 0.35         # hard cap on that correction, m
 VERT_EL_STALE_S = 0.5      # a detection older than this is not used
+VERT_DZ_SLEW = 0.35        # m/s the reference may move. THE REFERENCE IS
+                           # SLEW-LIMITED, not just clamped, and that matters
+                           # more than the clamp. The detector is spotty: it
+                           # found a gate in 99.6 percent of bench frames and
+                           # also found one with the lens covered, so it will
+                           # flicker. Unlimited, each acquire/lose cycle steps
+                           # the reference by up to 0.35 m, and kp_z is 9.0 -
+                           # a 3 m/s^2 pulse appearing and vanishing at the
+                           # detection rate. kd_z damps VELOCITY; nothing
+                           # damps a step in the reference.
+                           #
+                           # Slew-limited, a flicker lasting one frame moves
+                           # the reference 0.01 m. Only a detection that
+                           # PERSISTS gets to move the aircraft, which is
+                           # exactly the discrimination we want.
 _GATE_EL = None            # (t, elevation_rad), set by the runtime each tick
+_DZ = {"v": 0.0, "t": None}  # the slew-limited reference offset
 
 
 def set_gate_elevation(el_rad, t):
@@ -482,14 +498,27 @@ def set_gate_elevation(el_rad, t):
 
 
 def _vision_dz(t):
-    """How far to move vertically to sit level with the gate's centre."""
-    if not VERT_VISION or _GATE_EL is None:
-        return 0.0, None
-    t_el, el = _GATE_EL
-    if t - t_el > VERT_EL_STALE_S:
-        return 0.0, None
-    dz = VERT_EL_GAIN * math.degrees(el)
-    return max(-VERT_DZ_MAX, min(VERT_DZ_MAX, dz)), el
+    """How far to move vertically to sit level with the gate's centre.
+
+    Slew-limited: see VERT_DZ_SLEW. Losing the gate walks the reference back
+    to zero at the same rate rather than dropping it, so a dropout is a fade
+    into velocity hold and not a step."""
+    want, el = 0.0, None
+    if VERT_VISION and _GATE_EL is not None:
+        t_el, e = _GATE_EL
+        if t - t_el <= VERT_EL_STALE_S:
+            el = e
+            want = max(-VERT_DZ_MAX,
+                       min(VERT_DZ_MAX, VERT_EL_GAIN * math.degrees(e)))
+    dt = 0.02 if _DZ["t"] is None else max(0.0, min(0.1, t - _DZ["t"]))
+    _DZ["t"] = t
+    step = VERT_DZ_SLEW * dt
+    _DZ["v"] += max(-step, min(step, want - _DZ["v"]))
+    return _DZ["v"], el
+
+
+def _reset_vision_dz():
+    _DZ["v"], _DZ["t"] = 0.0, None
 
 
 _ALT = AltitudeLoop(CFG)
