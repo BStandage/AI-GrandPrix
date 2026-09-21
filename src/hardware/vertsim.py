@@ -138,7 +138,24 @@ def run(cfg, mode, alt, seconds, climb_s, takeoff_pwm, baro_w, vz_gain,
         elif phase == "hold" and t - t_phase > seconds:
             break
 
-        if mode == "no-baro":
+        if mode == "cascade":
+            # CASCADED, the textbook quadrotor structure: the height error
+            # sets a VELOCITY TARGET, and a fast inner loop on the
+            # accelerometer tracks that. The barometer therefore only ever
+            # moves a target that is clamped to +-vz_cap, and can never make a
+            # fast throttle change however badly it spikes. Our single-loop
+            # version put it straight into the throttle, which is the feedback
+            # path that broke five flights.
+            if not airborne:
+                thr = takeoff_pwm
+            else:
+                vz_cap = 0.5
+                z_t2 = alt if phase != "climb" else min(alt, z_t)
+                vz_ff = max(-vz_cap, min(vz_cap, 1.0 * (z_t2 - z_f)))
+                a_cmd = max(-4.0, min(4.0, vz_gain * (vz_ff - vz_f)))
+                thr = int(round(max(th.pwm_min, min(th.pwm_max,
+                                                    cfg.pwm_for_thrust(G + a_cmd)))))
+        elif mode == "no-baro":
             if not airborne:
                 thr = takeoff_pwm
             else:
@@ -182,7 +199,7 @@ def run(cfg, mode, alt, seconds, climb_s, takeoff_pwm, baro_w, vz_gain,
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--config", default="../config/ladder/vehicle_k025_cam20_75.toml")
-    ap.add_argument("--mode", choices=("baro", "no-baro"), default="baro")
+    ap.add_argument("--mode", choices=("baro", "no-baro", "cascade"), default="baro")
     ap.add_argument("--alt", type=float, default=0.6)
     ap.add_argument("--seconds", type=float, default=15.0)
     ap.add_argument("--climb-s", type=float, default=0.6)
@@ -216,10 +233,11 @@ def main(argv=None) -> int:
               f"takeoff {args.takeoff_pwm}, baro_w {args.baro_w}\n")
         print(f"{'':28} {'ceiling hits':>13} {'peak m':>8} {'max vz':>8} {'wander m':>9}")
         for label, mode, quiet in (
-                ("commanded alt, clean baro", "baro", True),
-                ("commanded alt, OUR baro  ", "baro", False),
-                ("velocity hold, clean baro", "no-baro", True),
-                ("velocity hold, OUR baro  ", "no-baro", False)):
+                ("single loop, clean baro ", "baro", True),
+                ("single loop, OUR baro   ", "baro", False),
+                ("CASCADE,     clean baro ", "cascade", True),
+                ("CASCADE,     OUR baro   ", "cascade", False),
+                ("velocity hold, OUR baro ", "no-baro", False)):
             r = trial(mode, quiet)
             print(f"  {label}  {r['ceiling']:>4}/{args.runs:<8} "
                   f"{r['peak']:>8.2f} {r['vz']:>8.2f} {r['wander']:>9.2f}")
