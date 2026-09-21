@@ -98,6 +98,7 @@ class FcStateSource:
         self._alt_last_t = 0.0
         self.alt_rejected = 0        # how many samples were thrown away
         self._alt_rej_seen = 0       # a rejected sample is not a fresh one
+        self.z_filtered = 0.0        # accel+baro fused height - see estimate()
 
     def zero_altitude(self) -> None:
         """Call on the ground before takeoff: baro altitude is relative."""
@@ -196,7 +197,16 @@ class FcStateSource:
         fresh = fresh and self.alt_rejected == self._alt_rej_seen
         self._alt_rej_seen = self.alt_rejected
         az_w = float((R @ self.accel_body)[2]) - 9.80665 if self.accel_body is not None else 0.0
-        _, vz = self.vert.update(dt_v, az_w, alt, fresh)
+        # z_filtered is the accelerometer and the barometer fused. It is what a
+        # controller should close on: the accelerometer does not care about
+        # prop wash, so it carries the estimate through the 100 ms a buffeted
+        # barometer spends lying, and the barometer still anchors it against
+        # drift. d45, 2026-09-20, first props-on flight: the raw sensor read
+        # -3.86 m while sitting at 0.4, and the loop, closing on raw, asked for
+        # 4.35 g. p[2] stays RAW because the dead-reckoning path feeds it into
+        # a second VerticalFilter and must not be twice filtered.
+        z_f, vz = self.vert.update(dt_v, az_w, alt, fresh)
+        self.z_filtered = float(z_f)
         self.last_t = s.t
         return StateEstimate(p=np.array([0.0, 0.0, alt]), v=np.array([0.0, 0.0, float(vz)]),
                              R=R, yaw=yaw, omega=omega)
