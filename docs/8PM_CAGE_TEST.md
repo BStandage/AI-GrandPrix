@@ -200,6 +200,41 @@ costs.
 
 ---
 
+## Step 7 - RANDY, if there is time and battery left
+
+**Last, deliberately.** Sally's three flights are the session; Randy is upside.
+
+```
+python3 -m hardware.hover --port /dev/ttyTHS1 --alt 1.35 --seconds 20   --ceiling 2.4 --config ../config/ladder/vehicle_k025_cam20_75.toml --arm
+```
+
+Three things at once, which is why it is worth a battery:
+
+**It is the discriminating experiment.** Randy is the aircraft that produced
+`-3.86 m` while sitting at 0.3. If his barometer is clean at 17 A now, the
+theory is confirmed on the aircraft that showed the problem - much stronger
+evidence than Sally, who was never obviously broken.
+
+**It shakes down his repair.** The arm has not flown since it was fixed. A
+cage is where you want to find a bad repair.
+
+**His camera is the calibrated one.** `fy 824`, `cx 627.2`, `cy 368.8`, tilt
+measured at 20 degrees on that airframe. Sally is flying vision on those
+numbers as approximations. So if her vision hold in flight 3 sat at a
+consistent offset, run the vision command on Randy and see whether the offset
+goes away - that separates a calibration error from a real one.
+
+```
+AIGP_CAM_CX=627.2 AIGP_CAM_CY=368.8 python3 -m hardware.hover --port /dev/ttyTHS1 --alt 1.2 --seconds 15   --gate-z --gate-roll --gate-pitch --fy 824 --cam-tilt 20   --gate-z-min 0.6 --gate-z-max 1.8   --config ../config/ladder/vehicle_k025_cam20_75.toml --arm
+```
+
+| Randy's barometer | means |
+|---|---|
+| clean at 1.35 m | it was the over-thrust all along. Both aircraft are course-capable |
+| still jumping | his sensor is genuinely worse - damaged, or mounted differently. Sally becomes the race aircraft and Randy needs the FC soft-mounted |
+
+---
+
 ## What is protecting her
 
 | | |
