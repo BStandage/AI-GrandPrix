@@ -129,6 +129,20 @@ def main(argv=None) -> int:
                          "The config default (1700) was tuned on the 0.8 kg sim plant; "
                          "on the measured curve it is 3.4 g and the aircraft leaps. "
                          "1350 is about 1.3 g, which lifts off gently. Default: the config.")
+    ap.add_argument("--no-baro", action="store_true",
+                    help="take the barometer out of the loop entirely and hold "
+                         "vertical SPEED at zero using the accelerometer. For an "
+                         "aircraft whose barometer is unusable with props running. "
+                         "It will not hold a height - it drifts slowly and the pilot "
+                         "corrects. See the note in the code.")
+    ap.add_argument("--climb-s", type=float, default=0.45,
+                    help="--no-baro: seconds of takeoff thrust before the speed hold "
+                         "takes over. 0.45 s at 1.32 g is about 0.3 m up. This is the "
+                         "only altitude control this mode has.")
+    ap.add_argument("--vz-gain", type=float, default=2.5,
+                    help="m/s^2 of correction per m/s of vertical speed error, --no-baro")
+    ap.add_argument("--vz-max", type=float, default=2.5,
+                    help="abort if vertical speed exceeds this for 0.4 s")
     ap.add_argument("--raw-alt", action="store_true",
                     help="close the altitude loop on the RAW barometer instead of the "
                          "accel+baro fusion. Only to reproduce the old behaviour.")
@@ -307,6 +321,7 @@ def main(argv=None) -> int:
     t0 = time.monotonic()
     phase, t_phase = "climb", t0
     airborne_latch = False
+    vz_bad = 0.0                     # seconds of vertical speed runaway
     gate_z_t = None                  # vision target, None = barometer
     gate_el = gate_rng = gate_dz_m = gate_az = None
     roll_deg = 0.0
@@ -338,6 +353,8 @@ def main(argv=None) -> int:
             if not airborne_latch and z > 0.25:
                 airborne_latch = True
             airborne = airborne_latch
+            if args.no_baro and not airborne_latch and vz > 0.7:
+                airborne_latch = airborne = True   # no usable height: vz decides
 
             # VISION. Read EVERY tick, so a props-off dry run on the bench
             # shows el/az/dz immediately - it never reaches the hold phase,
@@ -392,7 +409,19 @@ def main(argv=None) -> int:
             if phase == "climb":
                 z_t = min(args.alt, z_t + args.climb * period)
                 vz_ff = args.climb
-                if z >= args.alt - 0.15:
+                # With no usable height there is nothing to compare against, so
+                # the climb ends on TIME: takeoff thrust for --climb-s, then
+                # hold vertical speed at zero wherever that left it. On d45's
+                # measured curve 1350 is +3.2 m/s^2, so 0.45 s puts it about
+                # 0.3 m up and climbing at 1.4 m/s, which the speed hold then
+                # arrests. Longer is higher; this is the only altitude control
+                # there is in this mode.
+                if args.no_baro:
+                    if t - t0 >= args.climb_s:
+                        phase, t_phase = "hold", t
+                        print(f"  climb done after {args.climb_s:.2f} s, "
+                              f"holding vertical speed at zero (vz={vz:+.2f})")
+                elif z >= args.alt - 0.15:
                     phase, t_phase, z_t = "hold", t, args.alt
                     print(f"  at altitude ({z:.2f} m) after {t - t0:.1f} s, holding")
             elif phase == "hold":
@@ -407,7 +436,51 @@ def main(argv=None) -> int:
                 z_t = max(0.0, z_t - args.descend * period)
                 vz_ff = -args.descend
 
-            thr = alt.throttle(t - t0, est, z_t, vz_ff, airborne, integrate=True)
+            if args.no_baro:
+                # NO BAROMETER IN THE LOOP AT ALL. d45, 2026-09-20: with props
+                # running the barometer read -2.08 m while the aircraft sat at
+                # about 0.3, held that for 0.4 s, then jumped to +0.85. No
+                # filter, clamp or rejection rule survives a sensor that wrong;
+                # they only bound how badly it fails.
+                #
+                # The accelerometer is fine - vz read 1.3, 2.1, 3.1, 4.7 m/s
+                # through that same launch and every value was right. So hold
+                # vertical SPEED at zero instead of height. That is still a
+                # closed loop, just on the signal that works.
+                #
+                # It cannot hold a height: integrated accelerometer bias walks,
+                # about 0.4 m/s per 20 s at the -0.02 m/s^2 measured at rest.
+                # The aircraft will drift up or down slowly and the pilot flies
+                # it back. That is the trade - a drift you can see and correct,
+                # instead of a number that lies by two metres.
+                if not airborne:
+                    thr = int(cfg.follower.takeoff_pwm)
+                    alt.a_cmd, alt.thrust = 0.0, 0.0
+                else:
+                    a_cmd = args.vz_gain * (vz_ff - vz)
+                    a_cmd = max(-4.0, min(4.0, a_cmd))
+                    cos_tilt = max(float(est.R[2, 2]), 0.25)
+                    thrust = max(0.0, (9.80665 + a_cmd) / cos_tilt)
+                    alt.a_cmd, alt.thrust = a_cmd, thrust
+                    thr = int(round(max(cfg.thrust.pwm_min,
+                                        min(cfg.thrust.pwm_max,
+                                            cfg.pwm_for_thrust(thrust)))))
+            else:
+                thr = alt.throttle(t - t0, est, z_t, vz_ff, airborne, integrate=True)
+            # RUNAWAY GUARD on vertical SPEED, which is the signal we trust.
+            # With no height to compare against, a climb that keeps climbing is
+            # the only symptom available.
+            if airborne and abs(vz) > args.vz_max:
+                vz_bad += period
+                if vz_bad > 0.4:
+                    print("")
+                    print(f"  VERTICAL SPEED RUNAWAY: {vz:+.1f} m/s for 0.4 s "
+                          f"(limit {args.vz_max:.1f}). Throttle to minimum, disarming.")
+                    br.set_rc(throttle=1000, roll=1500, pitch=1500, yaw=1500,
+                              arm=1000, aux2=1500)
+                    break
+            else:
+                vz_bad = 0.0
             if phase == "hold" and abs(z - args.alt) < 0.15 and abs(vz) < 0.2:
                 hover_pwms.append(thr)
 
@@ -416,7 +489,7 @@ def main(argv=None) -> int:
             # the ceiling on 2026-09-20 because the velocity estimate read
             # +0.6 m/s during a 3.5 m/s climb and the loop saw nothing to
             # damp - every clever layer agreed with itself and was wrong.
-            if z_raw > ceiling or z > ceiling:
+            if (not args.no_baro) and (z_raw > ceiling or z > ceiling):
                 print("")
                 print(f"  CEILING HIT: z={z_raw:.2f} m raw / {z:.2f} filtered "
                       f"> {ceiling:.2f}. "
@@ -425,7 +498,13 @@ def main(argv=None) -> int:
                           arm=1000, aux2=1500)
                 break
 
-            done = phase == "descend" and z < 0.15 and t - t_phase > 2.0
+            # Landing with no height: descend at --descend for as long as the
+            # climb took plus a margin, then cut. It cannot know it has touched
+            # down, so it errs on the side of still being low when it cuts.
+            if args.no_baro:
+                done = phase == "descend" and t - t_phase > (args.climb_s + 2.5)
+            else:
+                done = phase == "descend" and z < 0.15 and t - t_phase > 2.0
             # roll_deg is zero unless --gate-roll has a live detection in hold
             roll_stick = 1500 + int(round(500.0 * roll_deg / cfg.follower.angle_limit_deg))
             roll_stick = max(1400, min(1600, roll_stick))    # belt and braces
