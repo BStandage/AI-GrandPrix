@@ -160,12 +160,20 @@ holding a known position relative to a gate, by eye.
 | `pitch` mostly 0, occasionally negative | `pitch` pinned at -4 - she is being pushed back hard, check the range |
 | target between 1.3 and 1.4 | pinned at 1.80 or 0.60 |
 
-### If you want to stage it
+### All three axes, deliberately
 
-`--gate-roll` and `--gate-pitch` have never flown. Running `--gate-z` alone
-first and adding the other two after is defensible. Against that: in a 2x2
-cage the range hold is also what fights the drift that ends every flight, so
-the full set may buy you more usable seconds than it costs. Your call.
+`--gate-roll` and `--gate-pitch` have never flown. We are flying them anyway,
+because cage time is scarcer than caution and a one-axis result does not
+answer the question. Staging them would cost a flight each to learn less.
+
+The bounds are what make that a reasonable trade rather than a gamble: roll is
+capped at 4 degrees, pitch may only BACK AWAY, the height target is
+slew-limited and clamped, and losing the gate releases all three within
+half a second. The worst any of them can do is small and slow.
+
+In a 2x2 cage the range hold is also the only thing opposing the drift that
+ends every flight, so the full set may well buy you more seconds than it
+costs.
 
 ---
 
