@@ -152,6 +152,12 @@ def main(argv=None) -> int:
                          "--alt + 1.0. This is a dumb backstop on the RAW barometer "
                          "and does not trust any filter, because on 2026-09-20 it was "
                          "the filter that was wrong.")
+    ap.add_argument("--baro-w", type=float, default=1.0,
+                    help="how much authority the barometer has over the fused height, "
+                         "rad/s. 3.0 tracks a bench sensor and CHASES a flying one - "
+                         "the loop reacts to a spike, the throttle moves, the prop "
+                         "wash moves, and the barometer spikes again. Lower leans on "
+                         "the accelerometer through the transient.")
     ap.add_argument("--ceiling-hold", type=float, default=0.35,
                     help="the RAW barometer must stay above --ceiling this long to "
                          "abort. A real climb does; a prop-wash spike does not. The "
@@ -296,8 +302,10 @@ def main(argv=None) -> int:
             print(f"  The aircraft was not still or level, or the scale is wrong.")
             br.stop(); return 5
 
+    src.vert_w = args.baro_w
     src.zero_altitude()
-    print(f"altitude zeroed. hover target {args.alt:.2f} m for {args.seconds:.0f} s")
+    print(f"altitude zeroed. hover target {args.alt:.2f} m for {args.seconds:.0f} s "
+          f"(barometer authority {args.baro_w:.1f} rad/s, median of 3)")
 
     log_path = AIGP_REPO / "out" / "flightlogs" / f"hover_{time.strftime('%Y%m%d_%H%M%S')}.csv"
     log_path.parent.mkdir(parents=True, exist_ok=True)

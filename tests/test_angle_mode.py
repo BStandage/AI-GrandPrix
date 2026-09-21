@@ -238,7 +238,7 @@ class TestBarometerOutliers(unittest.TestCase):
     0.4 m hover reached 2 m. The aircraft responded correctly to fiction.
     """
 
-    def test_impossible_jumps_are_rejected(self):
+    def test_impossible_jumps_do_not_survive(self):
         br = BaroBridge()
         src = FcStateSource(br)
         seen = [float(src.estimate().p[2])]
@@ -248,7 +248,19 @@ class TestBarometerOutliers(unittest.TestCase):
         worst = max(abs(b - a) for a, b in zip(seen, seen[1:]))
         self.assertLess(worst, 1.3,
                         f"a {worst:.2f} m step in 100 ms survived: {seen}")
-        self.assertGreater(src.alt_rejected, 0, "nothing was rejected")
+
+    def test_the_rate_limit_still_catches_what_the_median_cannot(self):
+        """A median of three is beaten by two consecutive bad samples. The
+        rate limit is the layer behind it, and it has to still be there."""
+        br = BaroBridge()
+        br.SEQ = [0.0, 0.0, 0.0, -4.0, -4.1, -4.0, 0.0]
+        src = FcStateSource(br)
+        vals = [float(src.estimate().p[2])]
+        for _ in range(len(br.SEQ) - 1):
+            br.step()
+            vals.append(float(src.estimate().p[2]))
+        self.assertGreater(src.alt_rejected, 0,
+                           f"the rate limit never fired: {vals}")
 
     def test_a_real_climb_is_not_rejected(self):
         # 3 m/s is a hard but entirely real climb: every sample must survive
@@ -260,4 +272,39 @@ class TestBarometerOutliers(unittest.TestCase):
             br.step()
             vals.append(float(src.estimate().p[2]))
         self.assertEqual(src.alt_rejected, 0, f"a real climb was rejected: {vals}")
-        self.assertAlmostEqual(vals[-1], 1.5, places=2)
+        # a median of three costs exactly one sample of lag and nothing else,
+        # so a 0.3 m/sample ramp ends one step behind
+        self.assertAlmostEqual(vals[-1], 1.2, places=2)
+
+
+class TestBarometerSpikeRejection(unittest.TestCase):
+    """A single bad sample must not reach anything.
+
+    Both aircraft produced exactly this shape with props running: d45 read
+    -3.86 m while sitting at 0.3 on 2026-09-20, d44 read +1.76 m while at
+    about 0.9 on 2026-09-21. A rate limit lets the first of a pair through; a
+    median of three cannot be moved by one sample at all.
+    """
+
+    def _run(self, seq):
+        br = BaroBridge()
+        br.SEQ = seq
+        src = FcStateSource(br)
+        out = [float(src.estimate().p[2])]
+        for _ in range(len(seq) - 1):
+            br.step()
+            out.append(float(src.estimate().p[2]))
+        return out
+
+    def test_d45_negative_spike_never_appears(self):
+        out = self._run([0.30, 0.30, 0.30, -3.86, 0.31, 0.30])
+        self.assertGreater(min(out), -0.5, f"the -3.86 spike survived: {out}")
+
+    def test_d44_positive_spike_never_appears(self):
+        out = self._run([0.90, 0.90, 0.90, 1.76, 0.91, 0.90])
+        self.assertLess(max(out), 1.2, f"the +1.76 spike survived: {out}")
+
+    def test_a_real_climb_still_gets_through(self):
+        # a median of three costs one sample of lag and nothing else
+        out = self._run([0.0, 0.3, 0.6, 0.9, 1.2, 1.5])
+        self.assertGreater(out[-1], 1.1, f"a real climb was flattened: {out}")
