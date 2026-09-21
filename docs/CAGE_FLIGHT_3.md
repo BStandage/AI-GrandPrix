@@ -116,6 +116,44 @@ tail -20 ../out/flightlogs/hover_*.csv
 
 ## FLIGHT 2: gate centring - only if flight 1 held
 
+### Put the gate at 4 m, not 2-3
+
+`--gate-z` nulls on the gate's CENTRE, and a 2.7 m gate does not fit in this
+camera's vertical view until about 3.1 m away:
+
+| distance | camera sees, height | 2.7 m gate |
+|---|---|---|
+| 2.0 m | 1.75 m | **clipped** |
+| 2.5 m | 2.18 m | **clipped** |
+| 3.0 m | 2.62 m | **clipped** |
+| **3.5 m** | 3.06 m | fits |
+| **4.0 m** | 3.50 m | fits, with margin |
+
+A clipped gate has a FALSE centre - the blob's middle sits wherever the
+visible part is - and the bias MOVES as the aircraft climbs, because the
+clipping shifts. That is feedback with an unpredictable sign, in a loop that
+has never flown, with a net in the way. At 4 m the whole gate is in frame and
+the centre is honest.
+
+### The net between is untested
+
+Nobody has run the detector through netting. Check it in the props-off dry run
+below before you fly: if `gate: none` or the numbers jump around, the mesh is
+confusing the HSV thresholds and flight 2 is off for tonight.
+
+### Do the props-off check first, at the real geometry
+
+Hold her where she will hover, pointed at the gate:
+
+```
+AIGP_CAM_CX=627.2 AIGP_CAM_CY=368.8 python3 -m hardware.hover --port /dev/ttyTHS1 --alt 1.2 --seconds 30   --gate-z --fy 824 --cam-tilt 20 --dry-run
+```
+
+Lower her by hand -> `el` goes **positive**. Raise her -> **negative**. If
+those are backwards or jumpy, stop.
+
+### The flight
+
 **Point the nose at the gate before arming.** The camera is bolted down.
 
 ```
@@ -150,10 +188,11 @@ moves the target to the 1.8 m clamp and stops.
 
 ## NOT tonight: `--gate-roll`
 
-The gate is outside a 5x5 m cage. `--gate-roll` slides the aircraft sideways
-until the gate is dead ahead, which in that geometry means sliding toward the
-net. It is capped at 4 degrees and it converges rather than chasing, but there
-is no reason to spend a cage slot finding its edge cases.
+The gate sits directly in front with a net between. `--gate-roll` slides the
+aircraft sideways until the gate is dead ahead - and with the gate already
+centred there is nothing for it to correct, so it would do nothing useful and
+could only find its own edge cases. Any motion it did command would be toward
+a net 2-3 m away.
 
 Save it for a space where being wrong is cheap.
 
