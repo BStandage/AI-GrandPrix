@@ -60,7 +60,7 @@ curve_acc = [1.18, 5.87, 13.03, 21.86, 31.03, 44.35, 58.61]   # MEASURED IN FLIG
 [limits]
 # LEVERS at their race values. raceline.ladder --k scales them between a safe floor (k = 0) and these (k = 1);
 # the time is whatever the solve gives. Flown clean on vision: k = 0.33 (50 s).
-cam_tilt_deg         = 20.0   # MEASURED on d45 2026-09-20: 19.4 deg at 70 in, 20.6 at 40 in (camtilt, checkerboard + calibrated fy)   # camera mount above body forward; with cam_hfov_deg the planner solves for
+cam_tilt_deg         = 10.0   # REMOUNTED 20 -> 10 on d44, 2026-09-21. At 20 deg the axis stared 18 deg over every gate at s15 pitch (1.7 deg) and the 2.7 m ring ran off the bottom of the frame from 24 m in - the whole vertical channel then rode on the width reconstruction. At 10 deg the ring is clean to 5.9 m and the rebuild only carries 5.9-3.7 m. Plans are UNCHANGED: max_tilt here is 10/12/14 and a 10 deg mount caps at 25.3.   # camera mount above body forward; with cam_hfov_deg the planner solves for
 cam_hfov_deg         = 75.0   # the fastest plan this camera can fly (tilt clamp + look window). Measure with camcal.
 v_blind_turn_mps     = 0.0    # blind turns: speed cap within blind_turn_window_m before a crossing whose heading
 blind_turn_window_m  = 6.0    # differs from the previous one by more than blind_turn_deg (the hairpin, the stack).

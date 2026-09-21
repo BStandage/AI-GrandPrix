@@ -75,7 +75,7 @@ def main(argv=None) -> int:
     ap.add_argument("--baud", type=int, default=115200)
     ap.add_argument("--camera", default=None, help="GStreamer pipeline or /dev/videoN")
     ap.add_argument("--fy", type=float, default=830.0, help="focal length in px, from hardware.camcal")
-    ap.add_argument("--cam-tilt", type=float, default=20.0, help="camera up-tilt above body forward, deg, from hardware.camcal")
+    ap.add_argument("--cam-tilt", type=float, default=10.0, help="camera up-tilt above body forward, deg, from hardware.camcal")
     ap.add_argument("--fwd", type=float, required=True, help="lens to target centre, m, along the reference line")
     ap.add_argument("--right", type=float, default=0.0, help="target centre offset to the right of that line, m")
     ap.add_argument("--dz", type=float, default=0.0, help="target centre height minus lens height, m")

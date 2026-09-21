@@ -485,15 +485,34 @@ VERT_DZ_SLEW = 0.35        # m/s the reference may move. THE REFERENCE IS
                            # PERSISTS gets to move the aircraft, which is
                            # exactly the discrimination we want.
 _GATE_EL = None            # (t, elevation_rad), set by the runtime each tick
+_COMMITTED = False         # inside the commit range: snap the reference, do not fade
 _DZ = {"v": 0.0, "t": None}  # the slew-limited reference offset
 
 
-def set_gate_elevation(el_rad, t):
+def set_gate_elevation(el_rad, t, committed=False):
     """The runtime hands the follower the gate's elevation when it has one.
 
     Elevation, not height: it is the one camera quantity that needs no range,
-    and range is the camera's worst signal."""
-    global _GATE_EL
+    and range is the camera's worst signal.
+
+    COMMITTED distinguishes the two ways of having no elevation, which want
+    opposite treatment:
+
+    A DROPOUT (el_rad None, committed False) is the detector flickering. The
+    gate is coming back, so the reference FADES at VERT_DZ_SLEW - a one-frame
+    flicker then moves it 0.01 m instead of stepping it.
+
+    A COMMIT (committed True) is a decision, not a loss. We are inside the
+    range where the gate's height cannot be trusted and we have chosen to stop
+    steering on it. Fading leaves up to a second of decaying climb command
+    running - at 1.5 m/s that is the last 1.5 m of the approach still being
+    told to climb, which is the wrong second to be moving vertically. So the
+    reference SNAPS to zero and the loop becomes a pure vertical speed hold
+    immediately: whatever vz exists is braked out at kd_z and nothing new is
+    commanded. Once committed, the aircraft should not change its vertical
+    speed again before the gate."""
+    global _GATE_EL, _COMMITTED
+    _COMMITTED = bool(committed)
     _GATE_EL = None if el_rad is None else (float(t), float(el_rad))
 
 
@@ -512,12 +531,24 @@ def _vision_dz(t):
                        min(VERT_DZ_MAX, VERT_EL_GAIN * math.degrees(e)))
     dt = 0.02 if _DZ["t"] is None else max(0.0, min(0.1, t - _DZ["t"]))
     _DZ["t"] = t
+    if _COMMITTED:
+        _DZ["v"] = 0.0          # a decision, not a loss: snap, do not fade
+        return 0.0, el
     step = VERT_DZ_SLEW * dt
     _DZ["v"] += max(-step, min(step, want - _DZ["v"]))
     return _DZ["v"], el
 
 
+def vision_dz() -> float:
+    """The slew-limited height offset the aircraft is currently being asked to
+    fly, metres, + is up. This IS the vertical command: read it to narrate or
+    log what the vertical channel is doing without reaching into _DZ."""
+    return float(_DZ["v"])
+
+
 def _reset_vision_dz():
+    global _COMMITTED
+    _COMMITTED = False
     _DZ["v"], _DZ["t"] = 0.0, None
 
 
@@ -683,7 +714,24 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
     # An aircraft that has left the ground has left it. Latch it: once true it
     # stays true for the run, so a lying barometer can no longer re-arm the
     # takeoff branch. reset_state() clears it between runs.
-    if est.p[2] >= CFG.follower.min_alt_translation_m:
+    # LATCH ON A REAL CLIMB, NOT ON A HEIGHT (d44, 2026-09-21). The first
+    # version of this latched on `est.p[2] >= min_alt_translation_m` alone, and
+    # min_alt_translation_m is 0.0. Flight 2 that day STARTED with the
+    # barometer reading +0.20 m sitting on the pad, so the latch fired on tick
+    # one, `airborne` was true before the aircraft moved, and the open-loop
+    # takeoff ramp was skipped entirely - the closed loop got the pad at hover
+    # PWM. A height cannot decide this on an airframe whose barometer is the
+    # thing we do not trust.
+    #
+    # A CLIMB can. Require both, the same test hardware/runtime.py already uses
+    # for the dead-reckoning latch: above the threshold AND actually going up.
+    # Nothing on the pad produces a sustained +0.5 m/s. Once latched it stays
+    # latched, so prop wash cannot re-arm the takeoff branch mid-flight, which
+    # is the bounce limit cycle flights 1-3 flew (thr=1250 at z=-0.45, -0.79,
+    # -1.67). reset_state() clears it between runs.
+    if (not _state["airborne_latch"]
+            and float(est.p[2]) >= CFG.follower.min_alt_translation_m
+            and float(est.v[2]) > 0.5):
         _state["airborne_latch"] = True
     airborne = _state["airborne_latch"]
     if VERT_VISION:

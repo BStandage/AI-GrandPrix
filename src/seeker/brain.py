@@ -60,6 +60,15 @@ class Detection:
     area_frac: float      # ring area as a fraction of the frame
     t: float              # time the frame was taken
     range_m: float | None = None   # range estimate when the detector has one
+    # CARRIED FROM GateDetection (d44, 2026-09-21). These were dropped in the
+    # conversion inside hardware.runtime's CameraThread, so runtime's
+    # `getattr(det, "v_usable", True)` read True on every frame and the whole
+    # COMMIT mechanism was dead code in flight - the aircraft went on steering
+    # height off a clipped ring all the way into the gate. Defaults keep every
+    # other Detection caller working unchanged.
+    v_usable: bool = True          # False: offset_y carries no usable elevation
+    clipped_v: bool = False        # ring ran off the top/bottom, offset_y rebuilt
+    ring_bbox: tuple | None = None # (x, y, w, h) of the outer ring, for the commit rule
 
 
 @dataclass
