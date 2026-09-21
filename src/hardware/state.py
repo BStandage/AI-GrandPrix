@@ -86,9 +86,24 @@ class FcStateSource:
         self.roll_sign = 1.0 if roll_right_positive else -1.0
         self.alt_offset_m = alt_offset_m
         self.last_t = 0.0
-        # our own vertical observer - see the note at the top of this file
+        # our own vertical observer - see the note at the top of this file.
+        # vert_w is the barometer's authority over it, in rad/s. The default
+        # 3.0 tracks a bench barometer nicely and CHASES a flying one: the
+        # altitude loop reacts to a pressure spike, the throttle moves, the
+        # prop wash moves, and the barometer spikes again. That is a feedback
+        # loop through the sensor's own disturbance, and d44 rode it to a
+        # ceiling abort on 2026-09-21 while --no-baro, which holds the throttle
+        # steady, logged a clean trace in the same conditions minutes earlier.
+        # 1.0 leans on the accelerometer through the transient and lets the
+        # barometer anchor it over a couple of seconds instead of instantly.
+        self.vert_w = 1.0
         from seeker.dr_estimator import VerticalFilter
-        self.vert = VerticalFilter()
+        self.vert = VerticalFilter(w=self.vert_w)
+        # median of the last three barometer samples. A rate limit lets a
+        # single bad reading through if it is the first of a pair; a median of
+        # three cannot be moved by one sample at all, which is exactly the
+        # shape of this noise.
+        self._alt_med = []
         self._vert_t = None          # monotonic clock of the last update
         self._alt_obj = None         # identity of the last Altitude, for freshness
         self.fc_vario_alive = False  # has the FC EVER reported a non-zero vario
@@ -107,7 +122,8 @@ class FcStateSource:
             self.alt_offset_m = s.altitude.alt_m
         # the observer's height is relative to the offset we just took
         from seeker.dr_estimator import VerticalFilter
-        self.vert = VerticalFilter()
+        self.vert = VerticalFilter(w=self.vert_w)
+        self._alt_med = []
         self._vert_t = None
         self._alt_obj = None
 
@@ -163,6 +179,14 @@ class FcStateSource:
         # THE REAL FIX IS FOAM over the barometer port. This bounds the damage;
         # it does not give you an altitude you can hold a hover with.
         if s.altitude is not None:
+            # MEDIAN OF THREE, before anything else looks at it. One spike
+            # cannot move a median of three, and one spike is what d45's
+            # -3.86 m and d44's +1.76 m both were.
+            self._alt_med.append(alt)
+            if len(self._alt_med) > 3:
+                self._alt_med.pop(0)
+            if len(self._alt_med) == 3:
+                alt = sorted(self._alt_med)[1]
             if self._alt_last is not None:
                 dt_a = max(1e-3, s.t - self._alt_last_t)
                 if abs(alt - self._alt_last) / dt_a > self.alt_max_rate:
