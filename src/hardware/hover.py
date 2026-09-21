@@ -158,6 +158,12 @@ def main(argv=None) -> int:
                          "the loop reacts to a spike, the throttle moves, the prop "
                          "wash moves, and the barometer spikes again. Lower leans on "
                          "the accelerometer through the transient.")
+    ap.add_argument("--thr-band", type=int, default=80,
+                    help="hard limit on throttle, PWM either side of hover_pwm. A "
+                         "hover needs 1 g; +-80 allows 0.6 to 1.4. Randy asked for "
+                         "1837 on a 1228 hover - 4.8 g - because nothing said it "
+                         "could not. This is the bound on the ACTUATOR, which holds "
+                         "however wrong any sensor or loop is. 0 disables it.")
     ap.add_argument("--ceiling-hold", type=float, default=0.35,
                     help="the RAW barometer must stay above --ceiling this long to "
                          "abort. A real climb does; a prop-wash spike does not. The "
@@ -364,6 +370,14 @@ def main(argv=None) -> int:
     # what it was told is a backstop people start passing --ceiling to silence.
     top = max(args.alt, args.gate_z_max if args.gate_z else args.alt)
     ceiling = args.ceiling if args.ceiling is not None else top + 1.0
+    if args.thr_band > 0:
+        import numpy as _n2
+        _lo = max(cfg.thrust.pwm_min, cfg.thrust.hover_pwm - args.thr_band)
+        _hi = min(cfg.thrust.pwm_max, cfg.thrust.hover_pwm + args.thr_band)
+        _al = float(_n2.interp(_lo, cfg.thrust.curve_pwm, cfg.thrust.curve_acc))
+        _ah = float(_n2.interp(_hi, cfg.thrust.curve_pwm, cfg.thrust.curve_acc))
+        print(f"throttle band {_lo}..{_hi} PWM = {_al / 9.80665:.2f}..{_ah / 9.80665:.2f} g. "
+              f"Nothing outside it is sent, whatever any sensor says.")
     print(f"ceiling {ceiling:.2f} m: above this it disarms, no questions asked"
           + (f" (vision may ask for {args.gate_z_max:.2f})" if args.gate_z else ""))
     if ceiling <= top + 0.2:
@@ -374,6 +388,7 @@ def main(argv=None) -> int:
     phase, t_phase = "climb", t0
     airborne_latch = False
     vz_bad = 0.0                     # seconds of vertical speed runaway
+    thr_clipped = 0                  # ticks the band had to step in
     ceil_bad = 0.0                   # seconds the RAW baro has been over the line
     rng_hist = []                    # (t, range) over the last second
     gate_range_t = None              # the distance being held
@@ -583,6 +598,20 @@ def main(argv=None) -> int:
                 # previous attempt set a local and changed nothing.
                 est.p[2] = z
                 thr = alt.throttle(t - t0, est, z_t, vz_ff, airborne, integrate=True)
+            # THROTTLE BAND. The last thing before it goes out, and the only
+            # guard that does not depend on believing anything. A hover needs
+            # 1 g. Randy's altitude loop asked for 1837 PWM on an aircraft
+            # that hovers at 1228 - 4.8 g - because the barometer said it was
+            # four metres low and nothing downstream said that was absurd.
+            # Every other protection reasons about whether a number is
+            # trustworthy; this one just refuses to send it.
+            if args.thr_band > 0:
+                lo = max(cfg.thrust.pwm_min, cfg.thrust.hover_pwm - args.thr_band)
+                hi = min(cfg.thrust.pwm_max, cfg.thrust.hover_pwm + args.thr_band)
+                if thr > hi or thr < lo:
+                    thr_clipped += 1
+                thr = int(max(lo, min(hi, thr)))
+
             # RUNAWAY GUARD on vertical SPEED, which is the signal we trust.
             # With no height to compare against, a climb that keeps climbing is
             # the only symptom available.
@@ -717,6 +746,10 @@ def main(argv=None) -> int:
                 print(f"  camera: {camera.detections}/{camera.frames} frames had a gate "
                       f"({camera.fps:.0f} fps)")
 
+    if thr_clipped:
+        print("")
+        print(f"  the throttle band stepped in on {thr_clipped} ticks - "
+              f"the loop asked for more than {args.thr_band} PWM off hover")
     if hover_pwms:
         hover_pwms.sort()
         med = hover_pwms[len(hover_pwms) // 2]

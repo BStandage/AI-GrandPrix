@@ -81,7 +81,7 @@ class Barometer:
 
 def run(cfg, mode, alt, seconds, climb_s, takeoff_pwm, baro_w, vz_gain,
         gate_el_deg=None, seed=0, quiet_baro=False, dt=0.02, baro_hz=10.0,
-        ceiling=None, verbose=False):
+        ceiling=None, verbose=False, thr_slew=0.0):
     """One flight. Returns a dict of what happened."""
     import numpy as np
 
@@ -99,6 +99,7 @@ def run(cfg, mode, alt, seconds, climb_s, takeoff_pwm, baro_w, vz_gain,
 
     z_true = vz_true = 0.0
     thr = 1000
+    thr_prev = None
     med, z_meas, next_baro = [], 0.0, 0.0
     phase, t_phase, z_t = "climb", 0.0, 0.0
     airborne = False
@@ -171,6 +172,17 @@ def run(cfg, mode, alt, seconds, climb_s, takeoff_pwm, baro_w, vz_gain,
             vz_ff = 0.3 if phase == "climb" else 0.0
             thr = loop.throttle(t, est, z_t, vz_ff, airborne, integrate=True)
 
+        # THROTTLE SLEW LIMIT. The barometer's spikes scale with how fast the
+        # throttle moves, so capping that rate caps the disturbance the loop
+        # can inflict on its own sensor. Sally's clean flight moved 1250 ->
+        # 1212 -> 1198 -> 1192 -> 1174, about 400 PWM/s and smooth. Randy's
+        # crash went 1350 -> 1837 -> 1290 -> 1228 -> 1000 in half a second,
+        # roughly 5000 PWM/s, and the barometer read -3.86 m through it.
+        if thr_slew > 0 and thr_prev is not None:
+            step = thr_slew * dt
+            thr = int(round(max(thr_prev - step, min(thr_prev + step, thr))))
+        thr_prev = thr
+
         # --- plant ---------------------------------------------------------
         a_thrust = float(np.interp(thr, th.curve_pwm, th.curve_acc))
         acc = a_thrust - G - kz * vz_true * abs(vz_true)
@@ -208,6 +220,10 @@ def main(argv=None) -> int:
     ap.add_argument("--vz-gain", type=float, default=2.5)
     ap.add_argument("--gate-el", type=float, default=None,
                     help="hold this elevation error instead of zero vertical speed")
+    ap.add_argument("--thr-slew", type=float, default=0.0,
+                    help="cap on throttle change, PWM per second. 0 = no limit. "
+                         "Sally's clean flight moved about 400 PWM/s; Randy's crash "
+                         "about 5000.")
     ap.add_argument("--runs", type=int, default=20, help="seeds to average over")
     ap.add_argument("--sweep", action="store_true",
                     help="compare both modes, with and without a lying barometer")
@@ -219,7 +235,8 @@ def main(argv=None) -> int:
     def trial(mode, quiet, **kw):
         rs = [run(cfg, mode, args.alt, args.seconds, args.climb_s,
                   args.takeoff_pwm, args.baro_w, args.vz_gain,
-                  gate_el_deg=args.gate_el, seed=s, quiet_baro=quiet, **kw)
+                  gate_el_deg=args.gate_el, seed=s, quiet_baro=quiet,
+                  thr_slew=kw.pop("thr_slew", args.thr_slew), **kw)
               for s in range(args.runs)]
         return {
             "ceiling": sum(r["hit_ceiling"] for r in rs),
@@ -232,13 +249,14 @@ def main(argv=None) -> int:
         print(f"{args.runs} runs each. hover_pwm {cfg.thrust.hover_pwm}, "
               f"takeoff {args.takeoff_pwm}, baro_w {args.baro_w}\n")
         print(f"{'':28} {'ceiling hits':>13} {'peak m':>8} {'max vz':>8} {'wander m':>9}")
-        for label, mode, quiet in (
-                ("single loop, clean baro ", "baro", True),
-                ("single loop, OUR baro   ", "baro", False),
-                ("CASCADE,     clean baro ", "cascade", True),
-                ("CASCADE,     OUR baro   ", "cascade", False),
-                ("velocity hold, OUR baro ", "no-baro", False)):
-            r = trial(mode, quiet)
+        cases = [("single loop, no slew limit ", "baro", False, 0.0),
+                 ("single loop, 800 PWM/s     ", "baro", False, 800.0),
+                 ("single loop, 400 PWM/s     ", "baro", False, 400.0),
+                 ("single loop, 200 PWM/s     ", "baro", False, 200.0),
+                 ("cascade,     400 PWM/s     ", "cascade", False, 400.0),
+                 ("velocity hold (no baro)    ", "no-baro", False, 0.0)]
+        for label, mode, quiet, sl in cases:
+            r = trial(mode, quiet, thr_slew=sl)
             print(f"  {label}  {r['ceiling']:>4}/{args.runs:<8} "
                   f"{r['peak']:>8.2f} {r['vz']:>8.2f} {r['wander']:>9.2f}")
         print("\n  'ceiling hits' is flights that ran away. The gate opening is")
