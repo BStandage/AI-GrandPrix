@@ -438,6 +438,60 @@ for _e in PLAN["events"]:
         _GATE_LANDMARKS.append((_e["x"], _e["y"], _e["z"], _e["heading_rad"]))
 if STATE_SOURCE == "deadreckon":
     _SOURCE.set_landmarks(_GATE_LANDMARKS)      # the map says which gates can be in view
+# VERTICAL FROM VISION. AIGP_VERT=vision replaces the barometric height
+# reference with the gate's own elevation.
+#
+# The barometer is unusable on this airframe with props running: it read
+# -3.86 m on d45 and +1.76 m on d44 while both were near the ground, and five
+# commanded-altitude flights broke two airframes. The one mode that ever flew
+# clean never asked for a height at all.
+#
+# The trick is that the height error need not come from a height. Pass
+#   z_target = est.p[2] + dz_vision
+# and the loop's error term is EXACTLY dz_vision - est.p[2] cancels, so the
+# barometer leaves the vertical channel entirely while every tested line of
+# AltitudeLoop (tilt compensation, the balloon guard, the thrust cap, the
+# curve inversion) stays in place.
+#
+# dz_vision comes from the gate's elevation: zero elevation means level with
+# the gate's centre, and on the FLAT course every gate centre is 1.35 m. So
+# nulling it IS holding 1.35 m, without ever measuring a height. With no gate
+# in view the term is zero and the loop is a pure velocity hold on the plan's
+# own vz_ff, which is what flew cleanly twice.
+VERT_VISION = os.environ.get("AIGP_VERT", "baro") == "vision"
+VERT_EL_GAIN = 0.06        # metres of height correction per degree of elevation.
+                           # One degree is r*sin(1 deg) of real height: 0.035 m at
+                           # 3 m, 0.14 at 8. Gates are seen from about 3 to 8 m, and
+                           # the gain is sized for the SHORT end so it always
+                           # under-corrects and converges instead of hunting. It is
+                           # deliberately not range-scaled - range is the camera's
+                           # worst signal and the whole point of using elevation is
+                           # that it does not need one.
+VERT_DZ_MAX = 0.35         # hard cap on that correction, m
+VERT_EL_STALE_S = 0.5      # a detection older than this is not used
+_GATE_EL = None            # (t, elevation_rad), set by the runtime each tick
+
+
+def set_gate_elevation(el_rad, t):
+    """The runtime hands the follower the gate's elevation when it has one.
+
+    Elevation, not height: it is the one camera quantity that needs no range,
+    and range is the camera's worst signal."""
+    global _GATE_EL
+    _GATE_EL = None if el_rad is None else (float(t), float(el_rad))
+
+
+def _vision_dz(t):
+    """How far to move vertically to sit level with the gate's centre."""
+    if not VERT_VISION or _GATE_EL is None:
+        return 0.0, None
+    t_el, el = _GATE_EL
+    if t - t_el > VERT_EL_STALE_S:
+        return 0.0, None
+    dz = VERT_EL_GAIN * math.degrees(el)
+    return max(-VERT_DZ_MAX, min(VERT_DZ_MAX, dz)), el
+
+
 _ALT = AltitudeLoop(CFG)
 _YAW = YawLoop(CFG)
 LAND_RATE_MPS = 1.0   # descent after the finish (see autopilot)
@@ -588,6 +642,11 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
             return RCCommand(arm=1000, throttle=1000, aux2=AUX2)
 
     airborne = est.p[2] >= CFG.follower.min_alt_translation_m
+    if VERT_VISION:
+        # est.p[2] cancels out of the loop's error term, so the barometer is
+        # not in the vertical channel at all. See the note at VERT_VISION.
+        dz_vis, _el = _vision_dz(t)
+        z_target = float(est.p[2]) + dz_vis
     throttle = _ALT.throttle(t, est, z_target, vz_ff, airborne,
                              baro_fresh,
                              (AZ_FF_GAIN * getattr(_TRACKER, 'az_ff', 0.0)) if getattr(_TRACKER, 'in_fold', False) else 0.0)

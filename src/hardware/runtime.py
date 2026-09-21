@@ -133,6 +133,12 @@ def main(argv=None) -> int:
     ap.add_argument("--traj", default=None, help="plan JSON for the follower (default out/plans/plan_RACE.json)")
     ap.add_argument("--config", default=None, help="vehicle.toml (default: the plan's, else config/vehicle.toml)")
     ap.add_argument("--camera", default=DEFAULT_PIPELINE, help="GStreamer pipeline or /dev/videoN")
+    ap.add_argument("--vert", choices=("baro", "vision"), default="baro",
+                    help="where the vertical channel gets its reference. 'vision' "
+                         "nulls the GATE'S ELEVATION instead of chasing a barometric "
+                         "height - on the flat course every gate centre is 1.35 m, so "
+                         "nulling it IS holding 1.35 m, and the barometer leaves the "
+                         "vertical channel entirely.")
     ap.add_argument("--no-camera", action="store_true", help="run without a camera (dead reckoning only)")
     ap.add_argument("--fy", type=float, default=1000.0, help="camera focal length in pixels at the capture resolution")
     ap.add_argument("--cam-tilt", type=float, default=20.0, help="camera mount tilt above body forward, deg")
@@ -336,6 +342,17 @@ def main(argv=None) -> int:
                     if idx is not None:
                         fixes += 1; fix_res = r
                         est_dr.p[:] = dr.p; est_dr.v[:] = dr.v
+                # Hand the follower the gate's elevation, which is what its
+                # vertical channel uses instead of a height when AIGP_VERT is
+                # vision. Elevation needs no range, and range is the camera's
+                # worst signal.
+                if args.vert == "vision":
+                    el = None
+                    if det is not None and t - det.t <= 0.5 and camera is not None:
+                        from hardware.hover import gate_dz as _gate_dz
+                        _, el = _gate_dz(det, est.R, args.fy,
+                                         math.radians(args.cam_tilt), camera.frame_wh)
+                    fol.set_gate_elevation(el, t - t_start)
                 rc = fol.step(t - t_start, est_dr, dr.next_event, True, "")
                 out = dict(throttle=rc.throttle, roll=rc.roll, pitch=rc.pitch, yaw=rc.yaw, arm=rc.arm, aux2=rc.aux2)
                 label = f"ev{dr.next_event}" + (f"/lm{dr.last_landmark}" if dr.last_landmark is not None else "")
