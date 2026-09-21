@@ -175,6 +175,26 @@ def main(argv=None) -> int:
                     help="hard cap on the commanded roll angle, deg")
     ap.add_argument("--gate-roll-gain", type=float, default=0.25,
                     help="commanded roll angle per degree of azimuth error")
+    ap.add_argument("--gate-pitch", action="store_true",
+                    help="also hold RANGE to the gate. Completes the three-axis "
+                         "vision-relative hold: elevation gives height, azimuth gives "
+                         "lateral, range gives distance. By default it may only BACK "
+                         "AWAY - see --gate-pitch-fwd.")
+    ap.add_argument("--gate-range", type=float, default=0.0,
+                    help="distance to hold, m. 0 = whatever it is when the gate is "
+                         "first acquired.")
+    ap.add_argument("--gate-pitch-tilt", type=float, default=4.0,
+                    help="hard cap on BACKING AWAY, deg")
+    ap.add_argument("--gate-pitch-fwd", type=float, default=0.0,
+                    help="hard cap on moving TOWARD the gate, deg. ZERO by default: "
+                         "the range signal is the camera's worst, and in a cage with a "
+                         "net a false 'too far' is the one mistake that cannot be "
+                         "afforded. Raise it only in open space.")
+    ap.add_argument("--gate-pitch-gain", type=float, default=2.0,
+                    help="commanded pitch angle per metre of range error")
+    ap.add_argument("--gate-range-min", type=float, default=1.0,
+                    help="ranges outside [min, max] are discarded before filtering")
+    ap.add_argument("--gate-range-max", type=float, default=12.0)
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--dry-run", action="store_true")
     g.add_argument("--arm", action="store_true")
@@ -332,6 +352,11 @@ def main(argv=None) -> int:
     phase, t_phase = "climb", t0
     airborne_latch = False
     vz_bad = 0.0                     # seconds of vertical speed runaway
+    rng_hist = []                    # (t, range) over the last second
+    gate_range_t = None              # the distance being held
+    gate_rng_med = None
+    pitch_deg = 0.0
+    pitch_want = 0.0
     gate_z_t = None                  # vision target, None = barometer
     gate_el = gate_rng = gate_dz_m = gate_az = None
     roll_deg = 0.0
@@ -373,6 +398,8 @@ def main(argv=None) -> int:
             # commanded with a live detection while holding.
             roll_deg = 0.0
             roll_want = 0.0
+            pitch_deg = 0.0
+            pitch_want = 0.0
             if camera is not None:
                 det = camera.latest()
                 fresh = det is not None and (t - det.t) <= args.gate_lost_s
@@ -416,6 +443,41 @@ def main(argv=None) -> int:
                                             min(args.gate_roll_tilt,
                                                 args.gate_roll_gain * math.degrees(az)))
 
+                    # RANGE HOLD - the third axis, and the one that keeps the
+                    # aircraft the same distance from the gate.
+                    #
+                    # Range is the worst signal the camera produces: on a bench
+                    # it read 2.4, then 9.8, then 140 m inside ten seconds. So
+                    # it is median-filtered over the last second and anything
+                    # outside [--gate-range-min, --gate-range-max] is thrown
+                    # away before it is believed at all.
+                    #
+                    # ASYMMETRIC BY DEFAULT. --gate-pitch-fwd caps how much
+                    # tilt may be commanded TOWARD the gate, and it defaults to
+                    # ZERO: the loop may only ever back away. In a 2x2 m cage
+                    # with the gate beyond a net, "too far, go forward" is the
+                    # one mistake that cannot be afforded, and the aircraft's
+                    # own drift is toward the gate anyway - so a hold that only
+                    # pushes back is exactly the half that is useful.
+                    if args.gate_pitch and det.range_m is not None:
+                        r = float(det.range_m)
+                        if args.gate_range_min <= r <= args.gate_range_max:
+                            rng_hist.append((t, r))
+                        rng_hist = [e for e in rng_hist if t - e[0] <= 1.0]
+                        if len(rng_hist) >= 3:
+                            rs = sorted(e[1] for e in rng_hist)
+                            gate_rng_med = rs[len(rs) // 2]
+                            if gate_range_t is None:
+                                gate_range_t = (args.gate_range if args.gate_range
+                                                else gate_rng_med)
+                                print(f"  holding {gate_range_t:.2f} m from the gate "
+                                      f"(backing off only)" if not args.gate_pitch_fwd
+                                      else f"  holding {gate_range_t:.2f} m from the gate")
+                            err_r = gate_rng_med - gate_range_t   # + means too far
+                            pitch_want = args.gate_pitch_gain * err_r
+                            pitch_want = max(-args.gate_pitch_tilt,
+                                             min(args.gate_pitch_fwd, pitch_want))
+
             if phase == "climb":
                 z_t = min(args.alt, z_t + args.climb * period)
                 vz_ff = args.climb
@@ -439,6 +501,7 @@ def main(argv=None) -> int:
                 if gate_z_t is not None:
                     z_t = gate_z_t
                     roll_deg = roll_want
+                    pitch_deg = pitch_want
                 if t - t_phase > args.seconds:
                     phase, t_phase = "descend", t
                     print(f"  hold done, descending")
@@ -524,8 +587,13 @@ def main(argv=None) -> int:
             # roll_deg is zero unless --gate-roll has a live detection in hold
             roll_stick = 1500 + int(round(500.0 * roll_deg / cfg.follower.angle_limit_deg))
             roll_stick = max(1400, min(1600, roll_stick))    # belt and braces
+            # pitch: POSITIVE stick is nose-down = forward on this firmware, so a
+            # command to back away is a NEGATIVE angle and a stick below 1500
+            pitch_stick = 1500 + int(round(500.0 * pitch_deg / cfg.follower.angle_limit_deg))
+            pitch_stick = max(1400, min(1600, pitch_stick))
             out = dict(throttle=(1000 if done else thr),
-                       roll=(1500 if done else roll_stick), pitch=1500,
+                       roll=(1500 if done else roll_stick),
+                       pitch=(1500 if done else pitch_stick),
                        yaw=1500, arm=(1000 if done else 1800), aux2=1500)
             if args.arm:
                 br.set_rc(**out)
@@ -555,6 +623,8 @@ def main(argv=None) -> int:
                            + (f" rng={gate_rng:5.1f}" if gate_rng is not None else " rng=  -- ")
                            + (f" az={math.degrees(gate_az):+5.1f} roll={roll_deg:+4.1f}"
                               if gate_az is not None else "")
+                           + (f" hold={gate_range_t:4.1f} pitch={pitch_deg:+4.1f}"
+                              if gate_range_t is not None else "")
                            if gate_el is not None
                            else f" | gate: none ({camera.detections}/{camera.frames})")
                 print(f"t={t - t0:5.1f} {phase:8s} z={z:5.2f} (target {z_t:4.2f}) vz={vz:+5.2f} "
