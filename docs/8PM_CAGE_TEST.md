@@ -40,8 +40,20 @@ cd ~/GitRepos/AI-GrandPrix
 scripts/sync_drone.sh d44 cam20_75
 ```
 
-Brings the corrected thrust curve, the attitude logging, and `--gate-pitch`,
-which was written this evening and has never flown.
+Brings the corrected thrust curve, the attitude logging, `--gate-pitch`, and
+the barometer re-zero.
+
+**How you know it took:** when you arm, the line reads
+
+```
+armed, MSP OVERRIDE on, modes ...: altitude re-zeroed, lifting off
+```
+
+The words **`altitude re-zeroed`** are new. The zero used to be taken at
+startup and then the program waited for you, which is open-ended - and the
+barometer drifts 0.25 m/min at rest. Sally's bench run read -0.51 m one second
+after zeroing. It now re-zeroes the instant you arm, while she is still on the
+ground, which is the only moment it is true.
 
 ---
 
@@ -64,6 +76,13 @@ python3 -m hardware.tiltcheck --port /dev/ttyTHS1
 
 Worth the minute in a 2x2 cage: drift is what ends every flight tonight.
 
+**Already have this?** The 30-inch table dry run logs `roll_deg`/`pitch_deg`
+while she sits still. Same answer, no extra run:
+
+```
+tail -20 ../out/flightlogs/hover_*.csv
+```
+
 ---
 
 ## Step 3 - vision check at the real geometry (2 min, PROPS OFF)
@@ -71,10 +90,20 @@ Worth the minute in a 2x2 cage: drift is what ends every flight tonight.
 Hold her at the back wall, nose on the gate, where she will actually hover.
 
 ```
-AIGP_CAM_CX=627.2 AIGP_CAM_CY=368.8 \
 python3 -m hardware.hover --port /dev/ttyTHS1 --alt 1.2 --seconds 30 \
   --gate-z --gate-roll --gate-pitch --fy 824 --cam-tilt 20 --dry-run
 ```
+
+**No `AIGP_CAM_CX/CY` on Sally.** Those are where the optical axis lands on
+ONE camera's sensor - Randy's sits 12.8 px left and 8.8 px up of centre.
+Sally's will be off by a different amount in a different direction, so
+borrowing his can DOUBLE the error rather than remove it. Unset means the
+image centre, which is the honest default and caps the bias near a degree -
+about 0.07 m at 4 m.
+
+`--cam-tilt 20` IS hers, measured tonight at 40 and 70 inches. `--fy 824` is
+Randy's and barely matters here: an `fy` error SCALES the computed angle, and
+scaling zero still gives zero, so it vanishes at the null the loop lives on.
 
 Wait for `gate acquired`, then move her by hand:
 
@@ -156,12 +185,14 @@ that is the third independent measurement of the corrected curve.
 **Back wall. Nose on the gate. Arm.**
 
 ```
-AIGP_CAM_CX=627.2 AIGP_CAM_CY=368.8 \
 python3 -m hardware.hover --port /dev/ttyTHS1 --alt 1.2 --seconds 15 \
   --gate-z --gate-roll --gate-pitch --fy 824 --cam-tilt 20 \
   --gate-z-min 0.6 --gate-z-max 1.8 \
   --config ../config/ladder/vehicle_k025_cam20_75.toml --arm
 ```
+
+Ceiling defaults to **2.8 m** here - it has to clear what vision is allowed to
+ask for, not just `--alt`.
 
 She takes off on the barometer to 1.2 m, then vision takes all three axes
 during `hold`.
@@ -227,6 +258,9 @@ goes away - that separates a calibration error from a real one.
 ```
 AIGP_CAM_CX=627.2 AIGP_CAM_CY=368.8 python3 -m hardware.hover --port /dev/ttyTHS1 --alt 1.2 --seconds 15   --gate-z --gate-roll --gate-pitch --fy 824 --cam-tilt 20   --gate-z-min 0.6 --gate-z-max 1.8   --config ../config/ladder/vehicle_k025_cam20_75.toml --arm
 ```
+
+**Randy DOES get `AIGP_CAM_CX/CY`** - unlike Sally, they are his own measured
+numbers. That is exactly what makes this comparison worth running.
 
 | Randy's barometer | means |
 |---|---|
