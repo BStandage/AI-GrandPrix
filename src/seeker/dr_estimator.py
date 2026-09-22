@@ -36,6 +36,7 @@ from raceline.rc_backend import StateEstimate, clamp, rot_from_quat
 from seeker import synthetic_camera as cam
 
 G = 9.80665
+VZ_FROM_ARM = os.environ.get("AIGP_VZ_FROM_ARM", "1") == "1"   # 0 = the old behaviour: vz_inertial starts at the airborne latch
 
 
 class VerticalFilter:
@@ -200,6 +201,7 @@ class DeadReckonSource:
                                      # residual accelerometer bias of 0.02 m/s^2 settles at 0.1 m/s
                                      # instead of growing without bound; a 2.5 s committed run keeps
                                      # 60 % of the speed it entered with, which is what matters
+        self.arm_t_s = None          # sim path: armed from this time (vz_inertial integrates from here)
         self.pad_until_s = 0.0       # sim path: samples before this time are "on the pad" and
                                      # teach bias_body, as the runtime's wait loop does on the aircraft
         # AIGP_ACCEL_BIAS=0 switches the learning off at the command line
@@ -313,7 +315,7 @@ class DeadReckonSource:
 
     # --- prediction -------------------------------------------------------------
     def integrate(self, t: float, R: np.ndarray, accel_body, z_meas: float | None,
-                  baro_fresh: bool = True, on_ground: bool = False):
+                  baro_fresh: bool = True, on_ground: bool = False, armed: bool = False):
         """One tick: attitude, body specific force, barometric altitude.
 
         ZERO-VELOCITY UPDATE. `on_ground` says the aircraft is demonstrably not
@@ -346,6 +348,27 @@ class DeadReckonSource:
                     self._bias_sum += resid
                     self._bias_n += 1
                     self.bias_body = self._bias_sum / self._bias_n
+            # THE INERTIAL VERTICAL SPEED INTEGRATES FROM ARMING, NOT FROM THE
+            # AIRBORNE LATCH (2026-09-22). The runtime's latch needs 0.30 m of
+            # height AND a 0.5 m/s baro climb before on_ground clears, so on
+            # the aircraft the first half metre per second of climb was never
+            # integrated: vz_inertial started about 0.5 m/s LOW and leaked
+            # toward zero over 30 s. The vertical loop damps on it, so it flew
+            # the approach ~0.2 m high (flight 1 "slightly too high") and the
+            # commit hold then answered the phantom descent with a climb
+            # (flight 2, the top bar). Once armed the props are the only thing
+            # that can move the airframe, so integrate. The guard skips the
+            # sim's spool-up artefact (-7 m/s^2 on the ground at t=3.1): a
+            # real airframe on the ground cannot see 4 m/s^2 vertical.
+            if armed and VZ_FROM_ARM and accel_body is not None:
+                a_w = (R @ (np.asarray(accel_body, dtype=float) - self.bias_body)
+                       - np.array([0.0, 0.0, G]))
+                if abs(float(a_w[2])) < 4.0:
+                    self.vz_inertial += float(a_w[2]) * dt
+                    if self.vz_leak_s > 0:
+                        self.vz_inertial -= self.vz_inertial * dt / self.vz_leak_s
+                    self.az_w_last = float(a_w[2])
+                    self.dt_last = dt
             z, vz = self.vert.update(dt, 0.0, z_meas, baro_fresh)
             self.p[2] = z
             # Same shape as the flying branch below - (t, p, R). state_at()
@@ -416,7 +439,8 @@ class DeadReckonSource:
                 self.baro0 = float(u.baro)
             z_meas = float(u.baro) - self.baro0
         self.integrate(float(u.t), R, u.accel, z_meas, u.baro_fresh,
-                       on_ground=(float(u.t) < self.pad_until_s))
+                       on_ground=(float(u.t) < self.pad_until_s),
+                       armed=(self.arm_t_s is not None and float(u.t) >= self.arm_t_s))
         omega_w = np.asarray(u.world_vel[0:3], dtype=float)
         yaw = math.atan2(R[1, 0], R[0, 0])
         self.last_est = StateEstimate(p=self.p.copy(), v=self.v.copy(), R=R, yaw=yaw, omega=R.T @ omega_w)

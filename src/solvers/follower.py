@@ -442,7 +442,9 @@ for _e in PLAN["events"]:
         _GATE_LANDMARKS.append((_e["x"], _e["y"], _e["z"], _e["heading_rad"]))
 if STATE_SOURCE == "deadreckon":
     _SOURCE.set_landmarks(_GATE_LANDMARKS)      # the map says which gates can be in view
-    _SOURCE.pad_until_s = T_ARM_IDLE_END        # sim: learn the accel bias while still on the pad
+    _SOURCE.arm_t_s = T_ARM_IDLE_END            # sim: armed from here, vz_inertial integrates from here
+    _SOURCE.pad_until_s = T_ARM_IDLE_END + 0.5  # sim: learn the accel bias while still on the pad; the
+                                                # horizontal ZUPT holds through the spool-up and lift-off
 # VERTICAL FROM VISION. AIGP_VERT=vision replaces the barometric height
 # reference with the gate's own elevation.
 #
@@ -538,8 +540,13 @@ def set_gate_elevation(el_rad, t, committed=False, range_m=None):
     # vz): the commit hold fits these to learn the inertial vz's offset and
     # the height still to make (see the hold in step)
     if el_rad is not None and range_m is not None and not committed:
-        vzi = float(getattr(_SOURCE, "vz_inertial", float("nan"))) if _SOURCE is not None else float("nan")
-        _DZ_HIST.append((float(t), float(range_m) * math.sin(float(el_rad)), vzi))
+        # one sample per detection, not per control tick (the same frame is
+        # handed over for up to 0.5 s)
+        key = (round(float(el_rad), 6), round(float(range_m), 4))
+        if key != _DZ_LAST[0]:
+            _DZ_LAST[0] = key
+            vzi = float(getattr(_SOURCE, "vz_inertial", float("nan"))) if _SOURCE is not None else float("nan")
+            _DZ_HIST.append((float(t), float(range_m) * math.sin(float(el_rad)), vzi, float(range_m)))
     while _DZ_HIST and _DZ_HIST[0][0] < float(t) - HOLD_FIT_S:
         _DZ_HIST.popleft()
 
@@ -550,13 +557,41 @@ HOLD_FIT_MIN_N = 8          # ...needs this many samples over at least HOLD_FIT_
 HOLD_FIT_MIN_SPAN_S = 0.8
 HOLD_DZ_MAX_M = 0.6         # the height the hold will make after commit, at most
 _DZ_HIST = collections.deque()
+_DZ_LAST = [None]
+HOLD_FIT_DZ_OUTLIER_M = 0.3   # a sample this far from the window's median height is a bad frame, not motion
+HOLD_FIT_RANGE_OUTLIER = 0.25 # ...or this fraction off the median range
+
+
+def _fit_dbg():
+    """For the [RL] line: the fit's true vz and height to make, and the newest
+    geometric dz and range in the window."""
+    if not _DZ_HIST:
+        return "-"
+    tl, dzl, _, _ = _DZ_HIST[-1]
+    r = _GATE_RANGE if _GATE_RANGE is not None else float("nan")
+    fit = _fit_vision_vz(tl)
+    if fit is None:
+        return f"(dzg={dzl:+.2f} r={r:.1f} nofit)"
+    return f"(vz={fit[0]:+.2f} dz={fit[1]:+.2f} off={fit[2]:+.2f} dzg={dzl:+.2f} r={r:.1f})"
 
 
 def _fit_vision_vz(t):
     """Least squares over _DZ_HIST: (true vertical speed from the elevation
     history, height still to make at t, inertial vz offset, n, span).
     None when the window is too thin to trust."""
-    pts = [(a, b, c) for a, b, c in _DZ_HIST if t - a <= HOLD_FIT_S and not math.isnan(c)]
+    pts = [(a, b, c, r) for a, b, c, r in _DZ_HIST if t - a <= HOLD_FIT_S and not math.isnan(c)]
+    if len(pts) < HOLD_FIT_MIN_N:
+        return None
+    # ROBUST: a false detection (the real detector's garbage frames, the
+    # synthetic camera's false positives at a random range) puts one sample
+    # metres off the line; least squares over 1.5 s then reads metres per
+    # second of climb that never happened (seed 2: "vision vz +0.46" while
+    # level, and the height hold flew him into the floor at g1). Drop
+    # anything far from the window's median height or range, then fit.
+    dzs = sorted(b for _, b, _, _ in pts); rs = sorted(r for _, _, _, r in pts)
+    mdz = dzs[len(dzs) // 2]; mr = rs[len(rs) // 2]
+    pts = [(a, b, c) for a, b, c, r in pts
+           if abs(b - mdz) <= HOLD_FIT_DZ_OUTLIER_M and abs(r - mr) <= HOLD_FIT_RANGE_OUTLIER * mr]
     if len(pts) < HOLD_FIT_MIN_N:
         return None
     span = pts[-1][0] - pts[0][0]
@@ -1240,7 +1275,7 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
               f"xtrack={np.linalg.norm(_TRACKER.pos[i] - est.p):4.2f} "
               f"zt={z_target:4.2f} tilt={tilt_deg:3.0f} az={_ALT.a_cmd:+4.1f} "
               f"air={airborne} stk=({roll},{pitch},{throttle},{yaw_stick})"
-              + (f" DR err={_FIX['err']:.2f}m fixes={_FIX['n']} rej={_SOURCE.rejected} unm={_SOURCE.unmatched} res={_FIX['last_res']:.2f} vzi={float(getattr(_SOURCE, 'vz_inertial', 0.0)):+.2f} vvis={_state.get('v_vis', float('nan')):+.2f} azw={float(getattr(_SOURCE, 'az_w_last', 0.0)):+.2f} dt={float(getattr(_SOURCE, 'dt_last', 0.0)):.4f} tvz={float(getattr(_state, 'tvz', 0.0)) if False else _state.get('tvz', float('nan')):+.2f}" if STATE_SOURCE == "deadreckon" else ""))
+              + (f" DR err={_FIX['err']:.2f}m fixes={_FIX['n']} rej={_SOURCE.rejected} unm={_SOURCE.unmatched} res={_FIX['last_res']:.2f} vzi={float(getattr(_SOURCE, 'vz_inertial', 0.0)):+.2f} vvis={_fit_dbg():s} azw={float(getattr(_SOURCE, 'az_w_last', 0.0)):+.2f} dt={float(getattr(_SOURCE, 'dt_last', 0.0)):.4f} tvz={float(getattr(_state, 'tvz', 0.0)) if False else _state.get('tvz', float('nan')):+.2f}" if STATE_SOURCE == "deadreckon" else ""))
 
     return RCCommand(arm=1800, throttle=throttle, roll=roll, pitch=pitch,
                      yaw=yaw_stick, aux2=AUX2)

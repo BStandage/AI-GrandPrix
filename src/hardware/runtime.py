@@ -557,7 +557,7 @@ def main(argv=None) -> int:
                         print(f"airborne at t={t - t_start:.1f}s "
                               f"(z={float(est.p[2]):.2f} vz={float(est.v[2]):+.2f})")
                     dr.integrate(t, est.R, src.accel_body, float(est.p[2]), True,
-                                 on_ground=not airborne_latch)
+                                 on_ground=not airborne_latch, armed=True)
                 est_dr = StateEstimate(p=dr.p.copy(), v=dr.v.copy(), R=est.R, yaw=est.yaw, omega=est.omega)
                 # a sighting: the estimator decides which gate it is (same code
                 # as the sim) and fixes on it; implausible fixes are dropped
