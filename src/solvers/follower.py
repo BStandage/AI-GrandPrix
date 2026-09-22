@@ -572,7 +572,10 @@ _ALT = AltitudeLoop(CFG)
 _YAW = YawLoop(CFG)
 LAND_RATE_MPS = 1.0   # descent after the finish (see autopilot)
 _state = {"done_t": None, "dbg_t": 0.0, "trace": None, "trace_n": 0, "airborne_latch": False,
-          "thr_hist": collections.deque(), "hold_thr": None, "vz_lp": 0.0, "hold_t": 0.0}
+          "thr_hist": collections.deque(), "hold_thr": None, "vz_lp": 0.0, "hold_t": 0.0,
+          "dz_hist": collections.deque(), "vis_t": 0.0}
+VZ_VIS_WINDOW_S = 0.5   # the elevation-rate window for the vision vertical speed
+VZ_VIS_TAU_S = 1.0      # how fast the inertial vz is pulled toward it while a gate is in view
 HOLD_KD_PWM = 200.0    # us of throttle per m/s of INERTIAL vertical speed while committed (baro-free, smooth): a 0.2 m/s drift is met with 40 us (~2 m/s^2)
 HOLD_VZ_TAU_S = 0.7    # the low-pass: a 5 Hz baro spike of 1.5 m/s moves the throttle ~10 us
 
@@ -618,7 +621,8 @@ def reset_state() -> None:
     if _state["trace"] is not None:
         _state["trace"].close()
     _state.update(done_t=None, dbg_t=0.0, trace=None, trace_n=0, airborne_latch=False,
-                  thr_hist=collections.deque(), hold_thr=None, vz_lp=0.0, hold_t=0.0)
+                  thr_hist=collections.deque(), hold_thr=None, vz_lp=0.0, hold_t=0.0,
+                  dz_hist=collections.deque(), vis_t=0.0)
 
 
 _DR = {"fh": None, "n": 0, "det": None}
@@ -924,6 +928,26 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
         # speed we had at commit - the earlier reset-to-zero could not see a
         # climb that was already under way (race_055 again, 0.4 m/s into the
         # top bar with the throttle sitting still).
+        # ...AND THE INERTIAL VZ IS PULLED TOWARD THE VISION'S VERTICAL SPEED
+        # while a gate is in view (sim race_064: a 0.005 m/s^2 bias error times
+        # the 30 s leak read 0.14 m/s low for the whole approach, and the hold
+        # then carried a 0.14 m/s climb into the top edge). The gate is fixed,
+        # so the rate of change of its measured height offset IS our vertical
+        # speed, to within the elevation noise. Vision at low frequency, the
+        # accelerometer at high, the barometer nowhere.
+        if _GATE_EL is not None and (t - _GATE_EL[0]) <= VERT_EL_STALE_S and not _COMMITTED:
+            dzr = VERT_EL_GAIN * math.degrees(float(_GATE_EL[1]))
+            hist = _state["dz_hist"]; hist.append((t, dzr))
+            while hist and hist[0][0] < t - VZ_VIS_WINDOW_S:
+                hist.popleft()
+            if len(hist) >= 2 and hist[-1][0] - hist[0][0] >= 0.6 * VZ_VIS_WINDOW_S:
+                v_vis = -(hist[-1][1] - hist[0][1]) / (hist[-1][0] - hist[0][0])   # gate rising in view = we descend
+                dt_v = max(0.0, min(0.1, t - _state.get("vis_t", t)))
+                if hasattr(_SOURCE, "vz_inertial"):
+                    _SOURCE.vz_inertial += (v_vis - _SOURCE.vz_inertial) * min(1.0, dt_v / VZ_VIS_TAU_S)
+            _state["vis_t"] = t
+        else:
+            _state["dz_hist"].clear()
         vz_i = float(getattr(_SOURCE, "vz_inertial", est.v[2]))
         est = StateEstimate(p=est.p, v=np.array([float(est.v[0]), float(est.v[1]), vz_i]),
                             R=est.R, yaw=est.yaw, omega=est.omega)
