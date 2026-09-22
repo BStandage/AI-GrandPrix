@@ -242,6 +242,13 @@ class Tracker:
             # 1.2 m is a commanded dive - the sim flipped at 4 s on exactly
             # that (2026-09-22). No clock (replay, sim_lite): position alone.
             min_ok = (t is None) or (not VERT_VISION) or held >= SETTLE_MIN_S
+            # HOLD_HERE: the hold point IS where he is, so "over the start"
+            # is only ever the estimate settling its first fixes (Sally,
+            # 2026-09-22: the point was captured with 3 fixes, the estimate
+            # then moved 0.8 m, and she held for 20 s drifting backwards).
+            # Release on time alone.
+            if HOLD_HERE and t is not None and held >= SETTLE_MIN_S:
+                pos_ok, min_ok = True, True
             if (pos_ok and min_ok) or (timed_out and not far):
                 self.started = True
                 if t is not None:
