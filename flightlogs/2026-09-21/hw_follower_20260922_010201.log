@@ -1,0 +1,32 @@
+   0.0  gate 0 IN SIGHT at 7.5 m, LEVEL with me
+   0.6  gate 0 is 12.1 deg ABOVE me -> CLIMBING (commanding +0.23 m) (at 7.5 m)
+   0.7  AIRBORNE at -0.33 m
+   3.9  gate 0: ring is cut off by the frame edge, rebuilding its centre from the width
+   4.0  gate 0 back to LEVEL (at 6.6 m)
+   6.8  gate 0 is 3.9 deg BELOW me -> EASING DOWN (commanding -0.22 m) (at 6.1 m)
+   7.0  gate 0 at 6.0 m: 4.0 deg BELOW me -> EASING DOWN (commanding -0.24 m), holding 2.22 m
+   8.3  gate 0 at 5.0 m: 2.8 deg BELOW me -> EASING DOWN (commanding -0.17 m), holding 2.15 m
+   9.3  gate 0 at 4.0 m: 1.4 deg BELOW me -> EASING DOWN (commanding -0.09 m), holding 1.94 m
+   9.4  gate 0 COMMIT at 3.5 m (ring fills the frame) - height reference released, holding 1.95 m, flying through
+  10.1  gate 0 at 3.0 m: LEVEL, holding 1.92 m
+  10.9  gate 0 at 2.0 m: LEVEL, holding 2.17 m
+  12.5  gate 0: detection IMPLAUSIBLE (2.9 m -> 2.3 m), ignoring it
+  12.5  gate 0 IN SIGHT at 2.0 m, LEVEL with me
+  12.5  gate 0 at 1.9 m: LEVEL, holding 2.06 m
+  12.6  gate 0 at 1.8 m: LEVEL, holding 2.02 m
+  12.6  gate 0 at 1.8 m: LEVEL, holding 1.98 m
+  12.6  THROTTLE 1385 - near the 1380+ ceiling, the loop is asking for a lot of lift
+  12.6  gate 0 at 1.8 m: LEVEL, holding 1.94 m
+  12.6  gate 0 at 1.8 m: LEVEL, holding 1.91 m
+  12.9  gate 0: detection IMPLAUSIBLE (2.7 m -> 1.8 m), ignoring it
+  12.9  gate -1 CROSSED, 0.46 m to the left, 0.45 m low
+  13.0  gate 1 IN SIGHT at 1.8 m, LEVEL with me
+  13.0  gate 1 COMMIT at 1.8 m (gate is wider than the frame) - height reference released, holding 0.74 m, flying through
+  13.0  gate 1 at 1.8 m: LEVEL, holding 0.67 m
+  13.0  gate 1 at 1.8 m: LEVEL, holding 0.66 m
+  13.0  gate 1 at 1.8 m: LEVEL, holding 0.64 m
+  13.1  gate 1 at 1.8 m: LEVEL, holding 0.63 m
+  13.3  throttle back to 1229
+  13.5  THROTTLE 1392 - near the 1380+ ceiling, the loop is asking for a lot of lift
+  13.6  gate 1 LOST - fading the height reference out, holding vertical speed
+  14.5  gate 0 CROSSED, 1.74 m to the right (OUTSIDE the opening - that is position error), 1.42 m low

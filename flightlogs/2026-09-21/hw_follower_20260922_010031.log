@@ -1,0 +1,31 @@
+   0.0  gate 0 IN SIGHT at 7.6 m, LEVEL with me
+   0.6  gate 0 is 15.3 deg ABOVE me -> CLIMBING (commanding +0.23 m) (at 7.5 m)
+   0.8  AIRBORNE at -0.48 m
+   1.0  gate 0: detection IMPLAUSIBLE (7.3 m -> 6.6 m), ignoring it
+   1.1  gate 0 IN SIGHT at 5.9 m, 9.4 deg ABOVE me -> CLIMBING (commanding +0.35 m)
+   1.1  gate 0 at 5.8 m: 10.1 deg ABOVE me -> CLIMBING (commanding +0.35 m), holding 1.36 m
+   1.4  gate 0: ring is cut off by the frame edge, rebuilding its centre from the width
+   2.0  THROTTLE 1450 - near the 1380+ ceiling, the loop is asking for a lot of lift
+   2.4  throttle back to 1171
+   3.1  gate 0: detection IMPLAUSIBLE (5.8 m -> 6.0 m), ignoring it
+   3.2  gate 0 IN SIGHT at 6.2 m, 5.9 deg ABOVE me -> CLIMBING (commanding +0.34 m)
+   3.4  gate 0: detection IMPLAUSIBLE (6.3 m -> 7.5 m), ignoring it
+   3.5  gate 0 IN SIGHT at 7.9 m, 6.5 deg ABOVE me -> CLIMBING (commanding +0.31 m)
+   7.5  THROTTLE 1380 - near the 1380+ ceiling, the loop is asking for a lot of lift
+   7.7  gate 0: detection IMPLAUSIBLE (8.6 m -> 7.3 m), ignoring it
+   7.8  gate 0 IN SIGHT at 7.4 m, LEVEL with me
+   8.1  throttle back to 1329
+   8.3  gate 0: detection IMPLAUSIBLE (7.5 m -> 7.8 m), ignoring it
+   8.4  gate 0 IN SIGHT at 8.1 m, 13.1 deg ABOVE me -> CLIMBING (commanding +0.17 m)
+   8.4  THROTTLE 1384 - near the 1380+ ceiling, the loop is asking for a lot of lift
+   8.5  gate 0 at 8.0 m: 11.7 deg ABOVE me -> CLIMBING (commanding +0.21 m), holding 1.94 m
+   8.6  gate 0: detection IMPLAUSIBLE (8.0 m -> 6.0 m), ignoring it
+   8.7  gate 0 IN SIGHT at 5.5 m, 0.13 m ABOVE me -> CLIMBING
+   8.7  gate 0 at 5.5 m: 0.12 m ABOVE me -> CLIMBING, holding 0.72 m
+   9.0  gate 0: detection IMPLAUSIBLE (5.2 m -> 25.9 m), ignoring it
+   9.9  gate 0 IN SIGHT at 5.2 m, LEVEL with me
+   9.9  gate 0 at 5.5 m: LEVEL, holding 0.42 m
+  10.0  throttle back to 1326
+  10.1  gate 0: detection IMPLAUSIBLE (5.8 m -> 6.2 m), ignoring it
+  10.2  THROTTLE 1389 - near the 1380+ ceiling, the loop is asking for a lot of lift
+  10.3  throttle back to 1309
