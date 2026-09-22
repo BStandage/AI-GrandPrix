@@ -472,6 +472,7 @@ def main(argv=None) -> int:
     else:
         print("LIVE: waiting for the pilot. Throttle low, ARM, then MSP OVERRIDE on (and ANGLE). "
               "The plan clock starts when the FC reports both.")
+        _pad_report_t = 0.0
         while True:
             st = bridge.state().status
             bridge.set_rc(throttle=1000, roll=1500, pitch=1500, yaw=1500, arm=1000, aux2=1500)
@@ -492,6 +493,23 @@ def main(argv=None) -> int:
                 if est0 is not None and src.accel_body is not None:
                     dr.integrate(time.monotonic(), est0.R, src.accel_body,
                                  float(est0.p[2]), True, on_ground=True)
+                # THE GATE CHECK ON THE PAD (race day 2: no dry run on the start
+                # line outside the slot). Every 2 s while waiting: what the
+                # camera sees and where, so the pad wait doubles as the check
+                # that the detector has g0 and the elevation reads "above".
+                _now = time.monotonic()
+                if camera is not None and _now - _pad_report_t >= 2.0:
+                    _pad_report_t = _now
+                    _d = camera.latest()
+                    if _d is not None and (_now - _d.t) <= 0.5 and est0 is not None:
+                        from hardware.hover import gate_dz as _gate_dz
+                        _, _el = _gate_dz(_d, est0.R, args.fy, math.radians(args.cam_tilt), camera.frame_wh)
+                        print(f"PAD: gate at {_d.range_m:.1f} m, {math.degrees(_el):+.1f} deg "
+                              f"{'ABOVE' if _el > 0 else 'below'}, offset x {_d.offset_x:+.2f}"
+                              f"{', STACKED' if getattr(_d, 'stacked', False) else ''}; "
+                              f"bias=({dr.bias_body[0]:+.2f},{dr.bias_body[1]:+.2f}) n={dr._bias_n}")
+                    else:
+                        print(f"PAD: no gate in view; bias n={dr._bias_n}")
             time.sleep(0.05)
         if not bridge.state().status.angle_mode and not args.acro:
             print("WARNING ANGLE mode is not active on the FC: the sticks are angle sticks. Flip the ANGLE switch.")
