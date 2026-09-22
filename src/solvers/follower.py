@@ -516,6 +516,9 @@ if STATE_SOURCE == "deadreckon":
 # own vz_ff, which is what flew cleanly twice.
 VERT_VISION = os.environ.get("AIGP_VERT", "baro") == "vision"
 COMMIT_STRAIGHT = os.environ.get("AIGP_COMMIT_STRAIGHT", "1") == "1"   # committed = zero roll, pitch along the nose (see step)
+COMMIT_LAT_KP = 2.0     # committed: m/s^2 per m off the gate's centre line (dead reckoning, no fixes)
+COMMIT_LAT_KD = 2.0     # ...and per m/s of lateral speed
+COMMIT_LAT_MAX = 0.6    # m/s^2 = 3.5 deg of lean, the most the committed run may steer
 VERT_EL_GAIN = 0.06        # metres of height correction per degree of elevation.
                            # One degree is r*sin(1 deg) of real height: 0.035 m at
                            # 3 m, 0.14 at 8. Gates are seen from about 3 to 8 m, and
@@ -807,7 +810,29 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
     # dead-reckoned lateral loop.
     if COMMIT_STRAIGHT and VERT_VISION and _COMMITTED and not done:
         fwd = np.array([math.cos(float(est.yaw)), math.sin(float(est.yaw))])
-        a_des = fwd * float(np.dot(np.asarray(a_des, dtype=float)[:2], fwd))
+        along = float(np.dot(np.asarray(a_des, dtype=float)[:2], fwd))
+        across = 0.0
+        # ...BUT CENTRE ON THE GATE, GENTLY, ON DEAD RECKONING (sim race_046):
+        # the FLAT plan does its 1.2 m jog from g0's line to g1's in the LAST
+        # 1.5 m before g1, so a straight run from the commit point crossed g1
+        # 0.88 m left - outside the opening. The estimate is smooth inside
+        # the commit range (no fixes, inertial only; DR err 0.04-0.2 m in the
+        # sim) so steering on it is not "being thrown by a bad signal": aim
+        # at the gate centre's crossing line, clamped to a 3.5 deg lean.
+        if 0 <= next_event < len(_TRACKER.event_xyz) and next_event < len(_TRACKER.event_s):
+            gx, gy, _gz = _TRACKER.event_xyz[next_event]
+            gh = _TRACKER.event_heading[next_event] if hasattr(_TRACKER, "event_heading") else None
+            if gh is not None:
+                nx, ny = math.cos(gh), math.sin(gh)          # crossing direction
+                lx, ly = -ny, nx                             # left of the crossing line
+                lat = (float(est.p[0]) - gx) * lx + (float(est.p[1]) - gy) * ly   # + = left of centre
+                vlat = float(est.v[0]) * lx + float(est.v[1]) * ly
+                a_lat = -COMMIT_LAT_KP * lat - COMMIT_LAT_KD * vlat                # toward the line
+                a_lat = max(-COMMIT_LAT_MAX, min(COMMIT_LAT_MAX, a_lat))
+                across = a_lat
+                a_des = fwd * along + np.array([lx, ly]) * a_lat   # world frame; the sticks map it
+        if across == 0.0:
+            a_des = fwd * along
 
     if done or _state["done_t"] is not None:
         # LATCHED: once the last crossing is credited the race is over. The
@@ -955,6 +980,13 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
     # hover point at this speed and tilt) and hold it, with only a light,
     # low-passed vz damping against a real drift. No barometer step can move
     # it more than a few us. The tilt is computed against level thrust.
+    # NO REFERENCE = HOLD, TOO (sim race_046): after g1 the nose swings 90 deg
+    # to g2, no gate is in view for a few seconds, and the velocity hold on
+    # the barometer took him from 2.2 to 4.8 m in three seconds. Whenever
+    # vision has no fresh elevation - committed OR gate lost - hold the
+    # throttle the same way.
+    el_fresh = _GATE_EL is not None and (t - _GATE_EL[0]) <= VERT_EL_STALE_S
+    hold_now = _COMMITTED or not el_fresh
     if VERT_VISION and airborne and not done:
         hist = _state["thr_hist"]
         # the low-passed vertical speed runs ALL the time, so at the moment of
@@ -964,7 +996,7 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
         dt_h = max(0.0, min(0.2, t - _state["hold_t"]))
         _state["hold_t"] = t
         _state["vz_lp"] += (float(est.v[2]) - _state["vz_lp"]) * min(1.0, dt_h / HOLD_VZ_TAU_S)
-        if not _COMMITTED:
+        if not hold_now:
             hist.append((t, int(throttle)))
             while hist and hist[0][0] < t - 1.0:
                 hist.popleft()
@@ -973,8 +1005,8 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
             if _state["hold_thr"] is None:
                 vals = [v for _, v in hist] or [int(throttle)]
                 _state["hold_thr"] = float(sum(vals)) / len(vals)
-                print(f"[RACELINE] COMMIT: holding throttle {_state['hold_thr']:.0f} "
-                      f"(mean of {len(vals)} ticks), vz {_state['vz_lp']:+.2f} m/s, zero roll, straight through")
+                print(f"[RACELINE] {'COMMIT' if _COMMITTED else 'NO GATE'}: holding throttle {_state['hold_thr']:.0f} "
+                      f"(mean of {len(vals)} ticks), vz {_state['vz_lp']:+.2f} m/s")
             throttle = int(round(_state["hold_thr"] - HOLD_KD_PWM * _state["vz_lp"]))
             throttle = max(int(CFG.thrust.pwm_min), min(int(CFG.thrust.pwm_max), throttle))
             az_eff = 0.0
