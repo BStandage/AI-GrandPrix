@@ -65,7 +65,7 @@ cam_hfov_deg         = 75.0   # the fastest plan this camera can fly (tilt clamp
 v_blind_turn_mps     = 0.0    # blind turns: speed cap within blind_turn_window_m before a crossing whose heading
 blind_turn_window_m  = 6.0    # differs from the previous one by more than blind_turn_deg (the hairpin, the stack).
 blind_turn_deg       = 110.0  # The camera cannot hold such a gate on the way in; the estimate arrives blind.                  # ceilings shared by planner AND follower
-max_tilt_deg     = 10.000   # NO LIMIT (config validator caps at 89.5) (Brian, feature/rip): the thrust-vector budget is the only bound - at 90 the vertical thrust is zero, so the model allows it only for the instant the thrust vector affords, and the follower's mapping floor (0.5 g) caps the commanded tilt near 82.
+max_tilt_deg     = 8.000    # 10 -> 8 for race day 2 (2026-09-22, Brian: Julian rolled too much for 1.5 m/s and it read as lateral oscillation). 8 deg = 1.38 m/s^2; the plan's approaches to g0/g1/g2 need at most 1.00. Revert to 10.000 to undo. Was: NO LIMIT (config validator caps at 89.5) (Brian, feature/rip): the thrust-vector budget is the only bound - at 90 the vertical thrust is zero, so the model allows it only for the instant the thrust vector affords, and the follower's mapping floor (0.5 g) caps the commanded tilt near 82.
                           # (~70 deg, TWR 2.9) applies when FIGHTING to stay
                           # level from a lift deficit - but when the drone is
                           # already high/climbing, pitching forward past that
