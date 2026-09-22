@@ -468,7 +468,7 @@ COMMIT_STRAIGHT = os.environ.get("AIGP_COMMIT_STRAIGHT", "1") == "1"   # committ
 COMMIT_HOLD = os.environ.get("AIGP_COMMIT_HOLD", "1") == "1"   # committed = hold hover throttle instead of the vz hold (see step)
 COMMIT_LAT_KP = 2.0     # committed: m/s^2 per m off the gate's centre line (dead reckoning, no fixes)
 COMMIT_LAT_KD = 2.0     # ...and per m/s of lateral speed
-COMMIT_LAT_MAX = 0.6    # m/s^2 = 3.5 deg of lean, the most the committed run may steer
+COMMIT_LAT_MAX = 1.4    # m/s^2 = 8 deg of lean, the plan's own cap. Was 0.6 (3.5 deg): the hairpin g5 arrives at the line still carrying 1.3 m/s of turn, overshot to -0.57 m and touched the frame (sim race_060). Zero when centred, so the straight gates are unaffected.
 VERT_EL_GAIN = 0.09        # metres of height correction per degree of elevation. 0.06 -> 0.09 (race day 2): sized for ~5 m now that COMMIT freezes the height at 3.5 m - at 0.06 three sim runs arrived at commit 0.4 m high with the loop still asking for down, and grazed the top edge at 2.09 m.
                            # One degree is r*sin(1 deg) of real height: 0.035 m at
                            # 3 m, 0.14 at 8. Gates are seen from about 3 to 8 m, and
@@ -770,7 +770,7 @@ def commit_aligned(p, yaw: float, event) -> bool:
 
 
 COMMIT_ALIGN_DEG = 35.0
-COMMIT_ALIGN_LAT_M = 1.5
+COMMIT_ALIGN_LAT_M = 1.0    # 1.5 -> 1.0: let the plan finish the hairpin's swing before the commit takes over
 
 
 def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
