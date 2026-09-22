@@ -261,69 +261,17 @@ class Tracker:
             past_gate = s_here > s_ev + 0.5
             self._miss_streak = self._miss_streak + 1 if past_gate else 0
             if past_gate and self._miss_streak >= RETRY_CONFIRM_TICKS:
+                # MISSED = COUNTED, MOVE ON (Brian, race day 2, 2026-09-22):
+                # "even if we miss a gate, keep going and count them as
+                # scored." No retry, ever: the plan continues, the cap drops,
+                # and the estimator's own gate count advances so the next gate
+                # becomes the one the camera looks for and the height steers
+                # on. (The old retry backed up 2.5 m and re-approached, up to
+                # three times.)
                 self._miss_streak = 0
-                if self._retry_gate != next_event:
-                    self._retry_gate, self._retry_count = next_event, 0
-                self._retry_count += 1
-                if self._retry_count > MAX_RETRIES_PER_GATE:
-                    # Confirmed misses on this SAME gate, repeatedly, after
-                    # already re-approaching along its own crossing normal
-                    # each time - further retries won't succeed where these
-                    # didn't (most likely a frame touch already froze scoring
-                    # for the rest of the run, per the RaceTracker rule).
-                    # Give up on it: fall through to normal tracking below
-                    # with the gate cap dropped, instead of oscillating here
-                    # forever with zero chance of credit.
-                    self._abandoned.add(next_event)
-                else:
-                    j = self._at_s(max(0.0, s_ev - 2.5))
-                    self.idx = j
-                    heading = self.event_heading[next_event]
-                    if heading is not None:
-                        # Re-approach ALONG THE GATE'S OWN CROSSING NORMAL,
-                        # not 2.5 m back along the smoothed spline's
-                        # arc-length. On a sharp turn the spline sample there
-                        # can sit on the WRONG leg of the turn (measured: at
-                        # a gate that reverses course, the arc-length retry
-                        # point landed on the inbound leg, well off the
-                        # gate's actual approach line - a straight-line pull
-                        # from there can never thread the opening). A point
-                        # on the gate's own normal is ALWAYS lined up for a
-                        # straight shot through the opening, on any course
-                        # geometry.
-                        gx, gy, gz = self.event_xyz[next_event]
-                        nx, ny = math.cos(heading), math.sin(heading)
-                        tx, ty, tz = gx - 2.5 * nx, gy - 2.5 * ny, gz
-                    else:   # older plan without heading_rad: old proxy
-                        tx, ty, tz = self.pos[j][0], self.pos[j][1], self.pos[j][2]
-                    a_des = (1.5 * f.kp_pos * (np.array([tx, ty]) - est.p[:2])
-                             - f.kd_pos * est.v[:2])
-                    a_max = self.cfg.a_lat_full()
-                    n = float(np.hypot(a_des[0], a_des[1]))
-                    if n > a_max:
-                        a_des *= a_max / n
-                    # Face the re-approach direction instead of freezing the
-                    # nose: a None yaw here left the drone's heading locked
-                    # from whatever it was doing when the miss was detected,
-                    # which on a sharp-turn gate points the camera/frame away
-                    # from the opening on every retry. Aim at the point
-                    # we're actually flying to.
-                    yaw_des = (math.atan2(a_des[1], a_des[0])
-                               if n > 0.05 else None)
-                    return (a_des, float(tz), 0.0, yaw_des, False)
-
-        # RECOVERY: far off the line, plan feedforward is poison (it kept a
-        # stalled drone hovering at a stable equilibrium 11 m off-course).
-        # Fly straight back to the nearest path point, nothing else.
-        d_near = float(np.linalg.norm(self.pos[i] - est.p))
-        if d_near > 2.0:
-            a_des = (1.5 * f.kp_pos * (self.pos[i][:2] - est.p[:2])
-                     - f.kd_pos * est.v[:2])
-            a_max = self.cfg.a_lat_full()
-            n = float(np.hypot(a_des[0], a_des[1]))
-            if n > a_max:
-                a_des *= a_max / n
-            return a_des, float(self.pos[i][2]), 0.0, None, False
+                self._abandoned.add(next_event)
+                _count_missed_gate(next_event)
+                print(f"[RACELINE] g{next_event} MISSED - counted, moving on")
         # velocity-scaled carrot: a fixed distance is a fixed WARNING TIME
         # only at one speed - at full-mode pace 3.5 m was 0.6 s and corners
         # arrived faster than the loop could lean (two gate misses at the
@@ -494,6 +442,7 @@ for _e in PLAN["events"]:
         _GATE_LANDMARKS.append((_e["x"], _e["y"], _e["z"], _e["heading_rad"]))
 if STATE_SOURCE == "deadreckon":
     _SOURCE.set_landmarks(_GATE_LANDMARKS)      # the map says which gates can be in view
+    _SOURCE.pad_until_s = T_ARM_IDLE_END        # sim: learn the accel bias while still on the pad
 # VERTICAL FROM VISION. AIGP_VERT=vision replaces the barometric height
 # reference with the gate's own elevation.
 #
@@ -516,11 +465,11 @@ if STATE_SOURCE == "deadreckon":
 # own vz_ff, which is what flew cleanly twice.
 VERT_VISION = os.environ.get("AIGP_VERT", "baro") == "vision"
 COMMIT_STRAIGHT = os.environ.get("AIGP_COMMIT_STRAIGHT", "1") == "1"   # committed = zero roll, pitch along the nose (see step)
-COMMIT_HOLD = os.environ.get("AIGP_COMMIT_HOLD", "0") == "1"   # committed = hold hover throttle instead of the vz hold (see step)
+COMMIT_HOLD = os.environ.get("AIGP_COMMIT_HOLD", "1") == "1"   # committed = hold hover throttle instead of the vz hold (see step)
 COMMIT_LAT_KP = 2.0     # committed: m/s^2 per m off the gate's centre line (dead reckoning, no fixes)
 COMMIT_LAT_KD = 2.0     # ...and per m/s of lateral speed
 COMMIT_LAT_MAX = 0.6    # m/s^2 = 3.5 deg of lean, the most the committed run may steer
-VERT_EL_GAIN = 0.06        # metres of height correction per degree of elevation.
+VERT_EL_GAIN = 0.09        # metres of height correction per degree of elevation. 0.06 -> 0.09 (race day 2): sized for ~5 m now that COMMIT freezes the height at 3.5 m - at 0.06 three sim runs arrived at commit 0.4 m high with the loop still asking for down, and grazed the top edge at 2.09 m.
                            # One degree is r*sin(1 deg) of real height: 0.035 m at
                            # 3 m, 0.14 at 8. Gates are seen from about 3 to 8 m, and
                            # the gain is sized for the SHORT end so it always
@@ -624,7 +573,7 @@ _YAW = YawLoop(CFG)
 LAND_RATE_MPS = 1.0   # descent after the finish (see autopilot)
 _state = {"done_t": None, "dbg_t": 0.0, "trace": None, "trace_n": 0, "airborne_latch": False,
           "thr_hist": collections.deque(), "hold_thr": None, "vz_lp": 0.0, "hold_t": 0.0}
-HOLD_KD_PWM = 100.0    # us of throttle per m/s of LOW-PASSED vertical speed while committed: a real 0.5 m/s drift is met with 50 us (~2.5 m/s^2), a 2.5 Hz baro spike of 1.5 m/s with ~14 us
+HOLD_KD_PWM = 200.0    # us of throttle per m/s of INERTIAL vertical speed while committed (baro-free, smooth): a 0.2 m/s drift is met with 40 us (~2 m/s^2)
 HOLD_VZ_TAU_S = 0.7    # the low-pass: a 5 Hz baro spike of 1.5 m/s moves the throttle ~10 us
 
 # Per-tick trace, decimated to TRACE_EVERY ticks (~100 Hz at the 1 kHz
@@ -694,7 +643,10 @@ def _sim_vision_vertical(t, est):
     # spans 2*HALF_TAN_Y. Committed when that ratio reaches COMMIT_FRAC.
     commit_range = _cam.GATE_OUTER_M / (_SIM_COMMIT_FRAC * 2.0 * _cam.HALF_TAN_Y)
     fills = fresh and det.range_m is not None and det.range_m <= commit_range
-    if fills and near:
+    aligned = True
+    if 0 <= _SOURCE.next_event < len(_SOURCE.events):
+        aligned = commit_aligned(_SOURCE.p, est.yaw, _SOURCE.events[_SOURCE.next_event])
+    if fills and near and aligned:
         _VIS["run"] += 1
         if _VIS["run"] >= 3 and not _VIS["latched"]:
             _VIS["latched"] = True
@@ -791,6 +743,34 @@ def autopilot(update: SensorUpdate) -> RCCommand:
     # dead reckoning (the drone has no referee); the trace logs the referee's
     next_event = _SOURCE.next_event if STATE_SOURCE == "deadreckon" else update.next_gate_index
     return step(update.t, est, next_event, update.baro_fresh, _motor_stats(update))
+
+
+def _count_missed_gate(ev: int) -> None:
+    """Advance the estimator's own gate count past a gate we flew by."""
+    if STATE_SOURCE == "deadreckon" and hasattr(_SOURCE, "next_event"):
+        _SOURCE.next_event = max(int(_SOURCE.next_event), int(ev) + 1)
+
+
+def commit_aligned(p, yaw: float, event) -> bool:
+    """May we COMMIT to this gate? Only on a real approach: heading within
+    COMMIT_ALIGN_DEG of the crossing heading and within COMMIT_ALIGN_LAT_M of
+    the gate's centre line. Sim race_051: g5's ring filled the frame during a
+    fly-by 3 m off its line, heading the wrong way (the hairpin); a commit
+    there freezes the lateral loop exactly when the plan needs it. event =
+    (x, y, z, heading_rad)."""
+    gx, gy, _gz, gh = event[0], event[1], event[2], event[3]
+    if gh is None:
+        return True
+    dyaw = (float(yaw) - float(gh) + math.pi) % (2 * math.pi) - math.pi
+    if abs(dyaw) > math.radians(COMMIT_ALIGN_DEG):
+        return False
+    lx, ly = -math.sin(gh), math.cos(gh)
+    lat = (float(p[0]) - gx) * lx + (float(p[1]) - gy) * ly
+    return abs(lat) <= COMMIT_ALIGN_LAT_M
+
+
+COMMIT_ALIGN_DEG = 35.0
+COMMIT_ALIGN_LAT_M = 1.5
 
 
 def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
@@ -901,6 +881,19 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
         # not in the vertical channel at all. See the note at VERT_VISION.
         dz_vis, _el = _vision_dz(t)
         z_target = float(est.p[2]) + dz_vis
+        # NO BAROMETER IN THE VERTICAL CHANNEL AT ALL (Brian, race day 2).
+        # The P term is the gate's elevation; the D term was the baro-fused
+        # vz, and on a spiky barometer that term alone slammed the throttle
+        # 1128 <-> 1288 on the APPROACH (sim race_055, before commit). Damp on
+        # the estimator's leaky inertial vz instead: accelerometer, bias
+        # learned on the pad, 5 s leak. The same number damps the committed
+        # hold, and because it is never reset it carries whatever vertical
+        # speed we had at commit - the earlier reset-to-zero could not see a
+        # climb that was already under way (race_055 again, 0.4 m/s into the
+        # top bar with the throttle sitting still).
+        vz_i = float(getattr(_SOURCE, "vz_inertial", est.v[2]))
+        est = StateEstimate(p=est.p, v=np.array([float(est.v[0]), float(est.v[1]), vz_i]),
+                            R=est.R, yaw=est.yaw, omega=est.omega)
         # THE PLAN'S vz IS A TAKEOFF CLIMB, NOT A REFERENCE (d43 race_005,
         # 2026-09-22, into g0's top bar). The plan starts on the ground and
         # climbs 0.23 -> 1.35 m into g0 at +0.13..+0.18 m/s. Under vision the
@@ -1002,6 +995,10 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
     # flat through the commit range on the velocity hold with the plan's
     # climb feedforward now zeroed. Two hardware data points beat none.
     # AIGP_COMMIT_HOLD=1 turns the throttle hold on.
+    # RACE DAY 2, FINAL: the hold is ON and BARO-FREE. Its damping is the
+    # estimator's vz_inertial - bias-corrected accelerometer integrated from
+    # the moment of commit - not the barometer's vz. Brian: "we can't rely on
+    # baro, we have already determined that."
     hold_now = _COMMITTED and COMMIT_HOLD
     if VERT_VISION and airborne and not done:
         hist = _state["thr_hist"]
@@ -1021,9 +1018,10 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
             if _state["hold_thr"] is None:
                 vals = [v for _, v in hist] or [int(throttle)]
                 _state["hold_thr"] = float(sum(vals)) / len(vals)
-                print(f"[RACELINE] {'COMMIT' if _COMMITTED else 'NO GATE'}: holding throttle {_state['hold_thr']:.0f} "
-                      f"(mean of {len(vals)} ticks), vz {_state['vz_lp']:+.2f} m/s")
-            throttle = int(round(_state["hold_thr"] - HOLD_KD_PWM * _state["vz_lp"]))
+                print(f"[RACELINE] COMMIT: holding throttle {_state['hold_thr']:.0f} "
+                      f"(mean of {len(vals)} ticks), inertial vz {float(getattr(_SOURCE, 'vz_inertial', 0.0)):+.2f} m/s")
+            vz_i = float(getattr(_SOURCE, "vz_inertial", _state["vz_lp"]))
+            throttle = int(round(_state["hold_thr"] - HOLD_KD_PWM * vz_i))
             throttle = max(int(CFG.thrust.pwm_min), min(int(CFG.thrust.pwm_max), throttle))
             az_eff = 0.0
     roll = pitch = yaw_stick = 1500
@@ -1073,7 +1071,7 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
               f"xtrack={np.linalg.norm(_TRACKER.pos[i] - est.p):4.2f} "
               f"zt={z_target:4.2f} tilt={tilt_deg:3.0f} az={_ALT.a_cmd:+4.1f} "
               f"air={airborne} stk=({roll},{pitch},{throttle},{yaw_stick})"
-              + (f" DR err={_FIX['err']:.2f}m fixes={_FIX['n']} rej={_SOURCE.rejected} unm={_SOURCE.unmatched} res={_FIX['last_res']:.2f}" if STATE_SOURCE == "deadreckon" else ""))
+              + (f" DR err={_FIX['err']:.2f}m fixes={_FIX['n']} rej={_SOURCE.rejected} unm={_SOURCE.unmatched} res={_FIX['last_res']:.2f} vzi={float(getattr(_SOURCE, 'vz_inertial', 0.0)):+.2f}" if STATE_SOURCE == "deadreckon" else ""))
 
     return RCCommand(arm=1800, throttle=throttle, roll=roll, pitch=pitch,
                      yaw=yaw_stick, aux2=AUX2)
