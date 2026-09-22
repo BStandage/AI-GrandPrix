@@ -36,7 +36,7 @@ looks at the screen.
 | when | what |
 |---|---|
 | on arrival | `scripts/sync_drone.sh d43` and `scripts/sync_drone.sh d44` from the laptop (Sally already has it as of 08:20) |
-| then | eye check: through g0 from the start line, which side is g1 on |
+| done | eye check: g1 is right of g0, matches the map |
 | then | DRY RUN on both aircraft, one after the other, on the start line |
 | if any flying space exists before 11:48 | ONE test approach: take off, track toward a gate, pilot takes over at ~4 m, land. The only test that reaches the airframe. |
 | 11:48 | attempt 1 on the aircraft with the cleaner dry run |
@@ -55,11 +55,11 @@ scripts/sync_drone.sh d44
 
 ---
 
-## 2 — Eye check
+## 2 — Eye check: DONE
 
-Stand at the start line and look through g0. The map puts g1 1.2 m to the
-RIGHT of g0's centre. The human-pilot video looked LEFT. Five seconds. Tell me
-which.
+g1 is to the RIGHT of g0, confirmed on the track 2026-09-22 morning. That
+matches the map (1.2 m right). The plan's line to g1 and the gate
+association are consistent with the real course.
 
 ---
 
