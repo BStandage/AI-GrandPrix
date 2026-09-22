@@ -63,11 +63,24 @@ association are consistent with the real course.
 
 ---
 
-## 3 — DRY RUN. Three minutes, nothing spins, and it is the test flight we do not have
+## 3 — DRY RUN in the pits, then the PAD lines on the start line
 
-On the start line, pointed at g0, NOT armed. Props on is fine: the FC gets
-neutral sticks and nothing can spin. Same command as the flight with
-`--dry-run` in place of `--arm`.
+The start line is only ours inside the slot, so the dry run happens in the
+pits with no gate: it still proves the build runs (no Traceback), the FC
+link, the bias readout, the release at 2 s and the sticks. Same command as
+the flight with `--dry-run` in place of `--arm`. Expect `PAD: no gate in
+view; bias n=...` every 2 s and `[RACELINE] released at t=2.xs`.
+
+Then, INSIDE the slot, the gate check costs nothing: start the flight command
+(`--arm`), set him on the line pointed at g0, and while you wait the 10 s for
+the bias he prints every 2 s:
+
+```
+PAD: gate at 7.5 m, +12.3 deg ABOVE, offset x -0.03; bias=(+0.23,+0.04) n=210
+```
+
+Range about 7.5, ABOVE (he is on the floor), offset x near 0, n climbing.
+That is g0 found and the elevation live. Then arm.
 
 **Julian:**
 
