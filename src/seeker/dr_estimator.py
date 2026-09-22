@@ -197,7 +197,7 @@ class DeadReckonSource:
         self.vz_inertial = 0.0
         self.az_w_last = 0.0
         self.dt_last = 0.0
-        self.vz_leak_s = 30.0        # the inertial vz leaks toward zero with this time constant (5 s left a -0.3 m/s residual after the takeoff punch: the leak ate the climb, not the braking), so a
+        self.vz_leak_s = 1.5         # JULIAN ATTEMPT 2 (2026-09-22): the accelerometer over MSP reads ~0.35 m/s^2 low in flight, so a 30 s leak let the integrated speed run to -1.6 m/s in 6 s and the vision trim (frozen at commit) could not follow. At 1.5 s the offset is BOUNDED at bias*1.5 = -0.5 m/s and stationary: the trim removes it and it does not grow through the hold. The fast part (real accelerations) still comes through; the slow part is vision. was 30.0: the inertial vz leaks toward zero with this time constant (5 s left a -0.3 m/s residual after the takeoff punch: the leak ate the climb, not the braking), so a
                                      # residual accelerometer bias of 0.02 m/s^2 settles at 0.1 m/s
                                      # instead of growing without bound; a 2.5 s committed run keeps
                                      # 60 % of the speed it entered with, which is what matters

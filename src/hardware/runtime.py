@@ -522,6 +522,7 @@ def main(argv=None) -> int:
     t_fix = -1.0
     t_match = None      # last time a detection was ACCEPTED against the map
     commit_ev, commit_run, commit_latched = None, 0, False
+    last_el = None            # (t, elevation) of the last frame that had one: the level gate when the ring is clipped
     airborne_latch = False    # see the on_ground note in the loop
     try:
         while True:
@@ -651,7 +652,15 @@ def main(argv=None) -> int:
                     aligned = True
                     if 0 <= dr.next_event < len(dr.events):
                         aligned = fol.commit_aligned(dr.p, est.yaw, dr.events[dr.next_event])
-                    level_ok = fol.commit_level_ok(el_raw, det.range_m if det is not None else None)
+                    # A size commit only fires when the ring is clipped, and a
+                    # clipped ring has NO elevation, so the level gate passed
+                    # every time (Julian attempt 2: "7.5 deg ABOVE" at 7.5 s,
+                    # COMMIT at 7.7 s, half a metre low, hold climbed into the
+                    # corner). Judge level on the last elevation, up to 1 s old.
+                    if el_raw is not None:
+                        last_el = (t, el_raw)
+                    _el_for_level = el_raw if el_raw is not None else (last_el[1] if last_el is not None and t - last_el[0] <= 1.0 else None)
+                    level_ok = fol.commit_level_ok(_el_for_level, det.range_m if det is not None else None)
                     if det is not None and not getattr(det, "v_usable", True) and near and aligned and level_ok:
                         commit_run += 1
                         if commit_run >= COMMIT_CONFIRM:
