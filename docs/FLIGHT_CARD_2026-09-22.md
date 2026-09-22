@@ -159,13 +159,13 @@ Numbers around 0.1-0.3 and a few hundred samples is right.
 | takeoff, 0-1 s | 1250 punch open loop until airborne, then height from gate 0's elevation only. Barometer never in the loop. | `AIRBORNE`, `gate 0 ... ABOVE me -> CLIMBING` |
 | start hold, 2-4 s | holds over the start while he climbs out; released when up 2 s and within 0.6 m, or at 4 s regardless within 1.5 m | `[RACELINE] released at t=2.3s (over g0: ...)` or `(timed out on g0: ...)` |
 | approach, to ~3.5 m | planned straight line at up to 1.5 m/s, max 8 deg lean, nose on the gate, every frame fixes his position from the gate's bearing, height from its elevation | `gate 0 at 6.0 m: LEVEL, holding 1.35 m`, `fixes=` climbing, `res=` small |
-| COMMIT, ~3.5 m | ring spans 85 % of the frame for 3 frames, map within 6 m. Height FROZEN. NO more fixes. ROLL ZERO (stick 1500). Pitch straight along the nose. | `gate 0 COMMIT at 3.5 m ... holding 1.35 m, flying through`, roll `1500` in `stk=`, `holding` flat |
+| COMMIT, ~3.5 m | ring spans 85 % of the frame for 3 frames, map within 6 m. Height reference frozen (vertical-speed hold, flat on race_006/007). NO more fixes. Steers only toward the gate centre's line from the map on dead reckoning, at most 3.5 deg of lean (the plan jogs 1.2 m to g1's line in its last 1.5 m). Nose on the crossing heading. | `gate 0 COMMIT at 3.5 m ... holding 1.35 m, flying through`, roll within ~20 of 1500, `holding` flat |
 | through | crossing counted 0.75 m PAST the plane, never early; straight and level until then | `gate 0 CROSSED` about half a second after he is through |
 | gate 1 | fixes and height steering resume, nose swings to g1, 10 m straight ahead, same sequence | `gate 1 IN SIGHT ...` |
 | after g1 | the plan turns right to g2 | your discretion, every second |
 | finish | only the pilot lands him; no auto-disarm under vision | — |
 
-**No released line by 5 s: abort.** **Roll stick not 1500 after COMMIT, or
+**No released line by 5 s: abort.** **Roll stick swinging after COMMIT, or
 `holding` rising after COMMIT: abort.**
 
 ---
@@ -205,7 +205,8 @@ other has the same code and its own numbers above.
 | put in front of the command | effect |
 |---|---|
 | `AIGP_ACCEL_BIAS=0` | no bias learning on the pad: yesterday's estimator |
-| `AIGP_COMMIT_STRAIGHT=0` | committed = dead-reckoned lateral loop instead of zero roll |
+| `AIGP_COMMIT_STRAIGHT=0` | committed = the full dead-reckoned lateral loop instead of the gentle gate-centred steer |
+| `AIGP_COMMIT_HOLD=1` | committed = hold the pre-commit hover throttle instead of the vertical-speed hold |
 
 ---
 
