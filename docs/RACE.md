@@ -164,6 +164,6 @@ Pull her log with `scripts/pull_flight.sh d44`.
 | `AIGP_ACCEL_BIAS=0` | no bias learning on the pad |
 | `AIGP_COMMIT_STRAIGHT=0` | full dead-reckoned lateral loop inside the commit range |
 | `AIGP_VZ_FROM_ARM=0` | inertial vertical speed starts at the airborne latch again (the flight 1/2 behaviour) |
-| `AIGP_HOLD_HEIGHT=1` | after COMMIT hold a HEIGHT (fitted from the last 1.5 s of gate elevation) instead of a speed. Sim: took g0 clean once, then a bad fit at g1 put him on the floor; the fit has since been made robust, untested. ATTEMPT 2 ONLY, and only if attempt 1 rose into the bar after COMMIT. |
+| `AIGP_HOLD_HEIGHT=1` | after COMMIT hold a HEIGHT (fitted from the last 1.5 s of gate elevation) instead of a speed. Sim: seed 2 (the one that struck g0 on the speed hold) took g0, g1, g2 clean; seed 0 took g0 through g7 clean, then overshot the stack top (now falls back to the speed rule there). ATTEMPT 2 ONLY, and only if attempt 1 rose into the bar after COMMIT. |
 
 Do not use `AIGP_COMMIT_HOLD=0` (that is the barometer hold).
