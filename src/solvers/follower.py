@@ -528,7 +528,13 @@ VERT_EL_GAIN = 0.06        # metres of height correction per degree of elevation
                            # deliberately not range-scaled - range is the camera's
                            # worst signal and the whole point of using elevation is
                            # that it does not need one.
-VERT_DZ_MAX = 0.35         # hard cap on that correction, m
+VERT_DZ_MAX = 0.20         # hard cap on that correction, m. 0.35 -> 0.20 (race day 2,
+                           # Brian: "slow and steady, no steep takeoff"). This cap IS the
+                           # climb speed: the loop settles where kp_z * dz = kd_z * vz, so
+                           # 9 * 0.35 / 4 = 0.79 m/s before, 9 * 0.20 / 4 = 0.45 m/s now.
+                           # In the sim the fast climb-out overshot to 3 m and put the
+                           # gate below the camera's field of view, and every flight this
+                           # week overshot gate height on the way up.
 VERT_EL_STALE_S = 0.5      # a detection older than this is not used
 VERT_DZ_SLEW = 0.35        # m/s the reference may move. THE REFERENCE IS
                            # SLEW-LIMITED, not just clamped, and that matters

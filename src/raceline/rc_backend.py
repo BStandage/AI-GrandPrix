@@ -103,7 +103,7 @@ class AltitudeLoop:
                          # tilt compensation needs about 1.4 g, so 2.0 leaves
                          # half again as much headroom as the course asks for
                          # and still refuses to send six.
-    CLIMB_ACC_MAX = 12.0 # m/s^2: most climb any altitude error may buy. The
+    CLIMB_ACC_MAX = 3.0  # m/s^2: most climb any altitude error may buy. 12 -> 3 (race day 2: slow and steady; the FLAT course has no climb). The
                          # plans' steepest is under 10 at the g9 climb, so this
                          # never binds in normal flight - it exists so that one
                          # bad altitude sample cannot ask for full throttle.
