@@ -547,11 +547,34 @@ def set_gate_elevation(el_rad, t, committed=False, range_m=None):
             _DZ_LAST[0] = key
             vzi = float(getattr(_SOURCE, "vz_inertial", float("nan"))) if _SOURCE is not None else float("nan")
             _DZ_HIST.append((float(t), float(range_m) * math.sin(float(el_rad)), vzi, float(range_m)))
+            fit = _fit_vision_vz(float(t))
+            if fit is not None and abs(fit[2]) < 3.0:
+                _VZ_TRIM["off"], _VZ_TRIM["t"] = float(fit[2]), float(t)
     while _DZ_HIST and _DZ_HIST[0][0] < float(t) - HOLD_FIT_S:
         _DZ_HIST.popleft()
 
 
 HOLD_HEIGHT = os.environ.get("AIGP_HOLD_HEIGHT", "0") == "1"   # the committed hold flies a HEIGHT (fit from the elevation history), not a speed. Sim-tested only; off = build bec1096
+VZ_VISION_TRIM = os.environ.get("AIGP_VZ_VISION_TRIM", "1") == "1"   # 0 = the raw inertial vertical speed (Julian, 2026-09-22 attempt 1: way high over g0)
+_VZ_TRIM = {"off": 0.0, "t": None}   # the offset of the inertial vertical speed, as the elevation fit last measured it
+
+
+def vz_inertial_trimmed() -> float:
+    """The inertial vertical speed with its measured offset removed.
+
+    JULIAN, RACE DAY 2, ATTEMPT 1: pad bias zero, and in flight the
+    integrated accelerometer read -0.2, -0.5, -0.6, -1.2 m/s while the gate's
+    elevation said he was CLIMBING at +0.2..+0.6 (the accelerometer under
+    the props reads about 0.3 m/s^2 low; the pad cannot see that). The
+    vertical loop damps on this speed: +4 m/s^2 of 'stop descending' against
+    -1.8 m/s^2 of 'the gate is below you', and he went way high over g0.
+    The elevation fit measured the offset the whole time (-0.34, -0.50,
+    -0.74, -1.19). So: accelerometer for the fast part, vision for the slow
+    part. The offset freezes when the gate is lost or committed."""
+    v = float(getattr(_SOURCE, "vz_inertial", 0.0))
+    return v - _VZ_TRIM["off"] if VZ_VISION_TRIM else v
+
+
 HOLD_FIT_S = 1.5            # window of elevation samples the commit hold fits
 HOLD_FIT_MIN_N = 8          # ...needs this many samples over at least HOLD_FIT_MIN_SPAN_S
 HOLD_FIT_MIN_SPAN_S = 0.8
@@ -895,7 +918,7 @@ def commit_level_ok(el_rad, range_m) -> bool:
     # ...and not moving vertically: the hold carries whatever vertical speed
     # exists at commit (sim race_069: level at 1.44 m but climbing 0.12 m/s,
     # 2.03 m at the plane)
-    if abs(float(getattr(_SOURCE, "vz_inertial", 0.0))) > COMMIT_VZ_MAX:
+    if abs(vz_inertial_trimmed()) > COMMIT_VZ_MAX:
         return False
     if el_rad is None:
         return True
@@ -1049,7 +1072,7 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
         # and g1. The pure inertial vz tracked the truth within 0.1 m/s on the
         # same run. Range x sin(elevation) at 30 Hz is too noisy to
         # differentiate; the accelerometer is not.)
-        vz_i = float(getattr(_SOURCE, "vz_inertial", est.v[2]))
+        vz_i = vz_inertial_trimmed() if hasattr(_SOURCE, "vz_inertial") else float(est.v[2])
         est = StateEstimate(p=est.p, v=np.array([float(est.v[0]), float(est.v[1]), vz_i]),
                             R=est.R, yaw=est.yaw, omega=est.omega)
         # THE PLAN'S vz IS A TAKEOFF CLIMB, NOT A REFERENCE (d43 race_005,
@@ -1198,7 +1221,7 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
                 # offset as (inertial - true), integrate the corrected vz
                 # from commit as the height flown, and fly that height to the
                 # target at the vertical loop's own gains and cap.
-                _vzi_now = float(getattr(_SOURCE, "vz_inertial", 0.0))
+                _vzi_now = vz_inertial_trimmed()
                 fit = _fit_vision_vz(t) if HOLD_HEIGHT else None
                 _el_level = (_GATE_EL is not None and (t - _GATE_EL[0]) <= 1.0
                              and abs(VERT_EL_GAIN * math.degrees(float(_GATE_EL[1]))) <= COMMIT_LEVEL_M)
@@ -1215,6 +1238,7 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
                     how_fit = ""
                 if fit is not None:
                     vz_vis, dz0, b, nfit, span = fit
+                    b = b - (_VZ_TRIM["off"] if VZ_VISION_TRIM else 0.0)   # the fit's offset is of the RAW speed; the hold runs on the trimmed one
                     how = f"vision vz {vz_vis:+.2f} from {nfit} samples over {span:.1f} s"
                 else:
                     # no usable window: the old rule (level -> the reading is
@@ -1229,7 +1253,7 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
                 print(f"[RACELINE] COMMIT: holding throttle {_state['hold_thr']:.0f} "
                       f"(mean of {len(vals)} ticks), inertial vz {_vzi_now:+.2f} m/s, offset {b:+.2f}, "
                       f"height to make {_state['hold_dz']:+.2f} m ({how})")
-            vz_i = float(getattr(_SOURCE, "vz_inertial", _state["vz_lp"])) - _state["hold_b"]
+            vz_i = (vz_inertial_trimmed() if hasattr(_SOURCE, "vz_inertial") else _state["vz_lp"]) - _state["hold_b"]
             dt_p = max(0.0, min(0.2, t - _state["hold_tp"]))
             _state["hold_tp"] = t
             _state["hold_z"] += vz_i * dt_p
@@ -1288,7 +1312,7 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
               f"xtrack={np.linalg.norm(_TRACKER.pos[i] - est.p):4.2f} "
               f"zt={z_target:4.2f} tilt={tilt_deg:3.0f} az={_ALT.a_cmd:+4.1f} "
               f"air={airborne} stk=({roll},{pitch},{throttle},{yaw_stick})"
-              + (f" DR err={_FIX['err']:.2f}m fixes={_FIX['n']} rej={_SOURCE.rejected} unm={_SOURCE.unmatched} res={_FIX['last_res']:.2f} vzi={float(getattr(_SOURCE, 'vz_inertial', 0.0)):+.2f} vvis={_fit_dbg():s} azw={float(getattr(_SOURCE, 'az_w_last', 0.0)):+.2f} dt={float(getattr(_SOURCE, 'dt_last', 0.0)):.4f} tvz={float(getattr(_state, 'tvz', 0.0)) if False else _state.get('tvz', float('nan')):+.2f}" if STATE_SOURCE == "deadreckon" else ""))
+              + (f" DR err={_FIX['err']:.2f}m fixes={_FIX['n']} rej={_SOURCE.rejected} unm={_SOURCE.unmatched} res={_FIX['last_res']:.2f} vzi={float(getattr(_SOURCE, 'vz_inertial', 0.0)):+.2f} vzt={vz_inertial_trimmed():+.2f} vvis={_fit_dbg():s} azw={float(getattr(_SOURCE, 'az_w_last', 0.0)):+.2f} dt={float(getattr(_SOURCE, 'dt_last', 0.0)):.4f} tvz={float(getattr(_state, 'tvz', 0.0)) if False else _state.get('tvz', float('nan')):+.2f}" if STATE_SOURCE == "deadreckon" else ""))
 
     return RCCommand(arm=1800, throttle=throttle, roll=roll, pitch=pitch,
                      yaw=yaw_stick, aux2=AUX2)
