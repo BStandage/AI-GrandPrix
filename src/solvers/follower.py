@@ -556,7 +556,16 @@ def set_gate_elevation(el_rad, t, committed=False, range_m=None):
 
 HOLD_HEIGHT = os.environ.get("AIGP_HOLD_HEIGHT", "0") == "1"   # the committed hold flies a HEIGHT (fit from the elevation history), not a speed. Sim-tested only; off = build bec1096
 VZ_BARO = os.environ.get("AIGP_VZ_BARO", "0") == "1"   # 1 = vertical speed from the baro fusion everywhere the inertial one is read (flights 3/4 vertical)
-VZ_VISION_TRIM = os.environ.get("AIGP_VZ_VISION_TRIM", "1") == "1"   # 0 = the raw inertial vertical speed (Julian, 2026-09-22 attempt 1: way high over g0)
+VZ_VISION_TRIM = os.environ.get("AIGP_VZ_VISION_TRIM", "1") == "1"
+if VERT_VISION and not VZ_BARO:
+    # the accelerometer vertical speed is the noisy one: soften the loop
+    # under it (Julian attempt 2 oscillated at a 4 s period on 9/4). The
+    # barometer path keeps the 9/4 that held altitude in flights 3 and 4.
+    try:
+        CFG.follower.kp_z, CFG.follower.kd_z = 4.0, 3.0
+        print("[RACELINE] vertical loop on the accelerometer speed: kp_z 4.0, kd_z 3.0")
+    except Exception as _e:
+        print(f"[RACELINE] could not soften the z gains: {_e}")   # 0 = the raw inertial vertical speed (Julian, 2026-09-22 attempt 1: way high over g0)
 _VZ_TRIM = {"off": 0.0, "t": None}   # the offset of the inertial vertical speed, as the elevation fit last measured it
 
 
