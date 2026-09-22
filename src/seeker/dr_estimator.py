@@ -194,6 +194,8 @@ class DeadReckonSource:
         # acceleration integrated from the last reset - accurate for the few
         # seconds a committed run lasts, and it never sees the barometer.
         self.vz_inertial = 0.0
+        self.az_w_last = 0.0
+        self.dt_last = 0.0
         self.vz_leak_s = 30.0        # the inertial vz leaks toward zero with this time constant (5 s left a -0.3 m/s residual after the takeoff punch: the leak ate the climb, not the braking), so a
                                      # residual accelerometer bias of 0.02 m/s^2 settles at 0.1 m/s
                                      # instead of growing without bound; a 2.5 s committed run keeps
@@ -360,6 +362,8 @@ class DeadReckonSource:
         self.v[0] += a_w[0] * dt
         self.v[1] += a_w[1] * dt
         self.vz_inertial += float(a_w[2]) * dt
+        self.az_w_last = float(a_w[2])                    # diagnostics: what was integrated
+        self.dt_last = dt
         if self.vz_leak_s > 0:
             self.vz_inertial -= self.vz_inertial * dt / self.vz_leak_s
         if self.v_decay_s > 0:                          # bounded drift when no fixes arrive

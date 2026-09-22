@@ -751,6 +751,7 @@ def autopilot(update: SensorUpdate) -> RCCommand:
         # sim-only estimator trace out/flightlogs/dr_NNN.csv)
         truth = np.asarray(update.world_pos[4:7], dtype=float)
         truth_v = np.asarray(update.world_vel[3:6], dtype=float)
+        _state["tvz"] = float(truth_v[2])
         _FIX["err"] = float(np.hypot(est.p[0] - truth[0], est.p[1] - truth[1]))
         _dr_trace(t, est, truth, truth_v)
     # the gate index: the referee's in the sim, the estimator's own count under
@@ -944,30 +945,14 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
         # speed we had at commit - the earlier reset-to-zero could not see a
         # climb that was already under way (race_055 again, 0.4 m/s into the
         # top bar with the throttle sitting still).
-        # ...AND THE INERTIAL VZ IS PULLED TOWARD THE VISION'S VERTICAL SPEED
-        # while a gate is in view (sim race_064: a 0.005 m/s^2 bias error times
-        # the 30 s leak read 0.14 m/s low for the whole approach, and the hold
-        # then carried a 0.14 m/s climb into the top edge). The gate is fixed,
-        # so the rate of change of its measured height offset IS our vertical
-        # speed, to within the elevation noise. Vision at low frequency, the
-        # accelerometer at high, the barometer nowhere.
-        if (_GATE_EL is not None and (t - _GATE_EL[0]) <= VERT_EL_STALE_S and not _COMMITTED
-                and _GATE_RANGE is not None and 2.0 <= _GATE_RANGE <= 12.0):
-            # the TRUE height offset, range * sin(el): the elevation ANGLE alone
-            # grows as the range closes even at constant height (sim race_065:
-            # that fake speed pulled him to 0.25 m at g1)
-            dzr = float(_GATE_RANGE) * math.sin(float(_GATE_EL[1]))
-            hist = _state["dz_hist"]; hist.append((t, dzr))
-            while hist and hist[0][0] < t - VZ_VIS_WINDOW_S:
-                hist.popleft()
-            if len(hist) >= 2 and hist[-1][0] - hist[0][0] >= 0.6 * VZ_VIS_WINDOW_S:
-                v_vis = -(hist[-1][1] - hist[0][1]) / (hist[-1][0] - hist[0][0])   # gate rising in view = we descend
-                dt_v = max(0.0, min(0.1, t - _state.get("vis_t", t)))
-                if hasattr(_SOURCE, "vz_inertial"):
-                    _SOURCE.vz_inertial += (v_vis - _SOURCE.vz_inertial) * min(1.0, dt_v / VZ_VIS_TAU_S)
-            _state["vis_t"] = t
-        else:
-            _state["dz_hist"].clear()
+        # (A pull toward a vision-derived vertical speed - the rate of the
+        # measured height offset while a gate is in view - was tried here on
+        # 2026-09-22 and taken out the same hour: instrumented, that speed
+        # read +2.4 / -1.5 m/s against a truth of +0.35 / +0.2, and pulling
+        # the inertial estimate toward it put him into the floor between g0
+        # and g1. The pure inertial vz tracked the truth within 0.1 m/s on the
+        # same run. Range x sin(elevation) at 30 Hz is too noisy to
+        # differentiate; the accelerometer is not.)
         vz_i = float(getattr(_SOURCE, "vz_inertial", est.v[2]))
         est = StateEstimate(p=est.p, v=np.array([float(est.v[0]), float(est.v[1]), vz_i]),
                             R=est.R, yaw=est.yaw, omega=est.omega)
@@ -1157,7 +1142,7 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
               f"xtrack={np.linalg.norm(_TRACKER.pos[i] - est.p):4.2f} "
               f"zt={z_target:4.2f} tilt={tilt_deg:3.0f} az={_ALT.a_cmd:+4.1f} "
               f"air={airborne} stk=({roll},{pitch},{throttle},{yaw_stick})"
-              + (f" DR err={_FIX['err']:.2f}m fixes={_FIX['n']} rej={_SOURCE.rejected} unm={_SOURCE.unmatched} res={_FIX['last_res']:.2f} vzi={float(getattr(_SOURCE, 'vz_inertial', 0.0)):+.2f}" if STATE_SOURCE == "deadreckon" else ""))
+              + (f" DR err={_FIX['err']:.2f}m fixes={_FIX['n']} rej={_SOURCE.rejected} unm={_SOURCE.unmatched} res={_FIX['last_res']:.2f} vzi={float(getattr(_SOURCE, 'vz_inertial', 0.0)):+.2f} vvis={_state.get('v_vis', float('nan')):+.2f} azw={float(getattr(_SOURCE, 'az_w_last', 0.0)):+.2f} dt={float(getattr(_SOURCE, 'dt_last', 0.0)):.4f} tvz={float(getattr(_state, 'tvz', 0.0)) if False else _state.get('tvz', float('nan')):+.2f}" if STATE_SOURCE == "deadreckon" else ""))
 
     return RCCommand(arm=1800, throttle=throttle, roll=roll, pitch=pitch,
                      yaw=yaw_stick, aux2=AUX2)
