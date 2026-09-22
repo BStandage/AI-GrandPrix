@@ -206,9 +206,19 @@ other has the same code and its own numbers above.
 |---|---|
 | `AIGP_ACCEL_BIAS=0` | no bias learning on the pad: yesterday's estimator |
 | `AIGP_COMMIT_STRAIGHT=0` | committed = the full dead-reckoned lateral loop instead of the gentle gate-centred steer |
-| `AIGP_COMMIT_HOLD=1` | committed = hold the pre-commit hover throttle instead of the vertical-speed hold |
+| `AIGP_COMMIT_HOLD=0` | committed = the old barometer vertical-speed hold instead of the held hover throttle (do not) |
 
 ---
+
+## The build that flies: sim-angle-loop e25c103
+
+Flown in the Betaflight sim in ANGLE mode with the harsh barometer model and
+a real IMU's noise: g0, g1, g2, g3, g4 crossed at +0.01, 0.00, -0.01, +0.05,
+-0.02 m of centre, height 1.4-1.9 m throughout, no strike. The vertical
+channel never uses the barometer: the gate's elevation before commit, the
+pad-calibrated accelerometer for damping, the hover throttle held through
+the gate. `bias=(...) n=` on the heartbeat is that calibration - the pad wait
+matters.
 
 ## What changed since yesterday's flights (all in this build, none flown)
 
