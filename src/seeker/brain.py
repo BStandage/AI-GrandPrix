@@ -69,6 +69,9 @@ class Detection:
     v_usable: bool = True          # False: offset_y carries no usable elevation
     clipped_v: bool = False        # ring ran off the top/bottom, offset_y rebuilt
     ring_bbox: tuple | None = None # (x, y, w, h) of the outer ring, for the commit rule
+    stacked: bool = False          # two rings in one blob (the stacked gate)
+    offset_y_top: float | None = None   # the upper ring's centre, when stacked
+    offset_y_low: float | None = None   # the lower ring's centre, when stacked
 
 
 @dataclass

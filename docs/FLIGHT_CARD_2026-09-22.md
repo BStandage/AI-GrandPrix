@@ -75,7 +75,7 @@ neutral sticks and nothing can spin. Same command as the flight with
 cd ~/AI-GrandPrix/src
 AIGP_CAM_CX=611.9 AIGP_CAM_CY=394.5 python3 -m hardware.runtime \
     --port /dev/ttyTHS1 --pilot follower \
-    --traj ../out/plans/plan_FLAT_s15_cam20_75.json \
+    --traj ../out/plans/plan_STACK_s15_cam20_75.json \
     --config ../config/ladder/vehicle_s15_cam20_75.toml \
     --fy 835.5 --cam-tilt 10 --map-north here \
     --vert vision --dry-run
@@ -87,7 +87,7 @@ AIGP_CAM_CX=611.9 AIGP_CAM_CY=394.5 python3 -m hardware.runtime \
 cd ~/AI-GrandPrix/src
 AIGP_CAM_CX=616.9 AIGP_CAM_CY=330.0 python3 -m hardware.runtime \
     --port /dev/ttyTHS1 --pilot follower \
-    --traj ../out/plans/plan_FLAT_s15_cam20_75.json \
+    --traj ../out/plans/plan_STACK_s15_cam20_75.json \
     --config ../config/ladder/vehicle_s15_cam20_75.toml \
     --fy 859 --cam-tilt 10 --map-north here --heading-drift-dpm 5.0 \
     --vert vision --dry-run
@@ -118,7 +118,7 @@ a first flight that shows it is a crash.
 cd ~/AI-GrandPrix/src
 AIGP_CAM_CX=611.9 AIGP_CAM_CY=394.5 python3 -m hardware.runtime \
     --port /dev/ttyTHS1 --pilot follower \
-    --traj ../out/plans/plan_FLAT_s15_cam20_75.json \
+    --traj ../out/plans/plan_STACK_s15_cam20_75.json \
     --config ../config/ladder/vehicle_s15_cam20_75.toml \
     --fy 835.5 --cam-tilt 10 --map-north here \
     --vert vision --arm
@@ -130,7 +130,7 @@ AIGP_CAM_CX=611.9 AIGP_CAM_CY=394.5 python3 -m hardware.runtime \
 cd ~/AI-GrandPrix/src
 AIGP_CAM_CX=616.9 AIGP_CAM_CY=330.0 python3 -m hardware.runtime \
     --port /dev/ttyTHS1 --pilot follower \
-    --traj ../out/plans/plan_FLAT_s15_cam20_75.json \
+    --traj ../out/plans/plan_STACK_s15_cam20_75.json \
     --config ../config/ladder/vehicle_s15_cam20_75.toml \
     --fy 859 --cam-tilt 10 --map-north here --heading-drift-dpm 5.0 \
     --vert vision --arm
@@ -210,7 +210,20 @@ other has the same code and its own numbers above.
 
 ---
 
-## The build that flies: sim-angle-loop e25c103
+## The build that flies: sim-angle-loop (branch tip)
+
+Latest full-course result in the Betaflight sim, ANGLE mode, harsh
+barometer, real IMU noise, plan_STACK_s15: **20 of 23 gates**, lap one
+complete in 114 s, hairpin at -0.08 m, the stacked gate's top opening at
++0.04 m and its low opening at -0.02 m, every other gate within 0.11 m.
+The plan is plan_STACK (the FLAT plan skipped the top opening and the
+referee stops crediting there). The reversal at the stack is 1.69 m south
+of it. The real detector, run over the organizer's lap video, detects the
+red gates on 100 % of frames and switches to the next gate the frame after
+passing one; the stacked gate reads as ONE tall blob, so the detector now
+recognises a stack and aims the height at the upper or lower ring.
+
+Superseded by the above; kept for the record:
 
 Flown in the Betaflight sim in ANGLE mode with the harsh barometer model and
 a real IMU's noise: g0, g1, g2, g3, g4 crossed at +0.01, 0.00, -0.01, +0.05,

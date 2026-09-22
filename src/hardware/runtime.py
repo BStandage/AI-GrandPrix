@@ -219,7 +219,9 @@ class CameraThread(threading.Thread):
                 out.append(Detection(offset_x=float(g.offset_x), offset_y=float(g.offset_y),
                                      area_frac=area, t=t, range_m=rng,
                                      v_usable=bool(g.v_usable), clipped_v=bool(g.clipped_v),
-                                     ring_bbox=g.ring_bbox))
+                                     ring_bbox=g.ring_bbox, stacked=bool(getattr(g, "stacked", False)),
+                                     offset_y_top=getattr(g, "offset_y_top", None),
+                                     offset_y_low=getattr(g, "offset_y_low", None)))
             # plausibility on the BIGGEST blob, which is the one everything
             # downstream uses; drop the whole frame if it fails
             if out and out[0].range_m is not None:
@@ -587,6 +589,15 @@ def main(argv=None) -> int:
                     fresh = det is not None and t - det.t <= 0.5 and camera is not None
                     if fresh:
                         from hardware.hover import gate_dz as _gate_dz
+                        # THE STACKED GATE: aim the height at the ring we are
+                        # flying through, not at the bar between them. The next
+                        # event's z says which ring: above 3 m is the top.
+                        if getattr(det, "stacked", False) and 0 <= dr.next_event < len(dr.events):
+                            _want_top = float(dr.events[dr.next_event][2]) > 3.0
+                            _oy = det.offset_y_top if _want_top else det.offset_y_low
+                            if _oy is not None:
+                                import copy as _copy
+                                det = _copy.copy(det); det.offset_y = float(_oy)
                         _, el_raw = _gate_dz(det, est.R, args.fy,
                                              math.radians(args.cam_tilt), camera.frame_wh)
                     if fresh and matched and getattr(det, "v_usable", True):
