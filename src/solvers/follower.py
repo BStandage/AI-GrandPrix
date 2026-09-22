@@ -84,6 +84,7 @@ MAX_RETRIES_PER_GATE = 3
 # TIMEOUT-BOUNDED ON PURPOSE. If the detector never gives a steady reference -
 # no gate in view, bad light, nothing there - this releases anyway and the
 # behaviour is exactly what it was before. The worst case is the old case.
+HOLD_HERE = os.environ.get("AIGP_HOLD_HERE", "1") == "1"   # start hold over the takeoff position, not the plan start (0 = the old hold)
 SETTLE_MIN_S = 2.0         # no release inside this: the takeoff punch is
                            # open loop for ~0.8 s and the climb-out follows
 SETTLE_TIMEOUT_S = 4.0     # release regardless. WAS 10 (d43 race_006/007,
@@ -176,6 +177,7 @@ class Tracker:
         self._retry_count = 0    # confirmed retries fired for _retry_gate
         self._abandoned = set()  # gates given up on - cap dropped for these
         self._settle_t0 = None   # when the start-settle began
+        self._hold_xy = None     # where he was when it began (HOLD_HERE)
         self._dz_ok_since = None # when dz first entered the level band
 
     def _advance(self, p: np.ndarray, next_event: int) -> int:
@@ -201,9 +203,22 @@ class Tracker:
         # first gate window (+-0.75 m) can't absorb - measured miss: g0 at
         # x=-1.0 after the drone drifted during climb-out.
         if not self.started:
-            err0 = self.pos[0] - est.p
             if t is not None and self._settle_t0 is None:
                 self._settle_t0 = t
+                self._hold_xy = np.array(est.p[:2], dtype=float)
+                if HOLD_HERE:
+                    print(f"[RACELINE] start hold over WHERE HE IS ({self._hold_xy[0]:+.2f},{self._hold_xy[1]:+.2f}), not the plan's start")
+            # HOLD WHERE HE IS, NOT OVER THE PLAN'S START (Julian attempt 5,
+            # 2026-09-22: the height was perfect and he was placed 0.9 m to
+            # the right of the plan's start; the hold rolled hard left toward
+            # (0,0), the estimate swung 1.5 m, then hard right - roll stick
+            # 1251 then 1721 inside a second - and the pilot took him at 4 s).
+            # The plan and the final approach steer him onto the gate's line
+            # on the move, gently, over the 7 m to g0.
+            hold_pt = np.array(self.pos[0], dtype=float)
+            if HOLD_HERE and getattr(self, "_hold_xy", None) is not None:
+                hold_pt[:2] = self._hold_xy
+            err0 = hold_pt - est.p
             held = 0.0 if (t is None or self._settle_t0 is None) else t - self._settle_t0
             # RELEASE RULE, RACE DAY 2 (2026-09-22). Sally's flight 4, the
             # only run that ever tracked to a gate, released at 3 s on
