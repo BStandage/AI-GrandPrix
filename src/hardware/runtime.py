@@ -631,7 +631,8 @@ def main(argv=None) -> int:
                         commit_run = 0
                     if commit_latched:      # latched: the elevation may not steer again
                         el, vert_live = None, 0
-                    fol.set_gate_elevation(el, t - t_start, committed=commit_latched)
+                    fol.set_gate_elevation(el, t - t_start, committed=commit_latched,
+                                           range_m=(det.range_m if (det is not None and fresh) else None))
                 rc = fol.step(t - t_start, est_dr, dr.next_event, True, "")
                 out = dict(throttle=rc.throttle, roll=rc.roll, pitch=rc.pitch, yaw=rc.yaw, arm=rc.arm, aux2=rc.aux2)
                 label = f"ev{dr.next_event}" + (f"/lm{dr.last_landmark}" if dr.last_landmark is not None else "")

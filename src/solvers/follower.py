@@ -466,8 +466,9 @@ if STATE_SOURCE == "deadreckon":
 VERT_VISION = os.environ.get("AIGP_VERT", "baro") == "vision"
 COMMIT_STRAIGHT = os.environ.get("AIGP_COMMIT_STRAIGHT", "1") == "1"   # committed = zero roll, pitch along the nose (see step)
 COMMIT_HOLD = os.environ.get("AIGP_COMMIT_HOLD", "1") == "1"   # committed = hold hover throttle instead of the vz hold (see step)
-COMMIT_LAT_KP = 2.0     # committed: m/s^2 per m off the gate's centre line (dead reckoning, no fixes)
-COMMIT_LAT_KD = 2.0     # ...and per m/s of lateral speed
+COMMIT_LAT_KP = 3.0     # final approach / committed: m/s^2 per m off the gate's centre line
+COMMIT_LAT_KD = 3.0     # ...and per m/s of lateral speed
+FINAL_APPROACH_M = 6.0  # the last this-many metres to an aligned gate are flown at its centre line
 COMMIT_LAT_MAX = 1.4    # m/s^2 = 8 deg of lean, the plan's own cap. Was 0.6 (3.5 deg): the hairpin g5 arrives at the line still carrying 1.3 m/s of turn, overshot to -0.57 m and touched the frame (sim race_060). Zero when centred, so the straight gates are unaffected.
 VERT_EL_GAIN = 0.09        # metres of height correction per degree of elevation. 0.06 -> 0.09 (race day 2): sized for ~5 m now that COMMIT freezes the height at 3.5 m - at 0.06 three sim runs arrived at commit 0.4 m high with the loop still asking for down, and grazed the top edge at 2.09 m.
                            # One degree is r*sin(1 deg) of real height: 0.035 m at
@@ -501,11 +502,12 @@ VERT_DZ_SLEW = 0.35        # m/s the reference may move. THE REFERENCE IS
                            # PERSISTS gets to move the aircraft, which is
                            # exactly the discrimination we want.
 _GATE_EL = None            # (t, elevation_rad), set by the runtime each tick
+_GATE_RANGE = None         # the detection's range (m) that came with it, if any
 _COMMITTED = False         # inside the commit range: snap the reference, do not fade
 _DZ = {"v": 0.0, "t": None}  # the slew-limited reference offset
 
 
-def set_gate_elevation(el_rad, t, committed=False):
+def set_gate_elevation(el_rad, t, committed=False, range_m=None):
     """The runtime hands the follower the gate's elevation when it has one.
 
     Elevation, not height: it is the one camera quantity that needs no range,
@@ -527,9 +529,10 @@ def set_gate_elevation(el_rad, t, committed=False):
     immediately: whatever vz exists is braked out at kd_z and nothing new is
     commanded. Once committed, the aircraft should not change its vertical
     speed again before the gate."""
-    global _GATE_EL, _COMMITTED
+    global _GATE_EL, _COMMITTED, _GATE_RANGE
     _COMMITTED = bool(committed)
     _GATE_EL = None if el_rad is None else (float(t), float(el_rad))
+    _GATE_RANGE = None if range_m is None else float(range_m)
 
 
 def _vision_dz(t):
@@ -673,7 +676,7 @@ def _sim_vision_vertical(t, est):
         v = np.array([c + s_ * down_cam, -right_cam, -(-s_ + c * down_cam)])
         vw = est.R @ (v / (float(np.linalg.norm(v)) or 1.0))
         el = math.asin(max(-1.0, min(1.0, float(vw[2]))))
-    set_gate_elevation(el, t, committed=_VIS["latched"])
+    set_gate_elevation(el, t, committed=_VIS["latched"], range_m=(det.range_m if fresh else None))
 
 
 def _dr_trace(t, est, truth, truth_v):
@@ -832,7 +835,20 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
     # aircraft flies the line it was on at commit, which the fixes had held
     # to within 0.2 m every approach. AIGP_COMMIT_STRAIGHT=0 restores the
     # dead-reckoned lateral loop.
-    if COMMIT_STRAIGHT and VERT_VISION and _COMMITTED and not done:
+    # FINAL APPROACH = THE GATE'S CENTRE LINE, NOT THE PLAN'S SPLINE (2026-09-22):
+    # the plan does its 1.2 m jog to g1's line in the last 1.5 m, so a commit
+    # could not be taken until 1.9 m out and the steer then crossed 0.77 m off.
+    # Within FINAL_APPROACH_M of a gate that is ahead and aligned, the lateral
+    # target is the gate centre's crossing line; the along component stays
+    # the tracker's. Committed runs use the same law with no fixes.
+    final_approach = False
+    if VERT_VISION and not done and 0 <= next_event < len(_TRACKER.event_xyz):
+        _gx, _gy, _ = _TRACKER.event_xyz[next_event]; _gh = _TRACKER.event_heading[next_event]
+        if _gh is not None:
+            _ahead = (_gx - float(est.p[0])) * math.cos(_gh) + (_gy - float(est.p[1])) * math.sin(_gh)
+            _dyaw = (float(est.yaw) - float(_gh) + math.pi) % (2 * math.pi) - math.pi
+            final_approach = 0.0 < _ahead <= FINAL_APPROACH_M and abs(_dyaw) <= math.radians(COMMIT_ALIGN_DEG)
+    if COMMIT_STRAIGHT and VERT_VISION and (_COMMITTED or final_approach) and not done:
         fwd = np.array([math.cos(float(est.yaw)), math.sin(float(est.yaw))])
         along = float(np.dot(np.asarray(a_des, dtype=float)[:2], fwd))
         across = 0.0
@@ -935,8 +951,12 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
         # so the rate of change of its measured height offset IS our vertical
         # speed, to within the elevation noise. Vision at low frequency, the
         # accelerometer at high, the barometer nowhere.
-        if _GATE_EL is not None and (t - _GATE_EL[0]) <= VERT_EL_STALE_S and not _COMMITTED:
-            dzr = VERT_EL_GAIN * math.degrees(float(_GATE_EL[1]))
+        if (_GATE_EL is not None and (t - _GATE_EL[0]) <= VERT_EL_STALE_S and not _COMMITTED
+                and _GATE_RANGE is not None and 2.0 <= _GATE_RANGE <= 12.0):
+            # the TRUE height offset, range * sin(el): the elevation ANGLE alone
+            # grows as the range closes even at constant height (sim race_065:
+            # that fake speed pulled him to 0.25 m at g1)
+            dzr = float(_GATE_RANGE) * math.sin(float(_GATE_EL[1]))
             hist = _state["dz_hist"]; hist.append((t, dzr))
             while hist and hist[0][0] < t - VZ_VIS_WINDOW_S:
                 hist.popleft()
