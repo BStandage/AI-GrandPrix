@@ -534,6 +534,45 @@ def set_gate_elevation(el_rad, t, committed=False, range_m=None):
     _COMMITTED = bool(committed)
     _GATE_EL = None if el_rad is None else (float(t), float(el_rad))
     _GATE_RANGE = None if range_m is None else float(range_m)
+    # the last HOLD_FIT_S of (t, geometric height to the gate centre, inertial
+    # vz): the commit hold fits these to learn the inertial vz's offset and
+    # the height still to make (see the hold in step)
+    if el_rad is not None and range_m is not None and not committed:
+        vzi = float(getattr(_SOURCE, "vz_inertial", float("nan"))) if _SOURCE is not None else float("nan")
+        _DZ_HIST.append((float(t), float(range_m) * math.sin(float(el_rad)), vzi))
+    while _DZ_HIST and _DZ_HIST[0][0] < float(t) - HOLD_FIT_S:
+        _DZ_HIST.popleft()
+
+
+HOLD_HEIGHT = os.environ.get("AIGP_HOLD_HEIGHT", "0") == "1"   # the committed hold flies a HEIGHT (fit from the elevation history), not a speed. Sim-tested only; off = build bec1096
+HOLD_FIT_S = 1.5            # window of elevation samples the commit hold fits
+HOLD_FIT_MIN_N = 8          # ...needs this many samples over at least HOLD_FIT_MIN_SPAN_S
+HOLD_FIT_MIN_SPAN_S = 0.8
+HOLD_DZ_MAX_M = 0.6         # the height the hold will make after commit, at most
+_DZ_HIST = collections.deque()
+
+
+def _fit_vision_vz(t):
+    """Least squares over _DZ_HIST: (true vertical speed from the elevation
+    history, height still to make at t, inertial vz offset, n, span).
+    None when the window is too thin to trust."""
+    pts = [(a, b, c) for a, b, c in _DZ_HIST if t - a <= HOLD_FIT_S and not math.isnan(c)]
+    if len(pts) < HOLD_FIT_MIN_N:
+        return None
+    span = pts[-1][0] - pts[0][0]
+    if span < HOLD_FIT_MIN_SPAN_S:
+        return None
+    n = float(len(pts))
+    mt = sum(a for a, _, _ in pts) / n
+    md = sum(b for _, b, _ in pts) / n
+    mv = sum(c for _, _, c in pts) / n
+    sxx = sum((a - mt) ** 2 for a, _, _ in pts)
+    if sxx <= 1e-6:
+        return None
+    slope = sum((a - mt) * (b - md) for a, b, _ in pts) / sxx   # d(dz)/dt = -vz
+    vz_vis = -slope
+    dz_now = md + slope * (t - mt)
+    return vz_vis, dz_now, mv - vz_vis, len(pts), span
 
 
 def _past_g0():
@@ -589,7 +628,8 @@ _YAW = YawLoop(CFG)
 LAND_RATE_MPS = 1.0   # descent after the finish (see autopilot)
 _state = {"done_t": None, "dbg_t": 0.0, "trace": None, "trace_n": 0, "airborne_latch": False,
           "thr_hist": collections.deque(), "hold_thr": None, "vz_lp": 0.0, "hold_t": 0.0,
-          "dz_hist": collections.deque(), "vis_t": 0.0, "hold_vz0": 0.0}
+          "dz_hist": collections.deque(), "vis_t": 0.0, "hold_vz0": 0.0,
+          "hold_b": 0.0, "hold_dz": 0.0, "hold_z": 0.0, "hold_tp": 0.0}
 VZ_VIS_WINDOW_S = 0.5   # the elevation-rate window for the vision vertical speed
 VZ_VIS_TAU_S = 1.0      # how fast the inertial vz is pulled toward it while a gate is in view
 HOLD_KD_PWM = 200.0    # us of throttle per m/s of INERTIAL vertical speed while committed (baro-free, smooth): a 0.2 m/s drift is met with 40 us (~2 m/s^2)
@@ -638,7 +678,7 @@ def reset_state() -> None:
         _state["trace"].close()
     _state.update(done_t=None, dbg_t=0.0, trace=None, trace_n=0, airborne_latch=False,
                   thr_hist=collections.deque(), hold_thr=None, vz_lp=0.0, hold_t=0.0,
-                  dz_hist=collections.deque(), vis_t=0.0, hold_vz0=0.0)
+                  dz_hist=collections.deque(), vis_t=0.0, hold_vz0=0.0, hold_b=0.0, hold_dz=0.0, hold_z=0.0, hold_tp=0.0)
 
 
 _DR = {"fh": None, "n": 0, "det": None}
@@ -1108,28 +1148,49 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
             if _state["hold_thr"] is None:
                 vals = [v for _, v in hist] or [int(throttle)]
                 _state["hold_thr"] = float(sum(vals)) / len(vals)
-                # DAMP ON THE CHANGE SINCE COMMIT, NOT THE ABSOLUTE (seed sweep,
-                # 2026-09-22: seeds 1 and 2 struck g0's top edge at 1.95 m with
-                # the inertial vz reading -0.17 / -0.23 at commit while the truth
-                # was ~0; 200 us per m/s against a phantom descent is +40 us, two
-                # m/s^2 upward for three seconds). A bias present at commit can no
-                # longer push him; only a real change after commit is answered.
-                # ...UNLESS THE COMMIT WAS FORCED MID-CLIMB (sweep, 2026-09-22:
-                # the stack's top opening committed at 2.7 m still climbing at
-                # 0.8 m/s toward 4.05 m; treating that as bias held the climb
-                # and he struck the top frame at 5.2-5.5 m). If the elevation
-                # read level at commit, the vertical speed SHOULD be zero and
-                # whatever the estimate says is bias: zero it. If it did not
-                # read level, the speed is real: damp it toward zero.
+                # THE HOLD IS A HEIGHT HOLD, NOT A SPEED HOLD (sweep 2026-09-22,
+                # build bec1096: seed 2 committed to g0 at 3.0 m descending
+                # from the climb-out overshoot, 0.14 m high; damping the
+                # inertial vz to zero held a +0.15 m/s TRUE climb for 3 s on a
+                # -0.17 m/s offset and he rose into the top bar. Seed 1 rose
+                # into the stack's top frame on a yaw-torque lift the speed
+                # hold could not see). The inertial vz carries an unknown
+                # constant offset; damping it to any fixed number is a guess.
+                # So: fit the last 1.5 s of elevation geometry for the TRUE
+                # vertical speed and the height still to make, take the
+                # offset as (inertial - true), integrate the corrected vz
+                # from commit as the height flown, and fly that height to the
+                # target at the vertical loop's own gains and cap.
+                _vzi_now = float(getattr(_SOURCE, "vz_inertial", 0.0))
+                fit = _fit_vision_vz(t) if HOLD_HEIGHT else None
                 _el_level = (_GATE_EL is not None and (t - _GATE_EL[0]) <= 1.0
                              and abs(VERT_EL_GAIN * math.degrees(float(_GATE_EL[1]))) <= COMMIT_LEVEL_M)
-                _vzi_now = float(getattr(_SOURCE, "vz_inertial", 0.0))
-                _state["hold_vz0"] = _vzi_now if (_el_level or abs(_vzi_now) < 0.3) else 0.0
+                if fit is not None:
+                    vz_vis, dz0, b, nfit, span = fit
+                    how = f"vision vz {vz_vis:+.2f} from {nfit} samples over {span:.1f} s"
+                else:
+                    # no usable window: the old rule (level -> the reading is
+                    # offset; else -> the reading is real) and no height to make
+                    b = _vzi_now if (_el_level or abs(_vzi_now) < 0.3) else 0.0
+                    dz0 = 0.0
+                    how = "no elevation window: " + ("level, reading zeroed as offset" if b != 0.0 else "mid-climb, damped to zero")
+                _state["hold_b"] = float(b)
+                _state["hold_dz"] = max(-HOLD_DZ_MAX_M, min(HOLD_DZ_MAX_M, float(dz0)))
+                _state["hold_z"] = 0.0
+                _state["hold_tp"] = t
                 print(f"[RACELINE] COMMIT: holding throttle {_state['hold_thr']:.0f} "
-                      f"(mean of {len(vals)} ticks), inertial vz {_vzi_now:+.2f} m/s at commit "
-                      f"({'level: zeroed as bias' if _state['hold_vz0'] != 0.0 else 'mid-climb: damped to zero'})")
-            vz_i = float(getattr(_SOURCE, "vz_inertial", _state["vz_lp"])) - _state["hold_vz0"]
-            throttle = int(round(_state["hold_thr"] - HOLD_KD_PWM * vz_i))
+                      f"(mean of {len(vals)} ticks), inertial vz {_vzi_now:+.2f} m/s, offset {b:+.2f}, "
+                      f"height to make {_state['hold_dz']:+.2f} m ({how})")
+            vz_i = float(getattr(_SOURCE, "vz_inertial", _state["vz_lp"])) - _state["hold_b"]
+            dt_p = max(0.0, min(0.2, t - _state["hold_tp"]))
+            _state["hold_tp"] = t
+            _state["hold_z"] += vz_i * dt_p
+            e_z = max(-HOLD_DZ_MAX_M, min(HOLD_DZ_MAX_M, _state["hold_dz"] - _state["hold_z"]))
+            _f = getattr(CFG, "follower", None)
+            _ratio = float(getattr(_f, "kp_z", 9.0)) / max(1e-3, float(getattr(_f, "kd_z", 4.0)))
+            _cap = VERT_DZ_MAX_TAKEOFF if _past_g0() is False else VERT_DZ_MAX
+            vz_cmd = max(-_ratio * _cap, min(_ratio * _cap, _ratio * e_z)) if HOLD_HEIGHT else 0.0
+            throttle = int(round(_state["hold_thr"] + HOLD_KD_PWM * (vz_cmd - vz_i)))
             throttle = max(int(CFG.thrust.pwm_min), min(int(CFG.thrust.pwm_max), throttle))
             az_eff = 0.0
     roll = pitch = yaw_stick = 1500
