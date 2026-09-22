@@ -22,6 +22,7 @@ Layers (the estimator swap later touches ONLY StateSource):
 
 from __future__ import annotations
 
+import collections
 import math
 import os
 from dataclasses import dataclass
@@ -611,7 +612,10 @@ def _reset_vision_dz():
 _ALT = AltitudeLoop(CFG)
 _YAW = YawLoop(CFG)
 LAND_RATE_MPS = 1.0   # descent after the finish (see autopilot)
-_state = {"done_t": None, "dbg_t": 0.0, "trace": None, "trace_n": 0, "airborne_latch": False}
+_state = {"done_t": None, "dbg_t": 0.0, "trace": None, "trace_n": 0, "airborne_latch": False,
+          "thr_hist": collections.deque(), "hold_thr": None, "vz_lp": 0.0, "hold_t": 0.0}
+HOLD_KD_PWM = 100.0    # us of throttle per m/s of LOW-PASSED vertical speed while committed: a real 0.5 m/s drift is met with 50 us (~2.5 m/s^2), a 2.5 Hz baro spike of 1.5 m/s with ~14 us
+HOLD_VZ_TAU_S = 0.7    # the low-pass: a 5 Hz baro spike of 1.5 m/s moves the throttle ~10 us
 
 # Per-tick trace, decimated to TRACE_EVERY ticks (~100 Hz at the 1 kHz
 # control rate), flushed every second so a crash still leaves the file.
@@ -654,7 +658,8 @@ def reset_state() -> None:
     _YAW.reset()
     if _state["trace"] is not None:
         _state["trace"].close()
-    _state.update(done_t=None, dbg_t=0.0, trace=None, trace_n=0, airborne_latch=False)
+    _state.update(done_t=None, dbg_t=0.0, trace=None, trace_n=0, airborne_latch=False,
+                  thr_hist=collections.deque(), hold_thr=None, vz_lp=0.0, hold_t=0.0)
 
 
 _DR = {"fh": None, "n": 0, "det": None}
@@ -668,6 +673,8 @@ def _sim_vision_vertical(t, est):
     det = _DR["det"]
     fresh = det is not None and (t - det.t) <= 0.5
     if _SOURCE.next_event != _VIS["ev"]:
+        if _VIS["ev"] is not None:
+            print(f"[SIM] CROSSED g{_VIS['ev']} -> next g{_SOURCE.next_event} (t={t:.1f}, lat {_SOURCE.cross_lat:+.2f} m)")
         _VIS.update(ev=_SOURCE.next_event, run=0, latched=False)
     near = True
     if 0 <= _SOURCE.next_event < len(_SOURCE.events):
@@ -679,8 +686,9 @@ def _sim_vision_vertical(t, est):
     fills = fresh and det.range_m is not None and det.range_m <= commit_range
     if fills and near:
         _VIS["run"] += 1
-        if _VIS["run"] >= 3:
+        if _VIS["run"] >= 3 and not _VIS["latched"]:
             _VIS["latched"] = True
+            print(f"[SIM] COMMIT g{_SOURCE.next_event} at det range {det.range_m:.2f} m (t={t:.1f})")
     else:
         _VIS["run"] = 0
     el = None
@@ -937,6 +945,39 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
             a_h = max_h
         t_mag = math.sqrt(a_h * a_h + gz * gz)
         throttle = int(round(CFG.pwm_for_thrust(t_mag)))
+    # COMMITTED = HOLD HOVER THROTTLE (race day 2, sim race_042 with ANGLE
+    # finally flying in the SITL). After commit the vertical was a velocity
+    # hold on the barometer's vz. A spiky baro read +1.5 / -1.5 / +1.5 m/s in
+    # one second while the true height moved 0.1 m; the loop chased it,
+    # throttle 1095 <-> 1348, and the true height ratcheted 1.44 -> 2.95 m
+    # into g0's top bar - race_005's strike, reproduced. So: latch the MEAN
+    # commanded throttle of the last second before commit (the loop's own
+    # hover point at this speed and tilt) and hold it, with only a light,
+    # low-passed vz damping against a real drift. No barometer step can move
+    # it more than a few us. The tilt is computed against level thrust.
+    if VERT_VISION and airborne and not done:
+        hist = _state["thr_hist"]
+        # the low-passed vertical speed runs ALL the time, so at the moment of
+        # commit it already knows whether we are still climbing out (sim
+        # race_043: commit at 3.6 m mid climb-out latched a climbing throttle
+        # and a 30 us/(m/s) damping let him rise 17 m over the gate)
+        dt_h = max(0.0, min(0.2, t - _state["hold_t"]))
+        _state["hold_t"] = t
+        _state["vz_lp"] += (float(est.v[2]) - _state["vz_lp"]) * min(1.0, dt_h / HOLD_VZ_TAU_S)
+        if not _COMMITTED:
+            hist.append((t, int(throttle)))
+            while hist and hist[0][0] < t - 1.0:
+                hist.popleft()
+            _state["hold_thr"] = None
+        else:
+            if _state["hold_thr"] is None:
+                vals = [v for _, v in hist] or [int(throttle)]
+                _state["hold_thr"] = float(sum(vals)) / len(vals)
+                print(f"[RACELINE] COMMIT: holding throttle {_state['hold_thr']:.0f} "
+                      f"(mean of {len(vals)} ticks), vz {_state['vz_lp']:+.2f} m/s, zero roll, straight through")
+            throttle = int(round(_state["hold_thr"] - HOLD_KD_PWM * _state["vz_lp"]))
+            throttle = max(int(CFG.thrust.pwm_min), min(int(CFG.thrust.pwm_max), throttle))
+            az_eff = 0.0
     roll = pitch = yaw_stick = 1500
     if airborne:
         if ANGLE_MODE:
