@@ -646,7 +646,14 @@ def _sim_vision_vertical(t, est):
     aligned = True
     if 0 <= _SOURCE.next_event < len(_SOURCE.events):
         aligned = commit_aligned(_SOURCE.p, est.yaw, _SOURCE.events[_SOURCE.next_event])
-    if fills and near and aligned:
+    level_ok = True
+    if fresh and not _VIS["latched"]:
+        _dc = det.offset_y * _cam.HALF_TAN_Y; _rc = det.offset_x * _cam.HALF_TAN_X
+        _c, _s = math.cos(_cam.CAM_TILT_RAD), math.sin(_cam.CAM_TILT_RAD)
+        _v = np.array([_c + _s * _dc, -_rc, -(-_s + _c * _dc)])
+        _vw = est.R @ (_v / (float(np.linalg.norm(_v)) or 1.0))
+        level_ok = commit_level_ok(math.asin(max(-1.0, min(1.0, float(_vw[2])))), det.range_m)
+    if fills and near and aligned and level_ok:
         _VIS["run"] += 1
         if _VIS["run"] >= 3 and not _VIS["latched"]:
             _VIS["latched"] = True
@@ -778,6 +785,22 @@ def commit_aligned(p, yaw: float, event) -> bool:
     return ahead >= COMMIT_MIN_AHEAD_M
 
 
+def commit_level_ok(el_rad, range_m) -> bool:
+    """May we COMMIT yet, vertically? A SIZE commit (policy, ~3.7 m) waits
+    until the elevation reads level within COMMIT_LEVEL_M, so the height the
+    hold freezes is the gate's height, not the tail of the climb-out (sim:
+    g0 crossed at 1.89 and 2.43 m against a 2.10 m top edge because commit
+    froze a descent still in progress). Inside COMMIT_FORCE_RANGE_M the ring
+    clips both edges and the elevation is gone anyway - commit regardless."""
+    if range_m is not None and range_m <= COMMIT_FORCE_RANGE_M:
+        return True
+    if el_rad is None:
+        return True
+    return abs(VERT_EL_GAIN * math.degrees(float(el_rad))) <= COMMIT_LEVEL_M
+
+
+COMMIT_LEVEL_M = 0.12         # the elevation must read within this of level for a size commit
+COMMIT_FORCE_RANGE_M = 3.2    # both edges clip here (2.7 m ring, 46.7 deg vertical field): commit regardless
 COMMIT_ALIGN_DEG = 35.0
 COMMIT_MIN_AHEAD_M = 1.5   # the gate must be at least this far ahead along its crossing direction
 COMMIT_ALIGN_LAT_M = 1.0    # 1.5 -> 1.0: let the plan finish the hairpin's swing before the commit takes over
