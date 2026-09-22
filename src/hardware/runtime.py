@@ -619,7 +619,10 @@ def main(argv=None) -> int:
                     if 0 <= dr.next_event < len(dr.events):
                         gx, gy = dr.events[dr.next_event][0], dr.events[dr.next_event][1]
                         near = math.hypot(gx - dr.p[0], gy - dr.p[1]) <= COMMIT_MAX_DIST_M
-                    if det is not None and not getattr(det, "v_usable", True) and near:
+                    aligned = True
+                    if 0 <= dr.next_event < len(dr.events):
+                        aligned = fol.commit_aligned(dr.p, est.yaw, dr.events[dr.next_event])
+                    if det is not None and not getattr(det, "v_usable", True) and near and aligned:
                         commit_run += 1
                         if commit_run >= COMMIT_CONFIRM:
                             commit_latched = True

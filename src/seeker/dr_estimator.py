@@ -189,6 +189,17 @@ class DeadReckonSource:
         self.bias_body = np.zeros(3)
         self._bias_sum = np.zeros(3)
         self._bias_n = 0
+        # BARO-FREE VERTICAL SPEED for the committed run (race day 2, Brian:
+        # "we can't rely on baro"). The bias-corrected world vertical
+        # acceleration integrated from the last reset - accurate for the few
+        # seconds a committed run lasts, and it never sees the barometer.
+        self.vz_inertial = 0.0
+        self.vz_leak_s = 30.0        # the inertial vz leaks toward zero with this time constant (5 s left a -0.3 m/s residual after the takeoff punch: the leak ate the climb, not the braking), so a
+                                     # residual accelerometer bias of 0.02 m/s^2 settles at 0.1 m/s
+                                     # instead of growing without bound; a 2.5 s committed run keeps
+                                     # 60 % of the speed it entered with, which is what matters
+        self.pad_until_s = 0.0       # sim path: samples before this time are "on the pad" and
+                                     # teach bias_body, as the runtime's wait loop does on the aircraft
         # AIGP_ACCEL_BIAS=0 switches the learning off at the command line
         # (race day 2: the one genuinely new behaviour in the set, and Brian's
         # rule is one new thing per flight). Off = the flight-4 estimator.
@@ -348,6 +359,9 @@ class DeadReckonSource:
                - np.array([0.0, 0.0, G]))
         self.v[0] += a_w[0] * dt
         self.v[1] += a_w[1] * dt
+        self.vz_inertial += float(a_w[2]) * dt
+        if self.vz_leak_s > 0:
+            self.vz_inertial -= self.vz_inertial * dt / self.vz_leak_s
         if self.v_decay_s > 0:                          # bounded drift when no fixes arrive
             self.v[0] -= self.v[0] * dt / self.v_decay_s
             self.v[1] -= self.v[1] * dt / self.v_decay_s
@@ -362,6 +376,11 @@ class DeadReckonSource:
             self.hist.pop(0)
         if self.events:
             self._count_crossings(p_prev, self.p)
+
+    def reset_vz_inertial(self):
+        """Start the baro-free vertical speed from zero: the aircraft was
+        holding level when this is called (at commit)."""
+        self.vz_inertial = 0.0
 
     def p_at(self, t_det):
         """The estimate at the detection's time (nearest sample not later than it)."""
@@ -392,7 +411,8 @@ class DeadReckonSource:
             if self.baro0 is None:
                 self.baro0 = float(u.baro)
             z_meas = float(u.baro) - self.baro0
-        self.integrate(float(u.t), R, u.accel, z_meas, u.baro_fresh)
+        self.integrate(float(u.t), R, u.accel, z_meas, u.baro_fresh,
+                       on_ground=(float(u.t) < self.pad_until_s))
         omega_w = np.asarray(u.world_vel[0:3], dtype=float)
         yaw = math.atan2(R[1, 0], R[0, 0])
         self.last_est = StateEstimate(p=self.p.copy(), v=self.v.copy(), R=R, yaw=yaw, omega=R.T @ omega_w)
