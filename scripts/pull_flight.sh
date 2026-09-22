@@ -32,7 +32,7 @@ if [ -z "$HOST" ]; then
 fi
 cd "$(dirname "$0")/.."
 
-REMOTE=~/AI-GrandPrix/out/flightlogs
+REMOTE='~/AI-GrandPrix/out/flightlogs'   # literal: the DRONE expands it, not the laptop (Git Bash expanded it locally)
 DEST="flightlogs/$(date +%Y-%m-%d)"
 mkdir -p "$DEST"
 

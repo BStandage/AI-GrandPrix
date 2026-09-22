@@ -83,9 +83,17 @@ MAX_RETRIES_PER_GATE = 3
 # TIMEOUT-BOUNDED ON PURPOSE. If the detector never gives a steady reference -
 # no gate in view, bad light, nothing there - this releases anyway and the
 # behaviour is exactly what it was before. The worst case is the old case.
-SETTLE_DZ_M = 0.08         # the "level" band the narration already uses
-SETTLE_DWELL_S = 1.5       # how long it must stay inside it
-SETTLE_TIMEOUT_S = 10.0    # release regardless; the plan takes 11 s to g0 anyway
+SETTLE_MIN_S = 2.0         # no release inside this: the takeoff punch is
+                           # open loop for ~0.8 s and the climb-out follows
+SETTLE_TIMEOUT_S = 4.0     # release regardless. WAS 10 (d43 race_006/007,
+                           # 2026-09-22): the hold is a limit cycle that GROWS
+                           # - x swung +-0.2 m at 5 s and +-0.8 m at 30 s -
+                           # and the estimator's velocity drift crossed the
+                           # release's 1 m/s at ~4 s. Sally's flight 4 released
+                           # at 3 s and tracked; every long hold has wobbled
+                           # and then hit the gate. Short hold, then go.
+SETTLE_TIMEOUT_XY_M = 1.5  # on timeout the only thing that still holds us
+                           # is being far from the start point
 
 _TRAJ_PATH = os.environ.get("AIGP_TRAJ")
 # ANGLE MODE (the hardware control shape): the FC closes the attitude loop,
@@ -193,32 +201,37 @@ class Tracker:
         # x=-1.0 after the drone drifted during climb-out.
         if not self.started:
             err0 = self.pos[0] - est.p
-            pos_ok = (float(np.linalg.norm(err0)) < 0.6
-                      and float(np.linalg.norm(est.v)) < 1.0)
             if t is not None and self._settle_t0 is None:
                 self._settle_t0 = t
-            timed_out = (t is not None and self._settle_t0 is not None
-                         and t - self._settle_t0 >= SETTLE_TIMEOUT_S)
-            # Vertical settle: a FRESH gate, and dz inside the level band for
-            # SETTLE_DWELL_S. No gate, no steady reference, no dwell - and the
-            # timeout carries it.
-            vert_ok = True
-            if VERT_VISION and t is not None and not timed_out:
-                fresh = (_GATE_EL is not None
-                         and (t - _GATE_EL[0]) <= VERT_EL_STALE_S)
-                if fresh and abs(_DZ["v"]) <= SETTLE_DZ_M:
-                    if self._dz_ok_since is None:
-                        self._dz_ok_since = t
-                else:
-                    self._dz_ok_since = None
-                vert_ok = (self._dz_ok_since is not None
-                           and t - self._dz_ok_since >= SETTLE_DWELL_S)
-            if pos_ok and (vert_ok or timed_out):
+            held = 0.0 if (t is None or self._settle_t0 is None) else t - self._settle_t0
+            # RELEASE RULE, RACE DAY 2 (2026-09-22). Sally's flight 4, the
+            # only run that ever tracked to a gate, released at 3 s on
+            # position alone. Everything added since - a velocity check, a
+            # vertical dwell - only ever kept the aircraft in the hold, and
+            # the hold is where every wobble and every gate strike came
+            # from. So: up for SETTLE_MIN_S (past the open-loop takeoff
+            # punch), over the start point, go. Under VERT_VISION the plan's
+            # start altitude is not a target, so the horizontal alone counts.
+            # The vertical converges on the move: the gate's elevation slews
+            # the reference at 0.35 m/s and the plan takes 11 s to g0.
+            axes = slice(0, 2) if VERT_VISION else slice(0, 3)
+            pos_ok = float(np.linalg.norm(err0[axes])) < 0.6
+            timed_out = held >= SETTLE_TIMEOUT_S
+            far = float(np.linalg.norm(err0[:2])) > SETTLE_TIMEOUT_XY_M
+            # The minimum hold exists ONLY under VERT_VISION, where the
+            # horizontal check alone would release on the pad at t=0. On the
+            # barometric path the 3D check already waits for the climb, and
+            # holding there is harmful: the hold's height target is the
+            # plan's first point (0.23 m), so a 2 s hold after a takeoff to
+            # 1.2 m is a commanded dive - the sim flipped at 4 s on exactly
+            # that (2026-09-22). No clock (replay, sim_lite): position alone.
+            min_ok = (t is None) or (not VERT_VISION) or held >= SETTLE_MIN_S
+            if (pos_ok and min_ok) or (timed_out and not far):
                 self.started = True
                 if t is not None:
                     print(f"[RACELINE] released at t={t:.1f}s "
-                          f"({'timed out on' if timed_out else 'settled on'} g0: "
-                          f"dz={_DZ['v']:+.3f} m)")
+                          f"({'timed out on' if timed_out else 'over'} g0: "
+                          f"dz={_DZ['v']:+.3f} m, {float(np.linalg.norm(err0[:2])):.2f} m off)")
             else:
                 a_des = f.kp_pos * err0[:2] - f.kd_pos * est.v[:2]
                 return a_des, float(self.pos[0][2]), 0.0, None, False
@@ -501,6 +514,7 @@ if STATE_SOURCE == "deadreckon":
 # in view the term is zero and the loop is a pure velocity hold on the plan's
 # own vz_ff, which is what flew cleanly twice.
 VERT_VISION = os.environ.get("AIGP_VERT", "baro") == "vision"
+COMMIT_STRAIGHT = os.environ.get("AIGP_COMMIT_STRAIGHT", "1") == "1"   # committed = zero roll, pitch along the nose (see step)
 VERT_EL_GAIN = 0.06        # metres of height correction per degree of elevation.
                            # One degree is r*sin(1 deg) of real height: 0.035 m at
                            # 3 m, 0.14 at 8. Gates are seen from about 3 to 8 m, and
@@ -644,6 +658,41 @@ def reset_state() -> None:
 
 
 _DR = {"fh": None, "n": 0, "det": None}
+_VIS = {"ev": None, "run": 0, "latched": False, "t_match": None}
+_SIM_COMMIT_FRAC = float(os.environ.get("AIGP_GATE_COMMIT_FRAC", "0.85"))
+
+
+def _sim_vision_vertical(t, est):
+    """The runtime's vision block, for the synthetic camera. Hands the
+    follower the gate's elevation (or None) and the commit state."""
+    det = _DR["det"]
+    fresh = det is not None and (t - det.t) <= 0.5
+    if _SOURCE.next_event != _VIS["ev"]:
+        _VIS.update(ev=_SOURCE.next_event, run=0, latched=False)
+    near = True
+    if 0 <= _SOURCE.next_event < len(_SOURCE.events):
+        gx, gy = _SOURCE.events[_SOURCE.next_event][0], _SOURCE.events[_SOURCE.next_event][1]
+        near = math.hypot(gx - _SOURCE.p[0], gy - _SOURCE.p[1]) <= 6.0
+    # apparent size: a 2.7 m ring at range r spans 2.7/r of tan; the frame
+    # spans 2*HALF_TAN_Y. Committed when that ratio reaches COMMIT_FRAC.
+    commit_range = _cam.GATE_OUTER_M / (_SIM_COMMIT_FRAC * 2.0 * _cam.HALF_TAN_Y)
+    fills = fresh and det.range_m is not None and det.range_m <= commit_range
+    if fills and near:
+        _VIS["run"] += 1
+        if _VIS["run"] >= 3:
+            _VIS["latched"] = True
+    else:
+        _VIS["run"] = 0
+    el = None
+    matched = _VIS["t_match"] is not None and (t - _VIS["t_match"]) <= 0.75
+    if fresh and matched and not _VIS["latched"]:
+        down_cam = det.offset_y * _cam.HALF_TAN_Y
+        right_cam = det.offset_x * _cam.HALF_TAN_X
+        c, s_ = math.cos(_cam.CAM_TILT_RAD), math.sin(_cam.CAM_TILT_RAD)
+        v = np.array([c + s_ * down_cam, -right_cam, -(-s_ + c * down_cam)])
+        vw = est.R @ (v / (float(np.linalg.norm(v)) or 1.0))
+        el = math.asin(max(-1.0, min(1.0, float(vw[2]))))
+    set_gate_elevation(el, t, committed=_VIS["latched"])
 
 
 def _dr_trace(t, est, truth, truth_v):
@@ -693,14 +742,27 @@ def autopilot(update: SensorUpdate) -> RCCommand:
             _FIX["t_det"] = t
             dets = _cam.detect_all(_POSES.at_delay(t), _GATE_LANDMARKS, t)
             _DR["det"] = dets[0] if dets else None
-            if dets:
+            # NO POSITION FIXES ON A COMMITTED GATE - the same rule as
+            # hardware.runtime (d43 race_006/007): a ring that fills the
+            # frame has no centre.
+            if dets and not _VIS["latched"]:
                 idx, res = _SOURCE.observe_any(dets, _GATE_LANDMARKS)
                 if idx is not None:
                     _FIX["last_res"] = res
                     _FIX["n"] += 1
+                    _VIS["t_match"] = t
                     est = _SOURCE.last_est
                     est.p[:] = _SOURCE.p
                     est.v[:] = _SOURCE.v
+        # VERTICAL FROM VISION IN THE SIM, mirroring hardware.runtime so a sim
+        # flight exercises the hardware vertical channel and its commit
+        # logic (2026-09-22: until now the sim flew the barometer and could
+        # not validate the race-day path at all). Same elevation math as
+        # hardware.hover.gate_dz on the synthetic camera's tan-unit offsets;
+        # same commit latch (3 ticks, map within 6 m); commit by apparent
+        # size = the ring spanning COMMIT_FRAC of the frame height.
+        if VERT_VISION:
+            _sim_vision_vertical(t, est)
         # truth is read here for the LOG ONLY (the DR err column and the
         # sim-only estimator trace out/flightlogs/dr_NNN.csv)
         truth = np.asarray(update.world_pos[4:7], dtype=float)
@@ -725,6 +787,19 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
         dxg, dyg = gx - float(est.p[0]), gy - float(est.p[1])
         if math.hypot(dxg, dyg) > AIM_HANDOFF_M:
             yaw_des = math.atan2(dyg, dxg)
+    # COMMITTED = STRAIGHT (Brian, race day 2, 2026-09-22). Inside the commit
+    # range there are no fixes, the height is frozen, and the only thing left
+    # that could turn the aircraft is the estimator's idea of its lateral
+    # position and velocity - the thing that was wrong in every strike this
+    # week. So take it out of the loop: keep the tracker's acceleration
+    # ALONG THE NOSE (speed regulation), zero it ACROSS the nose. Zero roll,
+    # pitch forward, nose already on the gate from the yaw policy. The
+    # aircraft flies the line it was on at commit, which the fixes had held
+    # to within 0.2 m every approach. AIGP_COMMIT_STRAIGHT=0 restores the
+    # dead-reckoned lateral loop.
+    if COMMIT_STRAIGHT and VERT_VISION and _COMMITTED and not done:
+        fwd = np.array([math.cos(float(est.yaw)), math.sin(float(est.yaw))])
+        a_des = fwd * float(np.dot(np.asarray(a_des, dtype=float)[:2], fwd))
 
     if done or _state["done_t"] is not None:
         # LATCHED: once the last crossing is credited the race is over. The
@@ -740,7 +815,12 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
         a_des = f.kp_pos * (park[:2] - est.p[:2]) - f.kd_pos * est.v[:2]
         z_target = max(0.0, float(park[2]) - LAND_RATE_MPS * dt_done)
         vz_ff = -LAND_RATE_MPS if z_target > 0.0 else 0.0
-        if est.p[2] < 0.10 and dt_done > 0.5:
+        # NEVER DISARM ON THE BAROMETER UNDER VISION (race day 2). est.p[2]
+        # read -0.67 m on the pad and -0.33 m in the air this week; an auto
+        # disarm 0.5 s after the finish on that number is a drop from gate
+        # height. Under vision the descent is a -1 m/s velocity hold and the
+        # pilot takes the landing (card: MSP override off after the last gate).
+        if est.p[2] < 0.10 and dt_done > 0.5 and not VERT_VISION:
             return RCCommand(arm=1000, throttle=1000, aux2=AUX2)
 
     # AIRBORNE LATCHES (d44, race day 1, 2026-09-21). AltitudeLoop returns an
@@ -781,6 +861,16 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
         # not in the vertical channel at all. See the note at VERT_VISION.
         dz_vis, _el = _vision_dz(t)
         z_target = float(est.p[2]) + dz_vis
+        # THE PLAN'S vz IS A TAKEOFF CLIMB, NOT A REFERENCE (d43 race_005,
+        # 2026-09-22, into g0's top bar). The plan starts on the ground and
+        # climbs 0.23 -> 1.35 m into g0 at +0.13..+0.18 m/s. Under vision the
+        # aircraft is ALREADY level with g0 when the tracker releases, so that
+        # feedforward is a pure climb the elevation term has to fight - and at
+        # COMMIT the term snaps to zero and the loop becomes a velocity hold
+        # on +0.13 m/s: +0.35 m over the last 2.5 m, measured. The gate owns
+        # the vertical here; the plan's vz is only kept for the landing.
+        if not done:
+            vz_ff = 0.0
     throttle = _ALT.throttle(t, est, z_target, vz_ff, airborne,
                              baro_fresh,
                              (AZ_FF_GAIN * getattr(_TRACKER, 'az_ff', 0.0)) if getattr(_TRACKER, 'in_fold', False) else 0.0)

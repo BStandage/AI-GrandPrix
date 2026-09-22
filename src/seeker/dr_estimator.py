@@ -28,6 +28,7 @@ The estimator counts its own gate crossings.
 from __future__ import annotations
 
 import math
+import os
 
 import numpy as np
 
@@ -173,6 +174,25 @@ class DeadReckonSource:
         self.last_reason = ""        # why the last detection was not used (diagnostics)
         self.last_full_residual = 0.0  # |p_fix - p| before any weighting (a misassociation shows here)
         self.max_dv_per_fix = 0.3    # m/s: one fix may not rewrite the velocity
+        # ACCELEROMETER BIAS, LEARNED ON THE PAD (d43 race_006, 2026-09-22).
+        # At rest the FC's specific force after gravity removal was
+        # [0.23 0.06 0.02] m/s^2 in the body frame, forward. A vision fix
+        # corrects velocity ACROSS the line of sight only, never along the
+        # range (race_187), and forward IS the line of sight to the gate
+        # ahead - so that bias integrated unopposed: 2.2 m/s of phantom
+        # velocity at 10 s, 3.8 at 24 s, in a hover. The tracker's release
+        # needs |v| < 1 and the hold's damping term pushed the aircraft 4 m
+        # forward against it, into the gate. Mean the residual over the
+        # on_ground ticks (hundreds of samples while it waits for the pilot)
+        # and subtract it in flight. Body frame: an accelerometer trim error
+        # is constant there, whatever the yaw.
+        self.bias_body = np.zeros(3)
+        self._bias_sum = np.zeros(3)
+        self._bias_n = 0
+        # AIGP_ACCEL_BIAS=0 switches the learning off at the command line
+        # (race day 2: the one genuinely new behaviour in the set, and Brian's
+        # rule is one new thing per flight). Off = the flight-4 estimator.
+        self.learn_bias = os.environ.get("AIGP_ACCEL_BIAS", "1") != "0"
         self.hist = []               # (t, p, R) over the last 0.5 s: a detection is compared with
                                      # the estimate at its OWN time and ATTITUDE (the frame is old
                                      # when it arrives). Every append must be all three.
@@ -185,6 +205,13 @@ class DeadReckonSource:
         self.event_lm = []
         self.next_event = 0          # our own gate count: advances on our own crossings
         self.crossing_lat_m = 1.5    # generous: the estimate is what we have
+        self.crossing_late_m = 0.0   # count the crossing this far PAST the plane. Race day 2
+                                     # (Brian): never a microsecond early - an early count ends
+                                     # the committed-straight run and hands the roll back to
+                                     # the estimator while the frame is still around the
+                                     # aircraft. The runtime sets 0.75 m under vision: the body
+                                     # is ~0.4 m long, the gate 0.26 m deep, the range fix at
+                                     # commit +-0.35 m. Half a second late at 1.5 m/s costs nothing.
         self.crossing_z_m = 1.2
         self.miss_lat_m = 4.0        # crossed the plane this far off centre: a miss, but the gate is behind us
         self.crossing_fix_gain = 0.6  # a counted crossing is a position fix: the drone was inside the opening,
@@ -244,8 +271,8 @@ class DeadReckonSource:
             if gh is None:
                 return
             nx, ny = math.cos(gh), math.sin(gh)
-            s0 = (p_prev[0] - gx) * nx + (p_prev[1] - gy) * ny
-            s1 = (p_new[0] - gx) * nx + (p_new[1] - gy) * ny
+            s0 = (p_prev[0] - gx) * nx + (p_prev[1] - gy) * ny - self.crossing_late_m
+            s1 = (p_new[0] - gx) * nx + (p_new[1] - gy) * ny - self.crossing_late_m
             if not (s0 < 0.0 <= s1):
                 return
             f = s0 / (s0 - s1)
@@ -298,6 +325,14 @@ class DeadReckonSource:
         self.R = R
         if on_ground:
             self.v[0] = self.v[1] = self.v[2] = 0.0
+            if accel_body is not None and self.learn_bias:
+                a_b = np.asarray(accel_body, dtype=float)
+                resid = a_b - R.T @ np.array([0.0, 0.0, G])
+                # a spool-up or a bump is not rest: only quiet samples count
+                if float(np.linalg.norm(resid)) < 0.6:
+                    self._bias_sum += resid
+                    self._bias_n += 1
+                    self.bias_body = self._bias_sum / self._bias_n
             z, vz = self.vert.update(dt, 0.0, z_meas, baro_fresh)
             self.p[2] = z
             # Same shape as the flying branch below - (t, p, R). state_at()
@@ -309,7 +344,8 @@ class DeadReckonSource:
             while len(self.hist) > 1 and self.hist[0][0] < t - 0.5:
                 self.hist.pop(0)
             return
-        a_w = R @ np.asarray(accel_body, dtype=float) - np.array([0.0, 0.0, G])
+        a_w = (R @ (np.asarray(accel_body, dtype=float) - self.bias_body)
+               - np.array([0.0, 0.0, G]))
         self.v[0] += a_w[0] * dt
         self.v[1] += a_w[1] * dt
         if self.v_decay_s > 0:                          # bounded drift when no fixes arrive
@@ -483,6 +519,16 @@ class DeadReckonSource:
             dt = self.t_prev - self.t_last_fix
             if 0.0 < dt < 3.0:
                 k = min(0.5 / dt, self.vel_gain * 30.0)
+                # LATERAL ONLY, STILL. The along-LOS velocity has no
+                # observation here, and d43 race_006/007 (2026-09-22) showed
+                # what that costs: the accelerometer's residual bias points
+                # along the LOS when the aircraft faces the gate, 0.1 m/s^2
+                # integrated to 3.7 m/s in a 30 s hover. The fix for that is
+                # bias_body (learned on the pad), NOT a velocity trim from the
+                # range: a range flip like race_006's 2.4 -> 6.6 m held for
+                # 0.8 s would have kicked v by ~2 m/s through such a trim,
+                # and kd_pos = 4 turns that into an 8 m/s^2 lunge. Tried,
+                # then taken out before race day 2: unflown dynamics.
                 dv = k * r_lat
                 n = float(np.hypot(dv[0], dv[1]))
                 if n > self.max_dv_per_fix:

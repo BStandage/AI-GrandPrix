@@ -84,6 +84,7 @@ MATCH_STALE_S = 0.75
 # ~90 ms at the control rate: too short to matter, long enough to need a real
 # gate rather than one bad blob.
 COMMIT_CONFIRM = 3
+COMMIT_MAX_DIST_M = 6.0   # a commit needs the map within this of the next gate (see the latch)
 
 
 class CameraThread(threading.Thread):
@@ -352,6 +353,9 @@ def main(argv=None) -> int:
         import solvers.follower as fol
         dr = fol._SOURCE                                    # the DeadReckonSource the follower built
         landmarks = fol._GATE_LANDMARKS                     # every gate: the estimator decides which one it sees
+        if args.vert == "vision":
+            dr.crossing_late_m = 0.75     # count a crossing 0.75 m PAST the plane, never early (see the estimator)
+            print("CROSSINGS: counted 0.75 m past the gate plane - late, never early.")
     else:
         from seeker.pilot import SeekerPilot, crossings_from_course
         from seeker.dr_estimator import VerticalFilter
@@ -471,7 +475,21 @@ def main(argv=None) -> int:
             bridge.set_rc(throttle=1000, roll=1500, pitch=1500, yaw=1500, arm=1000, aux2=1500)
             if st is not None and st.armed and st.msp_override:
                 print(f"armed, MSP OVERRIDE on, modes {', '.join(st.active_modes)}: flying")
+                if dr is not None:
+                    print(f"accel bias learned on the pad: {np.round(dr.bias_body, 3)} m/s^2 "
+                          f"body ({dr._bias_n} samples)")
                 break
+            # LEARN THE ACCELEROMETER BIAS WHILE WE WAIT (d43 race_007). The
+            # aircraft is demonstrably at rest here, for as long as the pilot
+            # takes - hundreds of samples. After arming there are only ~25
+            # ticks of spool-up before the airborne latch, which is not a
+            # rest measurement. The estimator subtracts what it learns here
+            # in flight, see DeadReckonSource.bias_body.
+            if dr is not None:
+                est0 = src.estimate()
+                if est0 is not None and src.accel_body is not None:
+                    dr.integrate(time.monotonic(), est0.R, src.accel_body,
+                                 float(est0.p[2]), True, on_ground=True)
             time.sleep(0.05)
         if not bridge.state().status.angle_mode and not args.acro:
             print("WARNING ANGLE mode is not active on the FC: the sticks are angle sticks. Flip the ANGLE switch.")
@@ -523,7 +541,19 @@ def main(argv=None) -> int:
                 est_dr = StateEstimate(p=dr.p.copy(), v=dr.v.copy(), R=est.R, yaw=est.yaw, omega=est.omega)
                 # a sighting: the estimator decides which gate it is (same code
                 # as the sim) and fixes on it; implausible fixes are dropped
-                if dets and t - t_fix >= 1.0 / 30.0:
+                # NO POSITION FIXES ON A COMMITTED GATE (d43 race_006/007,
+                # 2026-09-22, both into g0's right edge). Once the ring fills
+                # the frame its "centre" is whichever bar is in view: at 1.9 m
+                # det_x swung -0.07 -> +0.43 -> -0.47 in one second and the
+                # estimate followed at full gain, +0.5 -> -2.2 -> +1.9 m, with
+                # the roll stick at 1788 then 1146 behind it. Flight 3 the
+                # same after a one-frame dropout: a blob at det_x 0.78 with a
+                # 6.6 m range, y pulled 4.0 -> 1.5 in 0.8 s, pitch 1688. The
+                # vertical channel already stops steering on this gate at
+                # commit (below); the horizontal must too. Dead-reckon the
+                # last ~3.7 m - 2.5 s at plan speed - and resume on the next
+                # gate, which clears the latch.
+                if dets and t - t_fix >= 1.0 / 30.0 and not commit_latched:
                     t_fix = t
                     idx, r = dr.observe_any(dets, landmarks)
                     if idx is not None:
@@ -576,7 +606,20 @@ def main(argv=None) -> int:
                     # when the next gate becomes active.
                     if dr.next_event != commit_ev:
                         commit_ev, commit_run, commit_latched = dr.next_event, 0, False
-                    if det is not None and not getattr(det, "v_usable", True):
+                    # ONLY COMMIT TO A GATE THE MAP SAYS IS NEAR (d43
+                    # race_005, 2026-09-22): 0.1 s after crossing g0 the
+                    # detector saw g0's own ring around the aircraft, called
+                    # it "gate 1, wider than the frame", and g1 was LATCHED
+                    # committed from 9.8 m out - no height reference and,
+                    # now that a commit also stops position fixes, no fixes
+                    # either, for the whole g1 approach. The commit ranges by
+                    # size are 3.5-4.6 m; a gate the estimate puts beyond
+                    # COMMIT_MAX_DIST_M cannot be filling the frame.
+                    near = True
+                    if 0 <= dr.next_event < len(dr.events):
+                        gx, gy = dr.events[dr.next_event][0], dr.events[dr.next_event][1]
+                        near = math.hypot(gx - dr.p[0], gy - dr.p[1]) <= COMMIT_MAX_DIST_M
+                    if det is not None and not getattr(det, "v_usable", True) and near:
                         commit_run += 1
                         if commit_run >= COMMIT_CONFIRM:
                             commit_latched = True
@@ -651,7 +694,8 @@ def main(argv=None) -> int:
                       f"fixes={fixes} res={fix_res:5.2f}"
                       + (f" rej={dr.rejected} unm={dr.unmatched} " if dr is not None else " ") +
                       f"stk=({out['roll']},{out['pitch']},{out['throttle']},{out['yaw']}) arm={out['arm']} "
-                      f"link {s.attitude_hz:.0f}Hz/{s.link.last_rtt_ms:.0f}ms healthy={s.healthy}")
+                      f"link {s.attitude_hz:.0f}Hz/{s.link.last_rtt_ms:.0f}ms healthy={s.healthy}"
+                      + (f" bias=({dr.bias_body[0]:+.2f},{dr.bias_body[1]:+.2f}) n={dr._bias_n}" if dr is not None else ""))
             if done:
                 narr.close()
                 print("run complete: disarmed")
