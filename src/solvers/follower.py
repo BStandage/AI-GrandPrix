@@ -1114,9 +1114,20 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
                 # was ~0; 200 us per m/s against a phantom descent is +40 us, two
                 # m/s^2 upward for three seconds). A bias present at commit can no
                 # longer push him; only a real change after commit is answered.
-                _state["hold_vz0"] = float(getattr(_SOURCE, "vz_inertial", 0.0))
+                # ...UNLESS THE COMMIT WAS FORCED MID-CLIMB (sweep, 2026-09-22:
+                # the stack's top opening committed at 2.7 m still climbing at
+                # 0.8 m/s toward 4.05 m; treating that as bias held the climb
+                # and he struck the top frame at 5.2-5.5 m). If the elevation
+                # read level at commit, the vertical speed SHOULD be zero and
+                # whatever the estimate says is bias: zero it. If it did not
+                # read level, the speed is real: damp it toward zero.
+                _el_level = (_GATE_EL is not None and (t - _GATE_EL[0]) <= 1.0
+                             and abs(VERT_EL_GAIN * math.degrees(float(_GATE_EL[1]))) <= COMMIT_LEVEL_M)
+                _vzi_now = float(getattr(_SOURCE, "vz_inertial", 0.0))
+                _state["hold_vz0"] = _vzi_now if (_el_level or abs(_vzi_now) < 0.3) else 0.0
                 print(f"[RACELINE] COMMIT: holding throttle {_state['hold_thr']:.0f} "
-                      f"(mean of {len(vals)} ticks), inertial vz {_state['hold_vz0']:+.2f} m/s at commit (zeroed)")
+                      f"(mean of {len(vals)} ticks), inertial vz {_vzi_now:+.2f} m/s at commit "
+                      f"({'level: zeroed as bias' if _state['hold_vz0'] != 0.0 else 'mid-climb: damped to zero'})")
             vz_i = float(getattr(_SOURCE, "vz_inertial", _state["vz_lp"])) - _state["hold_vz0"]
             throttle = int(round(_state["hold_thr"] - HOLD_KD_PWM * vz_i))
             throttle = max(int(CFG.thrust.pwm_min), min(int(CFG.thrust.pwm_max), throttle))
