@@ -622,7 +622,8 @@ def main(argv=None) -> int:
                     aligned = True
                     if 0 <= dr.next_event < len(dr.events):
                         aligned = fol.commit_aligned(dr.p, est.yaw, dr.events[dr.next_event])
-                    if det is not None and not getattr(det, "v_usable", True) and near and aligned:
+                    level_ok = fol.commit_level_ok(el_raw, det.range_m if det is not None else None)
+                    if det is not None and not getattr(det, "v_usable", True) and near and aligned and level_ok:
                         commit_run += 1
                         if commit_run >= COMMIT_CONFIRM:
                             commit_latched = True
