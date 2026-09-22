@@ -516,6 +516,7 @@ if STATE_SOURCE == "deadreckon":
 # own vz_ff, which is what flew cleanly twice.
 VERT_VISION = os.environ.get("AIGP_VERT", "baro") == "vision"
 COMMIT_STRAIGHT = os.environ.get("AIGP_COMMIT_STRAIGHT", "1") == "1"   # committed = zero roll, pitch along the nose (see step)
+COMMIT_HOLD = os.environ.get("AIGP_COMMIT_HOLD", "0") == "1"   # committed = hold hover throttle instead of the vz hold (see step)
 COMMIT_LAT_KP = 2.0     # committed: m/s^2 per m off the gate's centre line (dead reckoning, no fixes)
 COMMIT_LAT_KD = 2.0     # ...and per m/s of lateral speed
 COMMIT_LAT_MAX = 0.6    # m/s^2 = 3.5 deg of lean, the most the committed run may steer
@@ -985,8 +986,17 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
     # the barometer took him from 2.2 to 4.8 m in three seconds. Whenever
     # vision has no fresh elevation - committed OR gate lost - hold the
     # throttle the same way.
-    el_fresh = _GATE_EL is not None and (t - _GATE_EL[0]) <= VERT_EL_STALE_S
-    hold_now = _COMMITTED or not el_fresh
+    # (The gate-lost variant was flown in the sim and taken out again the
+    # same hour: the detection flickers, every flicker re-latched a new mean
+    # that included a climb, and he rose to 33 m. Hold on COMMIT only; a lost
+    # gate fades the elevation reference to zero as before.)
+    # AND OFF BY DEFAULT FOR RACE DAY 2. In the sim the latched throttle
+    # drifted in two runs of three (the SITL's hover point wanders with its
+    # loop churn); on the aircraft race_006 and race_007 both held height
+    # flat through the commit range on the velocity hold with the plan's
+    # climb feedforward now zeroed. Two hardware data points beat none.
+    # AIGP_COMMIT_HOLD=1 turns the throttle hold on.
+    hold_now = _COMMITTED and COMMIT_HOLD
     if VERT_VISION and airborne and not done:
         hist = _state["thr_hist"]
         # the low-passed vertical speed runs ALL the time, so at the moment of
