@@ -44,8 +44,8 @@ from raceline.rc_backend import (   # noqa: E402  (the shared proven loops)
     angle_sticks)
 
 # Arming phases, matching the baseline's Betaflight handshake.
-T_DISARMED_END = 0.50   # 0.30 tried twice (2026-09-10, race_137 with the boot-grace hold in place): Betaflight never armed, the drone sat on the ground for the whole run - the arm request must come later than 0.3 s after the first RC frame regardless of the boot grace
-T_ARM_IDLE_END = 0.55   # 0.75 -> 0.55 (2026-09-10): the arm takes at 0.50, the motors only need a few frames at idle before throttle-up
+T_DISARMED_END = 3.00   # 0.50 -> 3.00 (2026-09-22): the sim aircraft sits on the pad long enough to calibrate the accelerometer bias (the runtime's wait loop gives the aircraft ~10 s; 0.5 s of pad samples left a 0.15 m/s inertial-vz bias that the committed hold turned into a climb into g0's top edge). 0.30 tried twice (2026-09-10, race_137 with the boot-grace hold in place): Betaflight never armed, the drone sat on the ground for the whole run - the arm request must come later than 0.3 s after the first RC frame regardless of the boot grace
+T_ARM_IDLE_END = 3.05   # 3.00 + 0.05, see T_DISARMED_END. 0.75 -> 0.55 (2026-09-10): the arm takes at 0.50, the motors only need a few frames at idle before throttle-up
 
 # RETRY DEBOUNCE: consecutive control ticks the nearest-point search must read
 # "past the gate" before a retry actually fires. At the 1000 Hz PID rate this
@@ -802,12 +802,18 @@ def commit_level_ok(el_rad, range_m) -> bool:
     clips both edges and the elevation is gone anyway - commit regardless."""
     if range_m is not None and range_m <= COMMIT_FORCE_RANGE_M:
         return True
+    # ...and not moving vertically: the hold carries whatever vertical speed
+    # exists at commit (sim race_069: level at 1.44 m but climbing 0.12 m/s,
+    # 2.03 m at the plane)
+    if abs(float(getattr(_SOURCE, "vz_inertial", 0.0))) > COMMIT_VZ_MAX:
+        return False
     if el_rad is None:
         return True
     return abs(VERT_EL_GAIN * math.degrees(float(el_rad))) <= COMMIT_LEVEL_M
 
 
 COMMIT_LEVEL_M = 0.12         # the elevation must read within this of level for a size commit
+COMMIT_VZ_MAX = 0.10          # ...and the inertial vertical speed within this of zero
 COMMIT_FORCE_RANGE_M = 3.2    # both edges clip here (2.7 m ring, 46.7 deg vertical field): commit regardless
 COMMIT_ALIGN_DEG = 35.0
 COMMIT_MIN_AHEAD_M = 1.5   # the gate must be at least this far ahead along its crossing direction
