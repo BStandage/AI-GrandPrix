@@ -478,7 +478,8 @@ VERT_EL_GAIN = 0.09        # metres of height correction per degree of elevation
                            # deliberately not range-scaled - range is the camera's
                            # worst signal and the whole point of using elevation is
                            # that it does not need one.
-VERT_DZ_MAX = 0.20         # hard cap on that correction, m. 0.35 -> 0.20 (race day 2,
+VERT_DZ_MAX_TAKEOFF = 0.20 # the cap until g0 is crossed: 9 * 0.20 / 4 = 0.45 m/s of climb, slow and steady
+VERT_DZ_MAX = 0.35         # the cap after g0: 0.79 m/s, enough for the stack's 0.72. The note below is from the takeoff cap. hard cap on that correction, m. 0.35 -> 0.20 (race day 2,
                            # Brian: "slow and steady, no steep takeoff"). This cap IS the
                            # climb speed: the loop settles where kp_z * dz = kd_z * vz, so
                            # 9 * 0.35 / 4 = 0.79 m/s before, 9 * 0.20 / 4 = 0.45 m/s now.
@@ -535,6 +536,14 @@ def set_gate_elevation(el_rad, t, committed=False, range_m=None):
     _GATE_RANGE = None if range_m is None else float(range_m)
 
 
+def _past_g0():
+    """True once the estimator's own gate count is past g0 (deadreckon), else
+    False; None when there is no estimator count (sim ground truth)."""
+    if STATE_SOURCE == "deadreckon" and hasattr(_SOURCE, "next_event"):
+        return int(_SOURCE.next_event) >= 1
+    return None
+
+
 def _vision_dz(t):
     """How far to move vertically to sit level with the gate's centre.
 
@@ -546,8 +555,12 @@ def _vision_dz(t):
         t_el, e = _GATE_EL
         if t - t_el <= VERT_EL_STALE_S:
             el = e
-            want = max(-VERT_DZ_MAX,
-                       min(VERT_DZ_MAX, VERT_EL_GAIN * math.degrees(e)))
+            # two caps: the gentle one until g0 is crossed (the climb-out is
+            # where every flight overshot), the plan's own after it - the
+            # stacked gate needs 0.72 m/s of climb and 0.20 caps it at 0.45
+            # (sim race_070: 3.35 m at a 3.30 m bottom edge)
+            cap = VERT_DZ_MAX_TAKEOFF if _past_g0() is False else VERT_DZ_MAX
+            want = max(-cap, min(cap, VERT_EL_GAIN * math.degrees(e)))
     dt = 0.02 if _DZ["t"] is None else max(0.0, min(0.1, t - _DZ["t"]))
     _DZ["t"] = t
     if _COMMITTED:
