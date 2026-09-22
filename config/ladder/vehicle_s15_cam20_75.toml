@@ -37,7 +37,7 @@ drag_quad_z = 0.45        # N per (m/s)^2 on the WORLD-vertical component: the
                           # sprint re-measures this.
 
 [thrust]
-hover_pwm = 1228          # MEASURED IN FLIGHT, d45 2026-09-20: vertical speed held constant here, so this is where thrust cancels gravity. Was 1291 from the organizers' blackbox, which is their aircraft's mass, not ours.
+hover_pwm = 1205          # MEASURED IN FLIGHT, d43 2026-09-22 attempt 3: throttle 1200-1210 held baro vz at 0.00 for six seconds (1190 climbed 0.18 m/s, 1220 sank 0.16). At 1228 every "hold" was a climb. Earlier, d45 2026-09-20: 1228: vertical speed held constant here, so this is where thrust cancels gravity. Was 1291 from the organizers' blackbox, which is their aircraft's mass, not ours.
 pwm_min   = 1000
 pwm_max   = 2000          # was 1600 (wobble-era cap, never measured); full range,
                           # real ceiling comes from solvers.sysid_thrust
