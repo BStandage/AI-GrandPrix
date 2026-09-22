@@ -130,7 +130,20 @@ second attempt to find out what happened in the first.
 
 ---
 
-## 4 — Sally (d44): only if Julian made gates
+## 4 — Sally (d44)
+
+**After Julian's two attempts (way high; high left corner): fly Sally with the
+BAROMETER vertical speed.** Julian's accelerometer over MSP reads ~0.35 m/s^2
+low in flight; both attempts lost the vertical on it. The barometer speed is
+what held a good altitude in flights 3 and 4. Everything else (release, no
+fixes after commit, no climb after commit, late crossing count, level gate)
+stays. Put these two in front of BOTH of Sally's commands:
+
+```
+AIGP_VZ_BARO=1 AIGP_COMMIT_HOLD=0
+```
+
+Sync her first (`scripts/sync_drone.sh d44`).
 
 Same two steps with her numbers. **No padding: abort at the first doubt.**
 
@@ -172,6 +185,7 @@ Pull her log with `scripts/pull_flight.sh d44`.
 | `AIGP_COMMIT_STRAIGHT=0` | full dead-reckoned lateral loop inside the commit range |
 | `AIGP_VZ_FROM_ARM=0` | inertial vertical speed starts at the airborne latch again (the flight 1/2 behaviour) |
 | `AIGP_VZ_VISION_TRIM=0` | raw inertial vertical speed, no vision trim (attempt 1 behaviour) |
+| `AIGP_VZ_BARO=1` | vertical speed from the barometer fusion instead of the accelerometer, everywhere (flights 3/4 vertical). Pair with `AIGP_COMMIT_HOLD=0`. |
 | `AIGP_HOLD_HEIGHT=1` | after COMMIT hold a HEIGHT (fitted from the last 1.5 s of gate elevation) instead of a speed. Sim: seed 2 (the one that struck g0 on the speed hold) took g0, g1, g2 clean; seed 0 took g0 through g7 clean, then overshot the stack top (now falls back to the speed rule there). ATTEMPT 2 ONLY, and only if attempt 1 rose into the bar after COMMIT. |
 
 Do not use `AIGP_COMMIT_HOLD=0` (that is the barometer hold).

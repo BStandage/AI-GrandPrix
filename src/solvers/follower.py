@@ -555,6 +555,7 @@ def set_gate_elevation(el_rad, t, committed=False, range_m=None):
 
 
 HOLD_HEIGHT = os.environ.get("AIGP_HOLD_HEIGHT", "0") == "1"   # the committed hold flies a HEIGHT (fit from the elevation history), not a speed. Sim-tested only; off = build bec1096
+VZ_BARO = os.environ.get("AIGP_VZ_BARO", "0") == "1"   # 1 = vertical speed from the baro fusion everywhere the inertial one is read (flights 3/4 vertical)
 VZ_VISION_TRIM = os.environ.get("AIGP_VZ_VISION_TRIM", "1") == "1"   # 0 = the raw inertial vertical speed (Julian, 2026-09-22 attempt 1: way high over g0)
 _VZ_TRIM = {"off": 0.0, "t": None}   # the offset of the inertial vertical speed, as the elevation fit last measured it
 
@@ -571,6 +572,11 @@ def vz_inertial_trimmed() -> float:
     The elevation fit measured the offset the whole time (-0.34, -0.50,
     -0.74, -1.19). So: accelerometer for the fast part, vision for the slow
     part. The offset freezes when the gate is lost or committed."""
+    if VZ_BARO and hasattr(_SOURCE, "v"):
+        # AIGP_VZ_BARO=1: the estimator's baro-fused vertical speed, the one
+        # that held a good altitude on this aircraft in flights 3 and 4
+        # (race_006/007) while the accelerometer failed twice on race day 2.
+        return float(_SOURCE.v[2])
     v = float(getattr(_SOURCE, "vz_inertial", 0.0))
     return v - _VZ_TRIM["off"] if VZ_VISION_TRIM else v
 
