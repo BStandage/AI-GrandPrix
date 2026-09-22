@@ -84,6 +84,7 @@ MATCH_STALE_S = 0.75
 # ~90 ms at the control rate: too short to matter, long enough to need a real
 # gate rather than one bad blob.
 COMMIT_CONFIRM = 3
+COMMIT_MIN_T_S = 3.0      # no commit before this many seconds of flight (the start line is 7.5 m from g0; at 1.5 m/s the earliest real commit is ~5 s)
 COMMIT_MAX_DIST_M = 6.0   # a commit needs the map within this of the next gate (see the latch)
 
 
@@ -504,6 +505,9 @@ def main(argv=None) -> int:
                     if _d is not None and (_now - _d.t) <= 0.5 and est0 is not None:
                         from hardware.hover import gate_dz as _gate_dz
                         _, _el = _gate_dz(_d, est0.R, args.fy, math.radians(args.cam_tilt), camera.frame_wh)
+                        if _d.range_m is not None and _d.range_m < 5.0:
+                            print(f"PAD: *** {_d.range_m:.1f} m IS NOT g0 (g0 is ~7.5 m). Something red is in front of the camera. "
+                                  f"Clear it before arming. ***")
                         print(f"PAD: gate at {_d.range_m:.1f} m, {math.degrees(_el):+.1f} deg "
                               f"{'ABOVE' if _el > 0 else 'below'}, offset x {_d.offset_x:+.2f}"
                               f"{', STACKED' if getattr(_d, 'stacked', False) else ''}; "
@@ -661,7 +665,14 @@ def main(argv=None) -> int:
                         last_el = (t, el_raw)
                     _el_for_level = el_raw if el_raw is not None else (last_el[1] if last_el is not None and t - last_el[0] <= 1.0 else None)
                     level_ok = fol.commit_level_ok(_el_for_level, det.range_m if det is not None else None)
-                    if det is not None and not getattr(det, "v_usable", True) and near and aligned and level_ok:
+                    # NEVER ON THE PAD (Julian attempt 4, 2026-09-22: something red
+                    # 1.8 m ahead on the floor read as g0 "wider than the frame"
+                    # and COMMITTED at t=0.0, still on the ground; committed means
+                    # no fixes and no elevation until a crossing, so the whole g0
+                    # approach was a blind hold at the punch height). A commit
+                    # needs him airborne and clear of the start.
+                    flying_clear = airborne_latch and (t - t_start) >= COMMIT_MIN_T_S
+                    if det is not None and not getattr(det, "v_usable", True) and near and aligned and level_ok and flying_clear:
                         commit_run += 1
                         if commit_run >= COMMIT_CONFIRM:
                             commit_latched = True
