@@ -1,0 +1,20 @@
+   0.0  gate 0 IN SIGHT at 7.7 m, LEVEL with me
+   0.6  gate 0 is 17.3 deg ABOVE me -> CLIMBING (commanding +0.20 m) (at 7.5 m)
+   0.8  AIRBORNE at -0.76 m
+   1.1  gate 0: detection IMPLAUSIBLE (7.3 m -> 6.9 m), ignoring it
+   1.1  gate 0 IN SIGHT at 6.6 m, 5.3 deg ABOVE me -> CLIMBING (commanding +0.20 m)
+   3.4  gate 0: ring is cut off by the frame edge, rebuilding its centre from the width
+   4.9  gate 0 at 6.0 m: 3.2 deg BELOW me -> EASING DOWN (commanding -0.20 m), holding 3.32 m
+   6.5  gate 0 at 5.0 m: 4.1 deg BELOW me -> EASING DOWN (commanding -0.20 m), holding 3.07 m
+   7.8  gate 0 at 4.0 m: 8.3 deg BELOW me -> EASING DOWN (commanding -0.20 m), holding 2.89 m
+   8.4  gate 0 COMMIT at 3.3 m (ring fills the frame) - height reference released, holding 2.86 m, flying through
+  10.0  gate 0 at 3.0 m: LEVEL, holding 3.09 m
+  11.4  gate 0 at 2.0 m: LEVEL, holding 1.60 m
+  12.0  gate -1 CROSSED, 0.08 m to the right, 2.05 m low
+  12.0  gate 1 at 1.9 m: LEVEL, holding -0.70 m
+  12.0  gate 1 COMMIT at 1.9 m (gate overfills the frame, top and bottom both cut) - height reference released, holding -0.70 m, flying through
+  12.0  gate 1 at 1.9 m: LEVEL, holding -0.78 m
+  12.0  gate 1 at 1.9 m: LEVEL, holding -0.86 m
+  12.1  gate 1 at 1.9 m: LEVEL, holding -0.75 m
+  12.1  gate 1 at 1.9 m: LEVEL, holding -0.61 m
+  12.1  gate 1 at 1.9 m: LEVEL, holding -0.49 m

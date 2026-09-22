@@ -1,0 +1,8 @@
+   0.0  gate 0 IN SIGHT at 7.6 m, LEVEL with me
+   0.6  gate 0 is 14.9 deg ABOVE me -> CLIMBING (commanding +0.20 m) (at 7.5 m)
+   0.8  AIRBORNE at -0.64 m
+   1.2  gate 0 at 5.8 m: 4.2 deg ABOVE me -> CLIMBING (commanding +0.13 m), holding 1.63 m
+   1.3  gate 0: ring is cut off by the frame edge, rebuilding its centre from the width
+   1.4  gate 0: detection IMPLAUSIBLE (5.4 m -> 5.6 m), ignoring it
+   1.5  gate 0 IN SIGHT at 6.0 m, LEVEL with me
+   2.0  gate 0 at 5.9 m: 3.6 deg BELOW me -> EASING DOWN (commanding -0.14 m), holding 2.58 m
