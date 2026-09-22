@@ -32,7 +32,7 @@ TOMLS=(config/ladder/vehicle_*_"$CAM".toml)
 # every crossing at 1.35 m) lives under plan_FLAT_*, and the rename that
 # introduced it left this glob matching only LADDER - so the flat plan was
 # never pushed to any drone. Found on d44, 2026-09-21.
-PLANS=(out/plans/plan_LADDER_*_"$CAM".json out/plans/plan_FLAT_*_"$CAM".json)
+PLANS=(out/plans/plan_LADDER_*_"$CAM".json out/plans/plan_FLAT_*_"$CAM".json out/plans/plan_STACK_*_"$CAM".json)
 # One compressed stream, not one scp connection per file. The plans are a few
 # hundred KB each and scp died mid-transfer repeatedly on the venue WiFi
 # (d45, 2026-09-20); tar over a single ssh session survives it and sends far
