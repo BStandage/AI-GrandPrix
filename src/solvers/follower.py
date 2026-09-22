@@ -589,7 +589,7 @@ _YAW = YawLoop(CFG)
 LAND_RATE_MPS = 1.0   # descent after the finish (see autopilot)
 _state = {"done_t": None, "dbg_t": 0.0, "trace": None, "trace_n": 0, "airborne_latch": False,
           "thr_hist": collections.deque(), "hold_thr": None, "vz_lp": 0.0, "hold_t": 0.0,
-          "dz_hist": collections.deque(), "vis_t": 0.0}
+          "dz_hist": collections.deque(), "vis_t": 0.0, "hold_vz0": 0.0}
 VZ_VIS_WINDOW_S = 0.5   # the elevation-rate window for the vision vertical speed
 VZ_VIS_TAU_S = 1.0      # how fast the inertial vz is pulled toward it while a gate is in view
 HOLD_KD_PWM = 200.0    # us of throttle per m/s of INERTIAL vertical speed while committed (baro-free, smooth): a 0.2 m/s drift is met with 40 us (~2 m/s^2)
@@ -638,7 +638,7 @@ def reset_state() -> None:
         _state["trace"].close()
     _state.update(done_t=None, dbg_t=0.0, trace=None, trace_n=0, airborne_latch=False,
                   thr_hist=collections.deque(), hold_thr=None, vz_lp=0.0, hold_t=0.0,
-                  dz_hist=collections.deque(), vis_t=0.0)
+                  dz_hist=collections.deque(), vis_t=0.0, hold_vz0=0.0)
 
 
 _DR = {"fh": None, "n": 0, "det": None}
@@ -1108,9 +1108,16 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
             if _state["hold_thr"] is None:
                 vals = [v for _, v in hist] or [int(throttle)]
                 _state["hold_thr"] = float(sum(vals)) / len(vals)
+                # DAMP ON THE CHANGE SINCE COMMIT, NOT THE ABSOLUTE (seed sweep,
+                # 2026-09-22: seeds 1 and 2 struck g0's top edge at 1.95 m with
+                # the inertial vz reading -0.17 / -0.23 at commit while the truth
+                # was ~0; 200 us per m/s against a phantom descent is +40 us, two
+                # m/s^2 upward for three seconds). A bias present at commit can no
+                # longer push him; only a real change after commit is answered.
+                _state["hold_vz0"] = float(getattr(_SOURCE, "vz_inertial", 0.0))
                 print(f"[RACELINE] COMMIT: holding throttle {_state['hold_thr']:.0f} "
-                      f"(mean of {len(vals)} ticks), inertial vz {float(getattr(_SOURCE, 'vz_inertial', 0.0)):+.2f} m/s")
-            vz_i = float(getattr(_SOURCE, "vz_inertial", _state["vz_lp"]))
+                      f"(mean of {len(vals)} ticks), inertial vz {_state['hold_vz0']:+.2f} m/s at commit (zeroed)")
+            vz_i = float(getattr(_SOURCE, "vz_inertial", _state["vz_lp"])) - _state["hold_vz0"]
             throttle = int(round(_state["hold_thr"] - HOLD_KD_PWM * vz_i))
             throttle = max(int(CFG.thrust.pwm_min), min(int(CFG.thrust.pwm_max), throttle))
             az_eff = 0.0
