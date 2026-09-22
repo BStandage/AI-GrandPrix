@@ -480,6 +480,8 @@ VERT_EL_GAIN = 0.09        # metres of height correction per degree of elevation
                            # deliberately not range-scaled - range is the camera's
                            # worst signal and the whole point of using elevation is
                            # that it does not need one.
+VERT_AIM_LOW_M = float(os.environ.get("AIGP_AIM_LOW_M", "0.30"))   # fly this far below the measured ring centre (see _vision_dz)
+VERT_DZ_DOWN_EXTRA = 0.20  # extra cap for descents, m (0.20 up / 0.40 down before g0)
 VERT_DZ_MAX_TAKEOFF = 0.20 # the cap until g0 is crossed: 9 * 0.20 / 4 = 0.45 m/s of climb, slow and steady
 VERT_DZ_MAX = 0.35         # the cap after g0: 0.79 m/s, enough for the stack's 0.72. The note below is from the takeoff cap. hard cap on that correction, m. 0.35 -> 0.20 (race day 2,
                            # Brian: "slow and steady, no steep takeoff"). This cap IS the
@@ -674,7 +676,18 @@ def _vision_dz(t):
             # stacked gate needs 0.72 m/s of climb and 0.20 caps it at 0.45
             # (sim race_070: 3.35 m at a 3.30 m bottom edge)
             cap = VERT_DZ_MAX_TAKEOFF if _past_g0() is False else VERT_DZ_MAX
-            want = max(-cap, min(cap, VERT_EL_GAIN * math.degrees(e)))
+            # AIM LOW (Julian attempts 1-3, 2026-09-22: every approach ended
+            # high; the ring's bottom is cut off by the frame when he is above
+            # the gate and its centre reads high at range - the elevation went
+            # -2.5 deg at 6.4 m to -8.4 deg at 3.9 m with the barometer level).
+            # Sit VERT_AIM_LOW_M below the measured centre: the opening is
+            # ~0.8 m of radius, and a ring seen from below is not clipped.
+            r_aim = _GATE_RANGE if (_GATE_RANGE is not None and _GATE_RANGE > 1.0) else 5.0
+            e_aim = e - math.atan2(VERT_AIM_LOW_M, r_aim)
+            want = VERT_EL_GAIN * math.degrees(e_aim)
+            # descents get more cap than climbs: the climb-out is where every
+            # flight overshot, the descent is what none of them managed
+            want = max(-(cap + VERT_DZ_DOWN_EXTRA), min(cap, want))
     dt = 0.02 if _DZ["t"] is None else max(0.0, min(0.1, t - _DZ["t"]))
     _DZ["t"] = t
     if _COMMITTED:
