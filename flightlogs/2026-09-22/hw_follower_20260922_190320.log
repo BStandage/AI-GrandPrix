@@ -1,0 +1,35 @@
+   0.0  gate 0 IN SIGHT at 1.8 m, LEVEL with me
+   0.0  gate 0 COMMIT at 1.8 m (gate is wider than the frame) - height reference released, holding -0.45 m, flying through
+   0.1  gate 0 at 1.8 m: LEVEL
+   0.1  gate 0 at 1.8 m: LEVEL
+   0.1  gate 0 at 1.8 m: LEVEL
+   0.1  gate 0 at 1.8 m: LEVEL
+   0.1  gate 0 at 1.8 m: LEVEL
+   0.3  gate 0: detection IMPLAUSIBLE (1.8 m -> 7.4 m), ignoring it
+   0.3  gate 0 IN SIGHT at 7.4 m, LEVEL with me
+   0.8  AIRBORNE at -0.13 m
+   4.0  gate 0 at 6.0 m: LEVEL, holding 2.52 m
+   5.5  gate 0 at 5.0 m: LEVEL, holding 2.92 m
+   5.5  gate 0: ring is cut off by the frame edge, rebuilding its centre from the width
+   6.0  gate 0: detection IMPLAUSIBLE (4.5 m -> 4.0 m), ignoring it
+   6.1  gate 0 IN SIGHT at 4.0 m, LEVEL with me
+   6.1  gate 0 at 4.0 m: LEVEL, holding 3.05 m
+   6.1  gate 0 at 3.9 m: LEVEL, holding 3.06 m
+   6.1  gate 0 at 3.9 m: 2.4 deg BELOW me -> EASING DOWN (commanding -0.08 m), holding 3.07 m
+   7.4  gate 0 at 3.0 m: LEVEL, holding 2.88 m
+   8.3  gate 0 at 2.0 m: LEVEL, holding 2.94 m
+   8.7  gate 0: detection IMPLAUSIBLE (1.9 m -> 10.4 m), ignoring it
+   8.7  gate 0 IN SIGHT at 10.5 m, LEVEL with me
+  10.3  gate 0 at 8.0 m: LEVEL, holding 2.57 m
+  10.6  gate 0: detection IMPLAUSIBLE (7.5 m -> 5.4 m), ignoring it
+  10.6  gate -1 CROSSED, 0.01 m to the left, 1.29 m high
+  10.7  gate 1 IN SIGHT at 5.4 m, LEVEL with me
+  10.7  gate 1 at 5.3 m: LEVEL, holding 2.65 m
+  11.2  gate 1: ring is cut off by the frame edge, rebuilding its centre from the width
+  11.8  gate 1 COMMIT at 5.5 m (gate is wider than the frame) - height reference released, holding 0.68 m, flying through
+  12.2  gate 1: detection IMPLAUSIBLE (6.1 m -> 11.5 m), ignoring it
+  12.3  gate 1 IN SIGHT at 11.7 m, LEVEL with me
+  12.4  gate 1: detection IMPLAUSIBLE (12.1 m -> 12.5 m), ignoring it
+  12.6  gate 1 IN SIGHT at 13.4 m, LEVEL with me
+  12.6  gate 1: detection IMPLAUSIBLE (13.4 m -> 11.0 m), ignoring it
+  12.8  gate 1 IN SIGHT at 11.1 m, LEVEL with me

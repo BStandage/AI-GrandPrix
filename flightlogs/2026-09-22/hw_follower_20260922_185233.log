@@ -1,0 +1,30 @@
+   0.0  gate 0 IN SIGHT at 7.5 m, LEVEL with me
+   0.7  gate 0 is 15.5 deg ABOVE me -> CLIMBING (commanding +0.20 m) (at 7.4 m)
+   0.8  AIRBORNE at -0.28 m
+   1.9  gate 0: ring is cut off by the frame edge, rebuilding its centre from the width
+   2.0  gate 0 at 6.0 m: 2.6 deg ABOVE me -> CLIMBING (commanding +0.20 m), holding 2.14 m
+   2.7  gate 0: detection IMPLAUSIBLE (5.3 m -> 6.5 m), ignoring it
+   2.7  gate 0 IN SIGHT at 6.6 m, LEVEL with me
+   4.2  gate 0: detection IMPLAUSIBLE (7.7 m -> 6.2 m), ignoring it
+   4.2  gate 0 IN SIGHT at 6.3 m, 1.6 deg BELOW me -> EASING DOWN (commanding -0.16 m)
+   5.0  gate 0 back to LEVEL (at 6.3 m)
+   5.3  gate 0 at 6.0 m: 1.4 deg BELOW me -> EASING DOWN (commanding -0.11 m), holding 2.72 m
+   5.8  gate 0: detection IMPLAUSIBLE (5.4 m -> 4.7 m), ignoring it
+   5.8  gate 0 IN SIGHT at 4.7 m, 4.8 deg BELOW me -> EASING DOWN (commanding -0.20 m)
+   5.8  gate 0 at 4.7 m: 4.7 deg BELOW me -> EASING DOWN (commanding -0.20 m), holding 2.78 m
+   5.9  gate 0 at 4.6 m: 4.9 deg BELOW me -> EASING DOWN (commanding -0.20 m), holding 2.79 m
+   5.9  gate 0 is 4.9 deg BELOW me -> EASING DOWN (commanding -0.20 m) (at 4.6 m)
+   7.5  gate 0 at 4.0 m: 7.5 deg ABOVE me -> CLIMBING (commanding +0.20 m), holding 1.84 m
+   7.7  gate 0 COMMIT at 3.7 m (ring fills the frame) - height reference released, holding 1.76 m, flying through
+   8.2  gate 0 at 3.0 m: LEVEL, holding 1.79 m
+   8.9  gate 0 at 2.0 m: LEVEL, holding 1.78 m
+   9.9  gate 0: detection IMPLAUSIBLE (1.8 m -> 2.4 m), ignoring it
+  10.0  gate 0 IN SIGHT at 1.8 m, LEVEL with me
+  10.1  THROTTLE 1383 - near the 1380+ ceiling, the loop is asking for a lot of lift
+  10.5  gate 0 at 5.6 m: LEVEL, holding 2.80 m
+  10.6  gate 0: detection IMPLAUSIBLE (5.6 m -> 1.9 m), ignoring it
+  10.8  gate 0 IN SIGHT at 3.8 m, LEVEL with me
+  10.8  gate 0 at 3.4 m: LEVEL, holding 0.88 m
+  10.9  gate -1 CROSSED, 0.35 m to the left, 0.96 m low
+  10.9  throttle back to 1288
+  11.3  gate 1: detection IMPLAUSIBLE (14.4 m -> 17.9 m), ignoring it
