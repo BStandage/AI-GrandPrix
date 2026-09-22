@@ -556,6 +556,8 @@ HOLD_FIT_S = 1.5            # window of elevation samples the commit hold fits
 HOLD_FIT_MIN_N = 8          # ...needs this many samples over at least HOLD_FIT_MIN_SPAN_S
 HOLD_FIT_MIN_SPAN_S = 0.8
 HOLD_DZ_MAX_M = 0.6         # the height the hold will make after commit, at most
+HOLD_FIT_MAX_OFFSET = 0.25  # vision and inertial vertical speed further apart than this: the fit is not trusted
+HOLD_FIT_MAX_DZ = 0.30      # more height than this still to make at commit: not a level commit, the fit is not trusted
 _DZ_HIST = collections.deque()
 _DZ_LAST = [None]
 HOLD_FIT_DZ_OUTLIER_M = 0.3   # a sample this far from the window's median height is a bad frame, not motion
@@ -1200,6 +1202,17 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
                 fit = _fit_vision_vz(t) if HOLD_HEIGHT else None
                 _el_level = (_GATE_EL is not None and (t - _GATE_EL[0]) <= 1.0
                              and abs(VERT_EL_GAIN * math.degrees(float(_GATE_EL[1]))) <= COMMIT_LEVEL_M)
+                if fit is not None and abs(fit[2]) > HOLD_FIT_MAX_OFFSET or fit is not None and abs(fit[1]) > HOLD_FIT_MAX_DZ:
+                    # the two disagree, or we are nowhere near level: this is
+                    # the forced mid-climb commit at the stack, where the fit
+                    # read 0.43 m/s against 0.83 inertial and the height hold
+                    # overshot the top opening by 1.1 m (seed 0, 2026-09-22).
+                    # The inertial speed is trusted to ~0.1 m/s now that it
+                    # integrates from arming; the old rule takes over.
+                    how_fit = f"fit rejected: vision vz {fit[0]:+.2f}, offset {fit[2]:+.2f}, height {fit[1]:+.2f}; "
+                    fit = None
+                else:
+                    how_fit = ""
                 if fit is not None:
                     vz_vis, dz0, b, nfit, span = fit
                     how = f"vision vz {vz_vis:+.2f} from {nfit} samples over {span:.1f} s"
@@ -1208,7 +1221,7 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
                     # offset; else -> the reading is real) and no height to make
                     b = _vzi_now if (_el_level or abs(_vzi_now) < 0.3) else 0.0
                     dz0 = 0.0
-                    how = "no elevation window: " + ("level, reading zeroed as offset" if b != 0.0 else "mid-climb, damped to zero")
+                    how = how_fit + "no elevation window: " + ("level, reading zeroed as offset" if b != 0.0 else "mid-climb, damped to zero")
                 _state["hold_b"] = float(b)
                 _state["hold_dz"] = max(-HOLD_DZ_MAX_M, min(HOLD_DZ_MAX_M, float(dz0)))
                 _state["hold_z"] = 0.0
