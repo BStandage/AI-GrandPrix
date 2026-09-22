@@ -736,7 +736,7 @@ _state = {"done_t": None, "dbg_t": 0.0, "trace": None, "trace_n": 0, "airborne_l
 VZ_VIS_WINDOW_S = 0.5   # the elevation-rate window for the vision vertical speed
 VZ_VIS_TAU_S = 1.0      # how fast the inertial vz is pulled toward it while a gate is in view
 HOLD_THR_WINDOW_S = 4.0  # the hold latches the MEAN throttle over this: 1 s latched the climbing throttle of the last swing of an oscillation (Julian attempt 2, high left corner); 4 s averages over it = the hover throttle
-HOLD_KD_PWM = 200.0    # us of throttle per m/s of INERTIAL vertical speed while committed (baro-free, smooth): a 0.2 m/s drift is met with 40 us (~2 m/s^2)
+HOLD_KD_PWM = float(os.environ.get("AIGP_HOLD_KD_PWM", "200"))   # AIGP_HOLD_KD_PWM=60 with the baro speed: its +-0.4 m/s noise then moves the throttle +-25 us, not +-80 (attempt 6: the speed hold read -0.43 sinking, pushed 1256, top bar). Was 200.0    # us of throttle per m/s of INERTIAL vertical speed while committed (baro-free, smooth): a 0.2 m/s drift is met with 40 us (~2 m/s^2)
 HOLD_VZ_TAU_S = 0.7    # the low-pass: a 5 Hz baro spike of 1.5 m/s moves the throttle ~10 us
 
 # Per-tick trace, decimated to TRACE_EVERY ticks (~100 Hz at the 1 kHz
