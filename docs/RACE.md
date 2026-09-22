@@ -3,19 +3,29 @@
 Julian (d43) first. If he makes gates, Sally (d44). **Sally has no padding:**
 on her, abort at the first doubt, before g1 and after it.
 
-Everything is already on both aircraft (branch `sim-angle-loop`, plan
-`plan_STACK_s15_cam20_75.json`). Step 0 is only a safety net.
+**Both aircraft still hold LAST NIGHT's build (2ab25ed).** Step 0 is
+required. It ships the laptop's working tree: the race build plus two
+changes since the aircraft were loaded:
+
+- the throttle hold after COMMIT damps on the CHANGE in inertial vertical
+  speed since commit, not the absolute (2 of 3 sim seeds took g0, up from 1);
+- the inertial vertical speed integrates from ARMING, not from the airborne
+  latch (the latch needed a 0.5 m/s climb first, so the aircraft's estimate
+  started half a metre per second low, flew the approach high and the hold
+  answered a phantom descent with a climb: flight 1 high, flight 2 top bar).
+  Unit-tested, not sim-tested. `AIGP_VZ_FROM_ARM=0` reverts it.
 
 ---
 
-## 0 — Laptop, once (repo root). Only if anything changed or you are unsure.
+## 0 — Laptop, once (repo root). REQUIRED. Join the drone WiFi first.
 
 ```
 scripts/sync_drone.sh d43
 scripts/sync_drone.sh d44
 ```
 
-Expect `== done` for each.
+Expect `== done` for each, about a minute per aircraft. If the WiFi will not
+connect, fly what is on the aircraft: the same card, the same abort rules.
 
 ---
 
@@ -153,5 +163,7 @@ Pull her log with `scripts/pull_flight.sh d44`.
 |---|---|
 | `AIGP_ACCEL_BIAS=0` | no bias learning on the pad |
 | `AIGP_COMMIT_STRAIGHT=0` | full dead-reckoned lateral loop inside the commit range |
+| `AIGP_VZ_FROM_ARM=0` | inertial vertical speed starts at the airborne latch again (the flight 1/2 behaviour) |
+| `AIGP_HOLD_HEIGHT=1` | after COMMIT hold a HEIGHT (fitted from the last 1.5 s of gate elevation) instead of a speed. Sim: took g0 clean once, then a bad fit at g1 put him on the floor; the fit has since been made robust, untested. ATTEMPT 2 ONLY, and only if attempt 1 rose into the bar after COMMIT. |
 
 Do not use `AIGP_COMMIT_HOLD=0` (that is the barometer hold).
