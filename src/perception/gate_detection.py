@@ -40,6 +40,7 @@ CLIP_EDGE_PX = 3          # within this many px of the edge counts as cut off
 # release the vertical reference and fly through on the height already held.
 # 0.85 of the frame is about 3.9 m for a 2.7 m ring in a 45.5 deg field.
 COMMIT_FRAC = float(os.environ.get("AIGP_GATE_COMMIT_FRAC", "0.85"))
+STACK_ASPECT = 1.5          # ring box taller than this x its width = a stacked gate (two rings)
 
 @dataclass
 class GateDetection:
@@ -60,6 +61,9 @@ class GateDetection:
     center: Optional[Tuple] = None     # (cx, cy) pixel center of the aim target
     corners: Optional[np.ndarray] = None   # ordered ring corners (TL,TR,BR,BL) for solvePnP
     gate_id: Optional[int] = None      # ground-truth id, when a synthetic source knows it (sim only)
+    stacked: bool = False              # the blob is two rings one above the other (height > 1.5 x width)
+    offset_y_top: Optional[float] = None   # offset_y of the UPPER ring's centre when stacked
+    offset_y_low: Optional[float] = None   # offset_y of the LOWER ring's centre when stacked
 
 
 def ring_corners(contour):
@@ -116,6 +120,12 @@ def _commit_px(rx, ry, rw, rh, w, h):
     # test did not fire until 1.81 m instead of the intended 3.8 m. The gate is
     # square, so the unclipped dimension IS the size.
     size_px = rh if w_clipped else max(rw, rh)
+    if not w_clipped and rh > STACK_ASPECT * rw:
+        # a STACKED gate is two rings one above the other, one blob to this
+        # detector (organizer lap video, 2026-09-22: one shape filling the
+        # frame top-to-bottom for six seconds). Its height is two rings; the
+        # single ring's size is its width.
+        size_px = rw
     if size_px >= COMMIT_FRAC * h:
         return True, "size"
     return False, "-"
@@ -258,13 +268,25 @@ def mask_to_detections(mask, img_shape, min_area_frac=MIN_GATE_AREA_FRAC):
         # fix, about 0.26 m of lateral error at 8 m, always the same way.
         # Defaults are the image centre, so the sim is unchanged.
         px, py = principal_point(w, h)
+        # THE STACKED GATE. Two rings one above the other come out of the mask
+        # as ONE blob about twice as tall as it is wide; its centroid is the
+        # bar between the two openings, which is the one height nobody wants.
+        # Say so, and give the flight code both ring centres: the upper ring's
+        # centre a quarter of the way down, the lower ring's three quarters.
+        # The range then comes from the width (one ring), not the doubled height.
+        stacked = (not clipped_v) and rh > STACK_ASPECT * rw and rw > 20
+        off_top = off_low = None
+        if stacked:
+            off_top = ((ry + 0.25 * rh) - py) / (h / 2.0)
+            off_low = ((ry + 0.75 * rh) - py) / (h / 2.0)
         dets.append(GateDetection(
             offset_x=(cx - px) / (w / 2.0),
             offset_y=(cy - py) / (h / 2.0),
             area=ring_area,
             # distance from the outer ring box (rw,rh ~ 2.7 m frame), not the aim box. When we aim at
             # the inner opening the box shrinks, and dividing by 2.7 would read ~1.8x too far.
-            distance_m=FOCAL_LENGTH_PX * GATE_REAL_HEIGHT_M / max(rw, rh, 1),
+            distance_m=FOCAL_LENGTH_PX * GATE_REAL_HEIGHT_M / max((rw if stacked else max(rw, rh)), 1),
+            stacked=stacked, offset_y_top=off_top, offset_y_low=off_low,
             area_frac=ring_area / float(h * w),
             has_opening=has_opening,
             bbox=(x, y, bw, bh),
