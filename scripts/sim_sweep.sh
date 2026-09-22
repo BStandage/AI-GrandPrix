@@ -23,11 +23,19 @@ export AIGP_CAM_TILT_DEG="${AIGP_CAM_TILT_DEG:-10}" AIGP_CAM_HFOV_DEG="${AIGP_CA
   echo "env: VERT=$AIGP_VERT BARO_PATHOLOGY=${AIGP_BARO_PATHOLOGY:-1} COMMIT_HOLD=${AIGP_COMMIT_HOLD:-0} COMMIT_STRAIGHT=${AIGP_COMMIT_STRAIGHT:-1} SENSOR_NOISE=${AIGP_SENSOR_NOISE:-1}"
   printf "%-5s %-8s %-10s %-8s %s\n" seed passed status crash "commits / crossings (follower)"
 } | tee "$OUT"
-for ((i=0; i<N; i++)); do
+# AIGP_SWEEP_SEEDS="1 2" flies just those seeds; otherwise seeds 0..N-1.
+SEEDS="${AIGP_SWEEP_SEEDS:-$(seq 0 $((N-1)) | tr '\n' ' ')}"
+for i in $SEEDS; do
   export AIGP_SEED=$i
-  (cd ../elodin-sim-aigp && docker compose down --remove-orphans >/dev/null 2>&1)
-  (cd src && python -m raceline.batch_fly "../$PLAN" --angle --config "../$CFG" --timeout 330 >/dev/null 2>&1)
-  LOG=$(ls -t out/flightlogs/container_*.log | head -1)
+  # The SITL sometimes stalls at boot (Betaflight answers the warmup once and
+  # never again; no [RL] ticks ever appear). A stalled run is retried, twice.
+  for attempt in 1 2 3; do
+    (cd ../elodin-sim-aigp && docker compose down --remove-orphans >/dev/null 2>&1)
+    (cd src && python -m raceline.batch_fly "../$PLAN" --angle --config "../$CFG" --timeout 330 >/dev/null 2>&1)
+    LOG=$(ls -t out/flightlogs/container_*.log | head -1)
+    if [ "$(grep -c '\[RL\] t=' "$LOG")" -gt 0 ]; then break; fi
+    echo "seed $i: SITL stalled at boot ($LOG), attempt $attempt" | tee -a "$OUT"
+  done
   RACE=$(grep -m1 -o "gates_passed=[0-9]*/[0-9]* .*status=[A-Z]*" "$LOG" | sed 's/total_time=//; s/lap_times=\[[^]]*\] //')
   PASSED=$(echo "$RACE" | grep -o "gates_passed=[0-9]*" | cut -d= -f2)
   STATUS=$(echo "$RACE" | grep -o "status=[A-Z]*" | cut -d= -f2)
