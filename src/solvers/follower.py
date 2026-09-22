@@ -766,10 +766,20 @@ def commit_aligned(p, yaw: float, event) -> bool:
         return False
     lx, ly = -math.sin(gh), math.cos(gh)
     lat = (float(p[0]) - gx) * lx + (float(p[1]) - gy) * ly
-    return abs(lat) <= COMMIT_ALIGN_LAT_M
+    if abs(lat) > COMMIT_ALIGN_LAT_M:
+        return False
+    # ...and the gate must be AHEAD by a real approach distance. The stacked
+    # gate (sim race_061): 0.3 s after the top crossing, 0.5 m past the stack
+    # and mid-turn, the nose swung through north and the LOW opening - same
+    # x, y - passed heading and lateral at 0.74 m range; fixes froze for the
+    # 8 s reversal, the estimate drifted 0.6 m, and he hit the low opening's
+    # side while his estimate read dead centre.
+    ahead = (gx - float(p[0])) * math.cos(gh) + (gy - float(p[1])) * math.sin(gh)
+    return ahead >= COMMIT_MIN_AHEAD_M
 
 
 COMMIT_ALIGN_DEG = 35.0
+COMMIT_MIN_AHEAD_M = 1.5   # the gate must be at least this far ahead along its crossing direction
 COMMIT_ALIGN_LAT_M = 1.0    # 1.5 -> 1.0: let the plan finish the hairpin's swing before the commit takes over
 
 
@@ -902,7 +912,16 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
         # COMMIT the term snaps to zero and the loop becomes a velocity hold
         # on +0.13 m/s: +0.35 m over the last 2.5 m, measured. The gate owns
         # the vertical here; the plan's vz is only kept for the landing.
-        if not done:
+        # ...EXCEPT WHEN VISION HAS NOTHING AND THE PLAN HAS A VERTICAL PROFILE
+        # (the stacked gate, 2026-09-22): heading back north 1.7 m from the
+        # stack the low opening is 58 deg below the camera, out of view, and a
+        # zero feedforward would hold 4 m and arrive 2.7 m too high. With no
+        # fresh elevation the plan's vz runs the blind descent (damped on the
+        # inertial vz, no barometer); the low opening's elevation takes over
+        # the moment it is in view. On the FLAT stretches the plan's vz is ~0
+        # so nothing changes there.
+        el_live = _GATE_EL is not None and (t - _GATE_EL[0]) <= VERT_EL_STALE_S
+        if not done and (el_live or _COMMITTED or abs(vz_ff) < 0.3):
             vz_ff = 0.0
     throttle = _ALT.throttle(t, est, z_target, vz_ff, airborne,
                              baro_fresh,
