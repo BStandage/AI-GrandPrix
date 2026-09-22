@@ -14,6 +14,13 @@ changes since the aircraft were loaded:
   started half a metre per second low, flew the approach high and the hold
   answered a phantom descent with a climb: flight 1 high, flight 2 top bar).
   Unit-tested, not sim-tested. `AIGP_VZ_FROM_ARM=0` reverts it.
+- **after attempt 1 (Julian way high over g0):** the inertial vertical speed
+  is TRIMMED every frame by the offset the gate-elevation fit measures. In
+  attempt 1 the accelerometer read 0.3 m/s^2 low in flight (pad bias was
+  zero), its integrated speed said "descending" while the gate said
+  "climbing", and the loop's damping fought the elevation and won. The fit
+  had the offset right the whole climb. `AIGP_VZ_VISION_TRIM=0` reverts it.
+  The debug line's `vzt=` is the trimmed speed: near zero on the line.
 
 ---
 
@@ -164,6 +171,7 @@ Pull her log with `scripts/pull_flight.sh d44`.
 | `AIGP_ACCEL_BIAS=0` | no bias learning on the pad |
 | `AIGP_COMMIT_STRAIGHT=0` | full dead-reckoned lateral loop inside the commit range |
 | `AIGP_VZ_FROM_ARM=0` | inertial vertical speed starts at the airborne latch again (the flight 1/2 behaviour) |
+| `AIGP_VZ_VISION_TRIM=0` | raw inertial vertical speed, no vision trim (attempt 1 behaviour) |
 | `AIGP_HOLD_HEIGHT=1` | after COMMIT hold a HEIGHT (fitted from the last 1.5 s of gate elevation) instead of a speed. Sim: seed 2 (the one that struck g0 on the speed hold) took g0, g1, g2 clean; seed 0 took g0 through g7 clean, then overshot the stack top (now falls back to the speed rule there). ATTEMPT 2 ONLY, and only if attempt 1 rose into the bar after COMMIT. |
 
 Do not use `AIGP_COMMIT_HOLD=0` (that is the barometer hold).
