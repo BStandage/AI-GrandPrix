@@ -575,9 +575,9 @@ def vz_inertial_trimmed() -> float:
     return v - _VZ_TRIM["off"] if VZ_VISION_TRIM else v
 
 
-HOLD_FIT_S = 1.5            # window of elevation samples the commit hold fits
-HOLD_FIT_MIN_N = 8          # ...needs this many samples over at least HOLD_FIT_MIN_SPAN_S
-HOLD_FIT_MIN_SPAN_S = 0.8
+HOLD_FIT_S = 0.8            # window of elevation samples the vision vz fit uses (1.5 lagged 0.75 s: attempt 2 oscillated at a 4 s period)
+HOLD_FIT_MIN_N = 6          # ...needs this many samples over at least HOLD_FIT_MIN_SPAN_S
+HOLD_FIT_MIN_SPAN_S = 0.4
 HOLD_DZ_MAX_M = 0.6         # the height the hold will make after commit, at most
 HOLD_FIT_MAX_OFFSET = 0.60  # vision and inertial vertical speed further apart than this: the fit is not trusted (0.25 threw out a correct -0.35 at g1 and the speed rule flew him 1 m high: sim seed 0, 2026-09-22)
 HOLD_FIT_MAX_DZ = 0.30      # more height than this still to make at commit: not a level commit, the fit is not trusted
@@ -692,6 +692,7 @@ _state = {"done_t": None, "dbg_t": 0.0, "trace": None, "trace_n": 0, "airborne_l
           "hold_b": 0.0, "hold_dz": 0.0, "hold_z": 0.0, "hold_tp": 0.0}
 VZ_VIS_WINDOW_S = 0.5   # the elevation-rate window for the vision vertical speed
 VZ_VIS_TAU_S = 1.0      # how fast the inertial vz is pulled toward it while a gate is in view
+HOLD_THR_WINDOW_S = 4.0  # the hold latches the MEAN throttle over this: 1 s latched the climbing throttle of the last swing of an oscillation (Julian attempt 2, high left corner); 4 s averages over it = the hover throttle
 HOLD_KD_PWM = 200.0    # us of throttle per m/s of INERTIAL vertical speed while committed (baro-free, smooth): a 0.2 m/s drift is met with 40 us (~2 m/s^2)
 HOLD_VZ_TAU_S = 0.7    # the low-pass: a 5 Hz baro spike of 1.5 m/s moves the throttle ~10 us
 
@@ -1201,7 +1202,7 @@ def step(t: float, est: StateEstimate, next_event: int, baro_fresh: bool = True,
         _state["vz_lp"] += (float(est.v[2]) - _state["vz_lp"]) * min(1.0, dt_h / HOLD_VZ_TAU_S)
         if not hold_now:
             hist.append((t, int(throttle)))
-            while hist and hist[0][0] < t - 1.0:
+            while hist and hist[0][0] < t - HOLD_THR_WINDOW_S:
                 hist.popleft()
             _state["hold_thr"] = None
         else:

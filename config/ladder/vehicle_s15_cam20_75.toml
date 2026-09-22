@@ -376,7 +376,7 @@ stick_clamp = 500     # FULL stick authority (center 1500, throw +-500).
                       # RAISED 45 -> 150 -> 250 -> 500. Watch for wobble
                       # (high derivative-free authority can oscillate);
                       # re-measure with sysid_slew after this.
-kp_z        = 9.0       # altitude loop, ACCEL UNITS (m/s^2 per m of error).
+kp_z        = 4.0       # altitude loop, ACCEL UNITS (m/s^2 per m of error).
                         # The loop now commands a vertical acceleration and
                         # goes through the measured [thrust] curve and the
                         # actual tilt (rc_backend.AltitudeLoop), so these
@@ -385,7 +385,7 @@ kp_z        = 9.0       # altitude loop, ACCEL UNITS (m/s^2 per m of error).
                         # stiffness re-expressed: 140 PWM/m x 0.063 m/s^2
                         # per PWM (measured slope just above hover) = 8.8.
                         # Natural frequency sqrt(9) = 3 rad/s.
-kd_z        = 4.0       # vertical-velocity damping (m/s^2 per m/s), acting
+kd_z        = 3.0       # vertical-velocity damping (m/s^2 per m/s), acting
                         # on the error vs the plan's vz feedforward. Sized
                         # from the fitted vertical model (thrust_002 steps,
                         # validated against that run's own closed-loop
