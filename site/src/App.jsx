@@ -92,33 +92,10 @@ function Hero() {
 
 // ---------- the week ----------
 
-function GitWeek() {
-  const days = data.git_week
-  const max = Math.max(...days.map((d) => d.commits), 1)
-  return (
-    <div className="gitweek">
-      <div className="bars">
-        {days.map((d) => (
-          <div key={d.day} className="bar" title={`${d.commits} commits, +${d.added} / -${d.removed} lines`}>
-            <div className="fill" style={{ height: `${(100 * d.commits) / max}%` }} />
-            <div className="n">{d.commits}</div>
-            <div className="d">{d.day.slice(5).replace('-', '/')}</div>
-          </div>
-        ))}
-      </div>
-      <p className="caption">
-        Commits to main by day. The 20th is the day the thrust model was measured from a crash log and everything downstream
-        was rebuilt; the 22nd is seven attempts in 27 minutes, each one a fix for the last.
-      </p>
-    </div>
-  )
-}
-
 function Week() {
   return (
     <section id="week">
       <h2>The week</h2>
-      <GitWeek />
       <ol className="timeline">
         {C.timeline.map((t) => (
           <li key={t.title}>
@@ -465,13 +442,6 @@ function People() {
     <section id="people">
       <h2>{C.people.title}</h2>
       <Paras items={C.people.body} />
-      <div className="authors">
-        {data.authorship.map((a) => (
-          <div key={a.name} className="author">
-            <b>{a.commits}</b> commits · {a.name}
-          </div>
-        ))}
-      </div>
     </section>
   )
 }

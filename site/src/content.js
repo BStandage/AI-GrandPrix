@@ -9,19 +9,19 @@ export const site = {
   title: "Top 15 of 3,300",
   subtitle: "Building an autonomous racing drone from scratch for the AI Grand Prix, June to September 2026",
   tagline:
-    "Three months, a small team, a simulator, and three drones we met five days before the race. We built the whole stack ourselves: perception, mapping, planning, control, and a Betaflight simulator that flies the course. We took it to the start line fourteen times. This is the story of what we built, what it did, and what we learned, drawn from the flight logs and the commit history.",
+    "Three months, a small team, a simulator, and three drones we met five days before the race. We built the whole stack ourselves: perception, mapping, planning, control, and a Betaflight simulator that flies the course. We took it to the start line fourteen times. This is the story of what we built, what it did, and what we learned.",
   repo: "https://github.com/BStandage/AI-GrandPrix",
 };
 
 export const stats = [
   { value: "3,300", label: "teams entered" },
   { value: "Top 15", label: "where we finished" },
-  { value: "90", label: "days from first commit to race day" },
-  { value: "110k", label: "lines of code written" },
-  { value: "23 / 23", label: "gates in our simulator" },
-  { value: "14", label: "autonomous flights on the course" },
+  { value: "3", label: "months, from nothing" },
   { value: "3.5 of 8", label: "days we could be there" },
-  { value: "3", label: "aircraft, all flew" },
+  { value: "3", label: "drones" },
+  { value: "14", label: "autonomous flights on the course" },
+  { value: "23 / 23", label: "gates in our own simulator" },
+  { value: "1", label: "handshake with Palmer Luckey" },
 ];
 
 // art: site/src/art/d43.txt etc., shown on the cards
