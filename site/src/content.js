@@ -89,7 +89,7 @@ export const aircraft = [
 export const timeline = [
   {
     date: "Before",
-    title: "June to September: the build"
+    title: "June to September: the build",
     body: [
       "We started in June with a simulator, the organizers' course map, and no aircraft. By September the repository had a classic-vision gate detector, a course map and planner, a trajectory tracker, dead reckoning with vision fixes, and a Betaflight software-in-the-loop sim that could fly the whole course.",
       "The approach was sim-to-real: develop and validate in simulation, then transfer to the aircraft. The limitation, in hindsight, is that the simulator did not model the aircraft's sensors accurately enough for the vertical channel, and that is the failure mode that decided the physical qualifier.",
