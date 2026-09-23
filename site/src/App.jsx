@@ -150,7 +150,12 @@ function Team() {
               <Text>{m.name}</Text>
             </h3>
             <p className="role">
-              <Text>{m.role}</Text>
+              {(Array.isArray(m.role) ? m.role : [m.role]).map((r, k) => (
+                <span key={k}>
+                  {k > 0 && <br />}
+                  <Text>{r}</Text>
+                </span>
+              ))}
             </p>
             <p>
               <Text>{m.blurb}</Text>
