@@ -42,6 +42,7 @@ export const aigp = {
   title: "What is the Anduril AI Grand Prix",
   intro: [
     "The AI Grand Prix is an autonomous drone racing competition run by the Drone Champions League with Anduril. Every team flies the same aircraft: a DCL racing quad with a Betaflight flight controller, an NVIDIA Jetson Orin, and a single forward camera. The aircraft has to fly the course by itself on its own sensors; a human pilot arms it and can take over, and any pilot input ends the run.",
+    "A special thank you to Anduril, Neros, the Drone Champions League, and JobsOhio.",
     "[BRIAN: a sentence on the prize, the field, and why you entered.]",
   ],
   stagesImage: "photos/aigp/aigp_stages.jpg",
@@ -213,55 +214,6 @@ export const report = [
         "Thrust model: measured from 76,000 airborne samples in a recovered blackbox log, then corrected again from D45's crash log. See Control.",
         "Damage and repair: D45's camera replaced and recalibrated after the ceiling strike; its arm repaired after the net. D43 padded after its first gate strike and reflown four times. [BRIAN: what the padding was and who did it.]",
       ] },
-    ],
-  },
-];
-
-// ------------------------------------------------- the day-by-day campaign
-
-export const timeline = [
-  {
-    date: "19 Sep",
-    title: "Day one: access and setup",
-    body: [
-      "Both Jetsons had no WiFi configured, and the obvious way in, a USB to micro-USB cable to the Jetson, would not take an ssh session.",
-      "The way in was the serial console over that same cable: PuTTY on a COM port at 115200, a login prompt, and from there the WiFi could be configured by hand. Once both aircraft were on the venue network there were ssh shortcuts, shell aliases, and a prompt that said which drone you were on. D43, when it arrived, did not have the right antennas and went through the same serial-console route before it had a network at all.",
-      "With a way in: the MSP override mask fixed on both flight controllers, ANGLE mode assigned, the camera verified at 1080p60, a real gate detected on 100 percent of frames at 6 m, and the thrust model re-measured from 76,000 airborne samples in a recovered blackbox. The config's hover throttle had been 1240, from the simulator. The blackbox said 1291. The first takeoff would have been under-thrusted by a quarter, and it was fixed without flying.",
-      "[BRIAN: arrival, the venue, the pits, first impressions.]",
-    ],
-  },
-  {
-    date: "20 Sep",
-    title: "First autonomous flight, first crash, and the thrust model",
-    body: [
-      "D45 flew itself for the first time in a 2 by 2 m cage and went to the ceiling. The vertical speed came from a barometer that reports ten times a second, so for a third of a second after launch it read zero, the brake never came on, and the aircraft kept the speed the punch had given it. The pilot's abort worked instantly. The camera did not survive the fall.",
-      "That evening, track session one. D45 flew once with the barometer out of the loop, climbed steadily to 5.1 m while the controller asked for full descent, drifted into the net and broke an arm. Its log showed why: the thrust curve had come from the organizers' heavier aircraft. Commanding 1 g on ours delivered about 1.45 g. Once the curve was corrected from that crash, D44 hovered on the first try with no oscillation.",
-    ],
-  },
-  {
-    date: "21 Sep",
-    title: "The first gate approaches",
-    body: [
-      "Track session two: fourteen minutes, D44, four flights, no damage. Every flight failed vertically and succeeded laterally, and the four failures had four different causes, each visible only once the previous one was fixed: a camera tilted 20 degrees up that could not see a gate at its own height, a clipped ring with a false centre, an altitude limit cycle, an airborne flag that flickered.",
-      "Flight four tracked the line from 7.4 m out to 2.5 m from the gate with 0.22 m of cross-track error and clipped the top bar on the final metre. Camera fixes went from 15 on the first flight to 256 on the last.",
-      "That night D43 flew four times: hover forever, top bar, and two right-edge strikes. None of it was the controller; all of it was bookkeeping that had never been checked in flight.",
-    ],
-  },
-  {
-    date: "22 Sep",
-    title: "Race day: the 27-minute slot",
-    body: [
-      "One 27-minute slot. Two aircraft. The bar to advance was four gates. Seven attempts; the table under Race day gives each one's cause from its log.",
-      "By attempt 6 every piece had worked on some flight: takeoff, release, approach height, lateral onto the line, the size commit. Never all on one flight, and never the three seconds after commit.",
-      "[BRIAN: what it was like on the line, the pilot, the two-person setup.]",
-    ],
-  },
-  {
-    date: "Result",
-    title: "Result",
-    body: [
-      "Ten teams advanced; we did not. Attempt 6 reached the commit point on the centre line at the correct height, 3.5 m from gate 0, and struck the top bar during the three-second blind segment after commit. The missing component is a state estimator that carries the aircraft through the crossing. The other components listed on this page each worked on at least one flight.",
-      "[BRIAN: the end of the day, the other teams, the handshake.]",
     ],
   },
 ];

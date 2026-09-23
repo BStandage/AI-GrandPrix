@@ -434,7 +434,6 @@ function FlightDeck({ selected, setSelected }) {
   })
   return (
     <>
-      <h3 className="mt">Every flight, from its log</h3>
       <p>
         Thirteen of the fourteen autonomous course flights, as recorded on the aircraft. Arrows or arrow keys move between
         flights; the tiles jump.
@@ -501,21 +500,7 @@ function FlightDeck({ selected, setSelected }) {
 function Testing({ selected, setSelected }) {
   return (
     <section id="testing">
-      <h2>Flight testing: Anduril, Costa Mesa, 19 to 22 September 2026</h2>
-      <figure className="pq">
-        <img src={BASE + C.aigp.pqImage} alt="Physical Qualifier poster" />
-      </figure>
-      <ol className="timeline">
-        {C.timeline.map((t) => (
-          <li key={t.title}>
-            <div className="date">{t.date}</div>
-            <div className="body">
-              <h3>{t.title}</h3>
-              <Paras items={t.body} />
-            </div>
-          </li>
-        ))}
-      </ol>
+      <h2>Flight testing: every flight, from its log</h2>
       <FlightDeck selected={selected} setSelected={setSelected} />
     </section>
   )
