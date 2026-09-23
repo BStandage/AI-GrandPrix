@@ -221,7 +221,7 @@ export const photos = [
   },
   {
     src: "photos/g0-strike-top.png",
-    caption: "The top edge, near the left corner. Same story from the other axis.",
+    caption: "D43 at the top edge of the opening, near the left corner."
   },
   // Add more: drop the file in site/public/photos and add { src, caption } here.
 ];
