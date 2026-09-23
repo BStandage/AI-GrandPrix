@@ -38,7 +38,7 @@ export const aigp = {
   stages: [
     { n: "1", name: "Virtual Qualifier 1", note: "The cut. Fly the organizers' course in their simulator. We qualified." },
     { n: "2", name: "Virtual Qualifier 2", note: "The ranking round. Our simulator run placed in the top 15 of more than 3,300 teams worldwide and earned the invitation to the physical qualifier." },
-    { n: "3", name: "Physical Qualifier", note: "California, 15 to 22 September. Real aircraft on a real course, timed slots, a referee counting gates. Ten teams advance. This write-up is about this stage; we could be there for 3.5 of the 8 days." },
+    { n: "3", name: "Physical Qualifier", note: "Anduril, Costa Mesa, California, 15 to 22 September. Real aircraft on a real course, timed slots, a referee counting gates. Ten teams advance. This write-up is about this stage; we could be there for 3.5 of the 8 days." },
     { n: "4", name: "Grand Prix, Ohio", note: "The final. [BRIAN: dates and what is at stake, if you want it here.]" },
   ],
 };
@@ -46,7 +46,7 @@ export const aigp = {
 // The team. Photos go in site/public/photos/team/ and are referenced here.
 // A missing photo shows a placeholder tile until you add it.
 export const team = {
-  intro: "I built the autonomy stack and the simulator on my own from June. There were two virtual qualifiers: I qualified through VQ1, then placed in the top 15 of more than 3,300 teams worldwide in VQ2, which earned an invitation to the physical qualifiers. That is when this became a team: I asked Reese and Cristhian to come, and they did. [BRIAN: one line on where you're from, if you want it.]",
+  intro: "I built the autonomy stack and the simulator on my own from June. There were two virtual qualifiers: I qualified through VQ1, then placed in the top 15 of more than 3,300 teams worldwide in VQ2, which earned an invitation to the physical qualifiers. My teammates Cristhian Prado and Reese Haven joined me for the physical qualifier at Anduril in Costa Mesa, CA. [BRIAN: one line on where you're from, if you want it.]",
   members: [
     { name: "Brian Standage", role: ["Team Lead", "AI/ML Engineer"], photo: "photos/team/brian.jpg", blurb: "[BRIAN: a line or two.]", linkedin: "https://www.linkedin.com/in/brian-standage-22835912a/" },
     { name: "Cristhian Prado", role: "AI/ML Engineer", photo: "photos/team/cristhian.jpg", blurb: "[BRIAN: a line or two.]" },

@@ -122,7 +122,7 @@ function AIGP() {
       </div>
       <figure className="pq">
         <img src={import.meta.env.BASE_URL + a.pqImage} alt="Physical Qualifier, California, 15 to 22 September" />
-        <figcaption>The physical qualifier: California, 15 to 22 September 2026.</figcaption>
+        <figcaption>The physical qualifier: Anduril, Costa Mesa, California, 15 to 22 September 2026.</figcaption>
       </figure>
     </section>
   )
