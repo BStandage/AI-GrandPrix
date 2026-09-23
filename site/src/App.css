@@ -206,11 +206,8 @@ mark.todo {
   font-size: 0.95rem;
 }
 .pq {
-  margin: 0;
-  display: grid;
-  grid-template-columns: 280px 1fr;
-  gap: 16px;
-  align-items: center;
+  margin: 0 0 24px;
+  max-width: 300px;
 }
 .pq img {
   width: 100%;

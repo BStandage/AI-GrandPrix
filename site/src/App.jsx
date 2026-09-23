@@ -34,7 +34,7 @@ const CHAPTERS = [
   ['team', 'The team'],
   ['aircraft', 'The aircraft'],
   ['aigp', 'The AI-GP'],
-  ['week', 'The week'],
+  ['week', 'The physical qualifier'],
   ['course', 'Course'],
   ['flights', 'Flights'],
   ['slot', 'The slot'],
@@ -120,10 +120,6 @@ function AIGP() {
           ))}
         </ol>
       </div>
-      <figure className="pq">
-        <img src={import.meta.env.BASE_URL + a.pqImage} alt="Physical Qualifier, California, 15 to 22 September" />
-        <figcaption>The physical qualifier: Anduril, Costa Mesa, California, 15 to 22 September 2026.</figcaption>
-      </figure>
     </section>
   )
 }
@@ -133,7 +129,10 @@ function AIGP() {
 function Week() {
   return (
     <section id="week">
-      <h2>The week</h2>
+      <h2>The physical qualifier: Anduril, Costa Mesa, California, 15 to 22 September 2026</h2>
+      <figure className="pq">
+        <img src={import.meta.env.BASE_URL + C.aigp.pqImage} alt="Physical Qualifier poster" />
+      </figure>
       <ol className="timeline">
         {C.timeline.map((t) => (
           <li key={t.title}>
