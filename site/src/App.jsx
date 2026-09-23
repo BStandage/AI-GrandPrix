@@ -78,6 +78,7 @@ function Hero() {
       <p className="kicker">AI Grand Prix · September 2026</p>
       <h1>{C.site.title}</h1>
       <p className="sub">{C.site.subtitle}</p>
+      <p className="byline">{C.site.byline}</p>
       <p className="lede">{C.site.tagline}</p>
       <div className="stats">
         {C.stats.map((s) => (

@@ -126,6 +126,12 @@ mark.todo {
   font-size: 1.25rem;
   margin-top: 0;
 }
+.byline {
+  font-family: var(--mono);
+  color: var(--ink2);
+  font-size: 0.9rem;
+  margin-top: -8px;
+}
 .stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

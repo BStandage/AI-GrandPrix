@@ -8,8 +8,9 @@
 export const site = {
   title: "Top 15 of 3,300",
   subtitle: "Building an autonomous racing drone from scratch for the AI Grand Prix, June to September 2026",
+  byline: "by Brian Standage, Team Lead",
   tagline:
-    "Three months, a small team, a simulator, and three drones we met five days before the race. We built the whole stack ourselves: perception, mapping, planning, control, and a Betaflight simulator that flies the course. We took it to the start line fourteen times. This is the story of what we built, what it did, and what we learned.",
+    "Three months, a simulator, and three drones we met five days before the physical qualifiers. We built the whole stack ourselves: perception, mapping, planning, control, and a Betaflight simulator that flies the course. We took it to the start line fourteen times. This is the story of what we built, what it did, and what we learned.",
   repo: "https://github.com/BStandage/AI-GrandPrix",
 };
 
@@ -27,7 +28,7 @@ export const stats = [
 // The team. Photos go in site/public/photos/team/ and are referenced here.
 // A missing photo shows a placeholder tile until you add it.
 export const team = {
-  intro: "I built the autonomy stack and the simulator on my own from June, and qualified in the top 15 of 3,300 in the second virtual round. That is when this became a team: I asked Reese and Cristhian to come to the race, and they did. [BRIAN: one line on where you're from, if you want it.]",
+  intro: "I built the autonomy stack and the simulator on my own from June. There were two virtual qualifiers: I qualified through VQ1, then placed in the top 15 of more than 3,300 teams worldwide in VQ2, which earned an invitation to the physical qualifiers. That is when this became a team: I asked Reese and Cristhian to come, and they did. [BRIAN: one line on where you're from, if you want it.]",
   members: [
     { name: "Brian Standage", role: ["Team Lead", "AI/ML Engineer"], photo: "photos/team/brian.jpg", blurb: "[BRIAN: a line or two.]", linkedin: "https://www.linkedin.com/in/brian-standage-22835912a/" },
     { name: "Cristhian Prado", role: "AI/ML Engineer", photo: "photos/team/cristhian.jpg", blurb: "[BRIAN: a line or two.]" },
@@ -74,7 +75,7 @@ export const timeline = [
     body: [
       "We started in June with a simulator, the organizers' course map, and no aircraft. By September the repository had a classic-vision gate detector, a course map and planner, a trajectory tracker, dead reckoning with vision fixes, and a Betaflight software-in-the-loop sim that could fly the whole course.",
       "The bet was sim-to-real: get everything right in simulation, then transfer. The bet was reasonable. It needed the sim to model the aircraft's sensors honestly, and it did not. That sentence is most of this story.",
-      "The virtual qualifier came first: our simulator flew the organizers' course well enough to place in the top 15 of 3,300 entries, which earned the trip. [BRIAN: why 3.5 days of the 8: work, travel, cost, whatever it was.]",
+      "The virtual qualifiers came first. VQ1 was the cut; VQ2 placed the simulator run in the top 15 of more than 3,300 teams worldwide and earned the invitation to the physical qualifiers. [BRIAN: why 3.5 days of the 8: work, travel, cost, whatever it was.]",
     ],
   },
   {
