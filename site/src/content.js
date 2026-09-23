@@ -11,7 +11,7 @@ export const site = {
   heroImage: "photos/aigp/aigp_header.png",
   thanks: "Our team extends a special thank you to Anduril, Neros, the Drone Champions League, and JobsOhio for an excellent event and incredible support. We would not have been able to do any of this without their teams, who worked non-stop to develop and support the event.",
   tagline:
-    "Between June and September 2026 we built a complete autonomy stack for the AI Grand Prix: gate perception, vision-aided state estimation, trajectory planning, and a flight controller interface, developed against a fork of an open-source Elodin simulator with the Betaflight firmware in the loop. This report documents each subsystem, the hardware bring-up, fourteen autonomous course flights with their logs, and what failed.",
+    "Between June and September 2026 we built a complete autonomy stack for the AI Grand Prix: gate perception, vision-aided state estimation, trajectory planning, and a flight controller interface, developed against a fork of an open-source Elodin simulator with the Betaflight firmware in the loop. We arrived on the fifth of the eight days of the physical qualifier, so the software met the competition aircraft with three and a half days of track time in which to bring the hardware up, calibrate it, and fly. This report documents each subsystem, the hardware bring-up, fourteen autonomous course flights with their logs, and what failed.",
 };
 
 // Names that render as bold red links wherever they appear in the text.
