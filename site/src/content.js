@@ -29,7 +29,7 @@ export const team = {
   intro:
     "I built the autonomy stack on my own from June. The two virtual qualifiers were flown in the organizers' simulator, with our stack connected to it over MAVLink: I qualified through VQ1, then placed in the top 15 of more than 3,300 teams worldwide in VQ2, which earned an invitation to the physical qualifiers. For the physical qualifier I forked the organizers' Elodin simulator and put the Betaflight flight-controller firmware in the loop, so the same code could be developed against the real course before it ever flew. My teammates Cristhian Prado and Reese Haven joined me for the physical qualifier at Anduril in Costa Mesa, CA. [BRIAN: one line on where you're from, if you want it.]",
   members: [
-    { name: "Brian Standage", role: ["Team Lead", "AI/ML Engineer"], photo: "photos/team/brian.jpg", blurb: "[BRIAN: a line or two.]", linkedin: "https://www.linkedin.com/in/brian-standage-22835912a/" },
+    { name: "Brian Standage", role: ["Team Lead", "AI/ML Engineer"], photo: "photos/team/brian.jpeg", blurb: "[BRIAN: a line or two.]", linkedin: "https://www.linkedin.com/in/brian-standage-22835912a/" },
     { name: "Cristhian Prado", role: "AI/ML Engineer", photo: "photos/team/cristhian.jpg", blurb: "[BRIAN: a line or two.]" },
     { name: "Reese Haven", role: "Electrical Engineer", photo: "photos/team/reese.jpg", blurb: "[BRIAN: a line or two.]" },
   ],
