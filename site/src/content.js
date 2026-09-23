@@ -100,7 +100,7 @@ export const timeline = [
     date: "19 Sep",
     title: "Day one: hardware access and setup",
     body: [
-      "Both Jetsons had no WiFi configured, and the obvious way in, a USB to micro-USB cable to the Jetson, would not take an ssh session. Three USB ports on the bench looked identical: the flight controller's, the Jetson's, and the wrong laptop's. Betaflight's 'Connect (Virtual)' connected to nothing and looked exactly like success for forty minutes.",
+      "Both Jetsons had no WiFi configured, and the obvious way in, a USB to micro-USB cable to the Jetson, would not take an ssh session.",
       "The way in was the serial console over that same cable: PuTTY on a COM port at 115200, a login prompt, and from there the WiFi could be configured by hand. Once both aircraft were on the venue network there were ssh shortcuts, shell aliases, and a prompt that said which drone you were on. D43, when it arrived, did not have the right antennas and went through the same serial-console route before it had a network at all. [BRIAN: the antenna detail and how it got sorted.]",
       "With a way in, the day got productive: the MSP override mask fixed on both flight controllers, ANGLE mode assigned, the camera verified at 1080p60, a real gate detected on 100 percent of frames at 6 m, and the thrust model re-measured from 76,000 airborne samples in a recovered blackbox. The config's hover throttle had been 1240, from the simulator. The blackbox said 1291. The first takeoff would have been under-thrusted by a quarter, and it was fixed without flying.",
       "[BRIAN: arrival, the venue, the pits, first impressions.]",
