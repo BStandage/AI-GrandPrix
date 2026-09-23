@@ -160,6 +160,11 @@ function Team() {
             <p>
               <Text>{m.blurb}</Text>
             </p>
+            {m.linkedin && (
+              <a className="linkedin" href={m.linkedin} target="_blank" rel="noreferrer">
+                LinkedIn ↗
+              </a>
+            )}
           </article>
         ))}
       </div>
