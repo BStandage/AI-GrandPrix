@@ -72,8 +72,8 @@ function Photo({ src, alt, className }) {
 
 const CHAPTERS = [
   ['team', 'Team'],
-  ['aigp', 'The AI-GP'],
   ['aircraft', 'Aircraft'],
+  ['aigp', 'The AI-GP'],
   ['system', 'System'],
   ['perception', 'Perception'],
   ['estimation', 'Estimation'],
@@ -680,8 +680,8 @@ export default function App() {
       <main>
         <Hero />
         <Team />
-        <AIGP />
         <Aircraft />
+        <AIGP />
         <Report />
         <Testing selected={selected} setSelected={setSelected} />
         <RaceDay setSelected={setSelected} />
