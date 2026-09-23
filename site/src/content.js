@@ -29,10 +29,9 @@ export const stats = [
 export const team = {
   intro: "[BRIAN: two or three sentences on who we are, where we're from, and how a team this size ended up at a 3,300-team competition.]",
   members: [
-    { name: "Brian Standage", role: "[BRIAN: your role: autonomy, flight ops, the whole stack]", photo: "photos/team/brian.jpg", blurb: "[BRIAN: a line or two.]" },
-    { name: "[BRIAN: teammate]", role: "[BRIAN: role]", photo: "photos/team/teammate1.jpg", blurb: "[BRIAN: a line or two.]" },
-    { name: "[BRIAN: teammate]", role: "[BRIAN: role]", photo: "photos/team/teammate2.jpg", blurb: "[BRIAN: a line or two.]" },
-    { name: "[BRIAN: the pilot]", role: "[BRIAN: role]", photo: "photos/team/pilot.jpg", blurb: "[BRIAN: a line or two.]" },
+    { name: "Brian Standage", role: "Team Lead", photo: "photos/team/brian.jpg", blurb: "[BRIAN: a line or two.]" },
+    { name: "Cristhian Prado", role: "Software Engineer", photo: "photos/team/cristhian.jpg", blurb: "[BRIAN: a line or two.]" },
+    { name: "Reese Haven", role: "Electrical Engineer", photo: "photos/team/reese.jpg", blurb: "[BRIAN: a line or two.]" },
   ],
   groupPhoto: { src: "photos/team/group.jpg", caption: "[BRIAN: the team at the venue.]" },
 };
