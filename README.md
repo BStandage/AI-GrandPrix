@@ -15,7 +15,6 @@ and the field tooling that ran it on the competition aircraft in Costa Mesa.
 |---|---|
 | Virtual Qualifier 2 | top 15 of 3,300+ teams worldwide |
 | Physical Qualifier, Costa Mesa, 15–22 Sep 2026 | 14 autonomous course flights, 0 gates scored, did not advance |
-| Team | [Brian Standage](https://www.linkedin.com/in/brian-standage-22835912a/) (lead, software), [Cristhian Prado](https://www.linkedin.com/in/pradocristhian/), [Reese Haven](https://www.linkedin.com/in/reese-haven-6a57a1224/) |
 
 ## Architecture
 
