@@ -71,6 +71,74 @@ function Photo({ src, alt, className }) {
 // ---------- chapter bar ----------
 
 
+// ---------- side rail ----------
+
+const CHAPTERS = [
+  ['team', 'Team'],
+  ['aircraft', 'Aircraft'],
+  ['aigp', 'The AI-GP'],
+  ['system', 'System'],
+  ['perception', 'Perception'],
+  ['estimation', 'Estimation'],
+  ['planning', 'Planning'],
+  ['control', 'Control'],
+  ['simulation', 'Simulation'],
+  ['hardware', 'Hardware'],
+  ['testing', 'Flight testing'],
+  ['raceday', 'Race day'],
+  ['analysis', 'Analysis'],
+  ['lessons', 'Lessons'],
+]
+
+function SideRail() {
+  const [active, setActive] = useState('team')
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    const ids = CHAPTERS.map(([id]) => id)
+    const onScroll = () => {
+      // the section whose top is closest above the middle of the viewport
+      const mid = window.innerHeight * 0.35
+      let best = ids[0]
+      for (const id of ids) {
+        const el = document.getElementById(id)
+        if (el && el.getBoundingClientRect().top <= mid) best = id
+      }
+      setActive(best)
+    }
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+  const list = (
+    <ol className="rail">
+      {CHAPTERS.map(([id, label]) => (
+        <li key={id} className={active === id ? 'on' : ''}>
+          <a href={`#${id}`} onClick={() => setOpen(false)}>
+            {label}
+          </a>
+        </li>
+      ))}
+    </ol>
+  )
+  return (
+    <>
+      <nav className="sidenav" aria-label="sections">
+        {list}
+      </nav>
+      <button className={`burger ${open ? 'open' : ''}`} aria-label="sections" onClick={() => setOpen(!open)}>
+        <span />
+        <span />
+        <span />
+      </button>
+      {open && (
+        <div className="drawer" onClick={() => setOpen(false)}>
+          <nav onClick={(e) => e.stopPropagation()}>{list}</nav>
+        </div>
+      )}
+    </>
+  )
+}
+
 // ---------- hero ----------
 
 function Hero() {
@@ -632,6 +700,7 @@ export default function App() {
   })
   return (
     <>
+      <SideRail />
       <main>
         <Hero />
         <Team />
