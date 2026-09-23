@@ -82,7 +82,7 @@ export const aircraft = [
     role: "Arrived last; flew ten of the fourteen course flights.",
     story:
       "D43 arrived without the correct WiFi antennas and was brought up over the serial console. It flew four times the night before race day and six times in the 27-minute slot. Each race-day attempt exposed one defect that the next attempt fixed: accelerometer drift, a hover-throttle constant 23 µs high, a commit on the pad, a start-hold lurch, and a barometer-driven hold. Attempt 6 reached the commit point on the centre line, 0.2 m below the gate centre, and struck the top bar in the blind segment after commit.",
-    fate: "Four gate strikes; padded and reflown each time. [BRIAN: the antennas, and the padding: what, who, how long.]",
+    fate: "Four gate strikes; padded and reflown each time. [BRIAN: the padding: what, who, how long.]",
   },
 ];
 
@@ -203,7 +203,7 @@ export const report = [
     blocks: [
       "The aircraft arrived as sealed units with no network configured and no credentials known beyond the defaults. Everything below was done on site, most of it on the first day.",
       { list: [
-        "Access: ssh over the Jetson's micro-USB cable would not hold a session. The serial console on the same cable did: PuTTY on the COM port at 115200, log in, then configure WiFi with nmcli. Both aircraft answer on the same USB address with different host keys, so swapping aircraft trips a host-key warning that has to be cleared. D43 arrived without the correct WiFi antennas and was brought up the same way. [BRIAN: the antenna detail.]",
+        "Access: ssh over the Jetson's micro-USB cable would not hold a session. The serial console on the same cable did: PuTTY on the COM port at 115200, log in, then configure WiFi with nmcli. Both aircraft answer on the same USB address with different host keys, so swapping aircraft trips a host-key warning that has to be cleared. D43 arrived without the correct WiFi antennas and was brought up the same way.",
         "Identity: every Jetson reports the same hostname, so each got a shell prompt carrying its number and a paint-pen label on the frame.",
         "Clock: the Jetsons boot believing it is 2023, which corrupts every log filename until NTP is switched on.",
         "UART: the Linux console owns the flight controller's UART by default; a one-time script frees it for MSP.",
@@ -225,7 +225,7 @@ export const timeline = [
     title: "Day one: access and setup",
     body: [
       "Both Jetsons had no WiFi configured, and the obvious way in, a USB to micro-USB cable to the Jetson, would not take an ssh session.",
-      "The way in was the serial console over that same cable: PuTTY on a COM port at 115200, a login prompt, and from there the WiFi could be configured by hand. Once both aircraft were on the venue network there were ssh shortcuts, shell aliases, and a prompt that said which drone you were on. D43, when it arrived, did not have the right antennas and went through the same serial-console route before it had a network at all. [BRIAN: the antenna detail and how it got sorted.]",
+      "The way in was the serial console over that same cable: PuTTY on a COM port at 115200, a login prompt, and from there the WiFi could be configured by hand. Once both aircraft were on the venue network there were ssh shortcuts, shell aliases, and a prompt that said which drone you were on. D43, when it arrived, did not have the right antennas and went through the same serial-console route before it had a network at all.",
       "With a way in: the MSP override mask fixed on both flight controllers, ANGLE mode assigned, the camera verified at 1080p60, a real gate detected on 100 percent of frames at 6 m, and the thrust model re-measured from 76,000 airborne samples in a recovered blackbox. The config's hover throttle had been 1240, from the simulator. The blackbox said 1291. The first takeoff would have been under-thrusted by a quarter, and it was fixed without flying.",
       "[BRIAN: arrival, the venue, the pits, first impressions.]",
     ],
