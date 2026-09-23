@@ -134,6 +134,12 @@ a.person:hover {
 .byline.supported {
   margin-top: 2px;
 }
+.thanks {
+  color: var(--ink2);
+  font-size: 1rem;
+  border-left: 3px solid var(--red);
+  padding-left: 12px;
+}
 .stats {
   grid-column: 1 / -1;
 }

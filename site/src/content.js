@@ -9,6 +9,7 @@ export const site = {
   byline: "by Brian Standage, Team Lead",
   supported: "Supported by: Cristhian Prado, Reese Haven",
   heroImage: "photos/aigp/aigp_header.png",
+  thanks: "Our team extends a special thank you to Anduril, Neros, the Drone Champions League, and JobsOhio for an excellent event and incredible support. We would not have been able to do any of this without their teams, who worked non-stop to develop and support the event.",
   tagline:
     "Between June and September 2026 we built a complete autonomy stack for the AI Grand Prix: gate perception, vision-aided state estimation, trajectory planning, and a flight controller interface, developed against a fork of an open-source Elodin simulator with the Betaflight firmware in the loop. The physical qualifier in Costa Mesa was the first time the software ran on the competition aircraft. This report documents each subsystem, the hardware bring-up, fourteen autonomous course flights with their logs, and the analysis of what failed.",
 };
@@ -50,7 +51,6 @@ export const aigp = {
   title: "What is the Anduril AI Grand Prix",
   intro: [
     "The AI Grand Prix is an autonomous drone racing competition run by the Drone Champions League with Anduril. Every team flies the same aircraft: a DCL racing quad with a Betaflight flight controller, an NVIDIA Jetson Orin, and a single forward camera. The aircraft has to fly the course by itself on its own sensors; a human pilot arms it and can take over, and any pilot input ends the run.",
-    "Our team extends a special thank you to Anduril, Neros, the Drone Champions League, and JobsOhio for an excellent event and incredible support. We would not have been able to do any of this without their teams, who worked non-stop to develop and support the event.",
     "[BRIAN: a sentence on the prize, the field, and why you entered.]",
   ],
   stagesImage: "photos/aigp/aigp_stages.jpg",

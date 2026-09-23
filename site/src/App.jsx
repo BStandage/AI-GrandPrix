@@ -128,6 +128,7 @@ function Hero() {
           <Text>{C.site.supported}</Text>
         </p>
         <p className="lede">{C.site.tagline}</p>
+        <p className="thanks">{C.site.thanks}</p>
       </div>
       <img className="heroimg" src={BASE + C.site.heroImage} alt="AI Grand Prix 2026" />
       <div className="stats">
