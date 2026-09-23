@@ -2,19 +2,25 @@
 // matches the page and stays editable. Source of truth for the boxes:
 // src/hardware/runtime.py, src/solvers/follower.py, src/seeker/dr_estimator.py,
 // src/perception/, src/raceline/planner.py. Mirrored in docs/how_it_flies.puml.
+//
+// Layout rules: boxes are sized from their longest line (mono 12 px ≈ 7.3 px
+// per character); arrows run in the gaps between boxes, never across one.
 
-const W = 1180
-const H = 820
+const CH = 7.3 // px per character, 12 px JetBrains Mono
+const PAD = 16
 
-function Box({ x, y, w, h, title, lines = [], accent }) {
+function Box({ x, y, title, lines = [], accent, minW = 0 }) {
+  const longest = Math.max(title.length * 8.6, ...lines.map((l) => l.length * CH))
+  const w = Math.max(minW, Math.ceil(longest) + 2 * PAD)
+  const h = 44 + lines.length * 17
   return (
     <g transform={`translate(${x} ${y})`}>
       <rect width={w} height={h} rx={12} className={`abox ${accent || ''}`} />
-      <text x={14} y={26} className="atitle">
+      <text x={PAD} y={26} className="atitle">
         {title}
       </text>
       {lines.map((l, i) => (
-        <text key={i} x={14} y={48 + i * 17} className="aline">
+        <text key={i} x={PAD} y={48 + i * 17} className="aline">
           {l}
         </text>
       ))}
@@ -22,18 +28,23 @@ function Box({ x, y, w, h, title, lines = [], accent }) {
   )
 }
 
-function Arrow({ d, label, lx, ly, dashed }) {
+function Arrow({ d, label, lx, ly, dashed, anchor }) {
   return (
     <g>
       <path d={d} className={`aarrow ${dashed ? 'dashed' : ''}`} markerEnd="url(#ahead)" />
       {label && (
-        <text x={lx} y={ly} className="alabel">
+        <text x={lx} y={ly} className="alabel" textAnchor={anchor || 'start'}>
           {label}
         </text>
       )}
     </g>
   )
 }
+
+// Column and row positions. Widths below are the auto-sized widths of each
+// box, so the gaps between columns are known and the arrows stay in them.
+const W = 1400
+const H = 900
 
 export default function Architecture() {
   return (
@@ -46,78 +57,91 @@ export default function Architecture() {
         </defs>
 
         {/* lanes */}
-        <rect x={16} y={16} width={1148} height={160} rx={16} className="alane" />
+        <rect x={16} y={16} width={1368} height={174} rx={16} className="alane" />
         <text x={32} y={40} className="alanetitle">
           BEFORE FLIGHT · laptop
         </text>
-        <rect x={16} y={196} width={1148} height={440} rx={16} className="alane" />
-        <text x={32} y={220} className="alanetitle">
+        <rect x={16} y={210} width={1368} height={470} rx={16} className="alane" />
+        <text x={32} y={234} className="alanetitle">
           IN FLIGHT · Jetson Orin, 50 Hz control loop, Python
         </text>
-        <rect x={16} y={656} width={1148} height={148} rx={16} className="alane" />
-        <text x={32} y={680} className="alanetitle">
+        <rect x={16} y={700} width={1368} height={184} rx={16} className="alane" />
+        <text x={32} y={724} className="alanetitle">
           AROUND IT
         </text>
 
-        {/* before flight */}
-        <Box x={40} y={56} w={250} h={104} title="Published course map" lines={['10 gates: position, crossing heading,', 'opening height; one stacked gate', '(4.05 m top, 1.35 m low)']} />
-        <Box x={330} y={56} w={250} h={104} title="Vehicle config" lines={['camera: tilt, FOV, focal length', 'limits: lean 8°, speed 1.5 m/s,', 'climb rate, lateral margin; ladder k']} />
-        <Box x={620} y={56} w={230} h={104} title="Planner" lines={['fastest line through the crossings', 'inside the limits; refuses lines', 'that lose the camera or hit a frame']} accent="red" />
-        <Box x={890} y={56} w={250} h={104} title="Plan" lines={['505 samples: x y z, speed, heading', '23 crossings per 2 laps, 251 m', 'frame: start line, +y down gate 0']} />
-        <Arrow d="M 290 108 L 328 108" />
-        <Arrow d="M 580 108 L 618 108" />
-        <Arrow d="M 850 108 L 888 108" />
+        {/* before flight: four boxes, widths 280 / 300 / 290 / 330 at x 40 / 350 / 680 / 1000 */}
+        <Box x={40} y={56} minW={280} title="Published course map" lines={['10 gates: position, crossing', 'heading, opening height; one', 'stacked gate (4.05 m / 1.35 m)']} />
+        <Box x={350} y={56} minW={300} title="Vehicle config" lines={['camera: tilt, FOV, focal length', 'limits: lean 8°, speed 1.5 m/s,', 'climb rate, margin; ladder k']} />
+        <Box x={680} y={56} minW={290} title="Planner" lines={['fastest line through the', 'crossings inside the limits;', 'refuses lines that lose the', 'camera or touch a frame']} accent="red" />
+        <Box x={1000} y={56} minW={330} title="Plan" lines={['505 samples: x y z, speed,', 'heading; 23 crossings / 2 laps', '251 m; frame: start line,', '+y down gate 0']} />
+        <Arrow d="M 320 110 L 348 110" />
+        <Arrow d="M 650 110 L 678 110" />
+        <Arrow d="M 970 110 L 998 110" />
 
-        {/* in flight: sensors */}
-        <Box x={40} y={244} w={260} h={150} title="Flight controller · Betaflight" lines={['MSP serial link, ~32 Hz', 'attitude, heading', 'accelerometer (body frame)', 'barometer', 'ANGLE mode; MSP override on']} />
-        <Box x={40} y={430} w={260} h={186} title="Camera · IMX477" lines={['1920×1080 @ 60 fps, GStreamer', 'resized to 1280×720', '', 'HSV detector', 'ring bbox · opening centre', 'offsets (−1..+1) · width range', 'clipped-ring rebuild · commit rule']} accent="amber" />
+        {/* in flight, left column: FC (x 40..330) and camera (x 40..330) */}
+        <Box x={40} y={256} minW={290} title="Flight controller" lines={['Betaflight, MSP serial, ~32 Hz', 'attitude, heading', 'accelerometer (body frame)', 'barometer', 'ANGLE mode, MSP override on']} />
+        <Box x={40} y={430} minW={290} title="Camera · IMX477" lines={['1920×1080 @ 60 fps, GStreamer', 'resized to 1280×720', 'HSV detector:', '  ring bbox, opening centre', '  offsets −1..+1, width range', '  clipped-ring rebuild', '  commit rule']} accent="amber" />
 
-        {/* estimator */}
-        <Box x={360} y={244} w={300} h={210} title="Estimator · vision-aided dead reckoning" lines={['accel rotated by attitude, gravity removed,', 'integrated → velocity, position', 'pad-learned accel bias subtracted', 'gate fix: map gate − range along bearing,', 'strong across the bearing, weak along it', 'counts crossings 0.75 m past the plane', 'heading: FC yaw at arm + drift rate']} accent="red" />
+        {/* middle column: estimator (x 400..740) */}
+        <Box
+          x={400}
+          y={256}
+          minW={340}
+          title="Estimator"
+          lines={[
+            'vision-aided dead reckoning',
+            'accel on attitude, gravity removed,',
+            '  integrated → velocity, position',
+            'pad-learned accel bias subtracted',
+            'gate fix: map gate − range along',
+            '  bearing; strong across, weak along',
+            'crossings counted 0.75 m past plane',
+            'heading: FC yaw at arm + drift rate',
+          ]}
+          accent="red"
+        />
 
-        {/* follower */}
-        <Box x={720} y={244} w={420} h={372} title="Follower" lines={[
-          'TRACKER  plan point ahead → position/velocity error',
-          '  → world acceleration → ANGLE roll/pitch (lean cap 8°)',
-          '  last 6 m to an aligned gate: on the gate’s centre line',
-          '  yaw: nose on the next gate',
-          '',
-          'VERTICAL  gate elevation angle (attitude-corrected)',
-          '  → slew-limited height reference, 0.09 m/deg',
-          '  cap 0.20 m before gate 0, 0.35 m after',
-          '  damped on a vertical-speed estimate (see report)',
-          '',
-          'COMMIT  ring ≥ 85 % of frame ×3, or both edges clip;',
-          '  needs: within 6 m, aligned, level',
-          '  → no fixes, height frozen, hold throttle,',
-          '  gentle steer to the gate line; forced at 3.2 m',
-          '',
-          'THRUST MODEL  acceleration → throttle µs',
-          '  hover measured in flight (D43: 1205 µs)',
-        ]} />
+        {/* right column: follower (x 800..1360) and sticks (x 800..1360) */}
+        <Box
+          x={800}
+          y={256}
+          minW={560}
+          title="Follower"
+          lines={[
+            'TRACKER   plan point ahead → position/velocity',
+            '  error → world acceleration → ANGLE roll/pitch',
+            '  (lean cap 8°); last 6 m on the gate centre line',
+            'VERTICAL  gate elevation (attitude-corrected)',
+            '  → height reference 0.09 m/deg, cap 0.20 m',
+            '  before gate 0, 0.35 m after; damped on a vz',
+            'COMMIT    ring ≥ 85 % ×3 or both edges clip;',
+            '  within 6 m, aligned, level → no fixes, height',
+            '  frozen, hold throttle; forced at 3.2 m',
+            'THRUST    acceleration → throttle µs; hover',
+            '  measured in flight (D43: 1205 µs)',
+          ]}
+        />
+        <Box x={800} y={560} minW={560} title="Stick commands · 50 Hz" lines={['roll, pitch, yaw, throttle over MSP', 'trace and narration logged every tick']} />
 
-        {/* sticks out */}
-        <Box x={360} y={500} w={300} h={116} title="Stick commands · 50 Hz" lines={['roll, pitch, yaw, throttle', 'over MSP to the flight controller', 'trace + narration logged every tick']} />
-
-        <Arrow d="M 300 300 L 358 300" label="attitude, accel, baro" lx={200} ly={232} />
-        <Arrow d="M 300 500 C 330 500, 330 400, 358 400" label="detections" lx={305} ly={470} />
-        <Arrow d="M 660 340 L 718 340" label="state" lx={670} ly={330} />
-        <Arrow d="M 1015 160 L 1015 242" label="plan" lx={1024} ly={210} />
-        <Arrow d="M 718 560 L 662 560" label="sticks" lx={672} ly={550} />
-        <Arrow d="M 358 560 C 320 560, 320 420, 300 394" label="MSP override" lx={210} ly={412} />
-        <Arrow d="M 500 454 L 500 498" dashed />
+        {/* arrows, all in the gaps */}
+        <Arrow d="M 330 300 L 398 300" label="attitude · accel · baro" lx={364} ly={290} anchor="middle" />
+        <Arrow d="M 330 480 L 372 480 L 372 400 L 398 400" label="detections" lx={340} ly={500} />
+        <Arrow d="M 740 330 L 798 330" label="state" lx={769} ly={320} anchor="middle" />
+        <Arrow d="M 1165 152 L 1165 254" label="plan" lx={1174} ly={210} />
+        <Arrow d="M 1080 484 L 1080 558" />
+        <Arrow d="M 800 610 L 358 610 L 358 350 L 332 350" label="stick values, MSP override" lx={560} ly={630} />
 
         {/* around it */}
-        <Box x={40} y={696} w={340} h={92} title="Pilot · radio" lines={['throttle low → ARM → MSP OVERRIDE → ANGLE', 'abort = MSP OVERRIDE off: instant handback', 'any pilot input ends the scored run']} />
-        <Box x={420} y={696} w={360} h={92} title="Simulator · Elodin + Betaflight SITL, Docker" lines={['same estimator and follower code', 'synthetic camera: dropout, noise, latency, false positives', 'referee: crossings, frame contact = run void']} accent="amber" />
-        <Box x={820} y={696} w={320} h={92} title="Debrief tools" lines={['pull_flight: log + narration off the aircraft', 'triage: runaway / commit / link checks', 'this page: traces from the same logs']} />
-        <Arrow d="M 210 694 L 170 396" dashed />
+        <Box x={40} y={740} minW={400} title="Pilot · radio" lines={['throttle low → ARM → MSP OVERRIDE → ANGLE', 'abort: MSP OVERRIDE off, instant handback', 'any pilot input ends the scored run']} />
+        <Box x={470} y={740} minW={470} title="Simulator" lines={['Elodin physics + Betaflight SITL, Docker', 'same estimator and follower code', 'synthetic camera: dropout, noise, latency,', 'false positives; referee scores crossings']} accent="amber" />
+        <Box x={970} y={740} minW={390} title="Debrief tools" lines={['pull_flight: log + narration off the aircraft', 'triage: runaway, commit and link checks', 'this page: traces drawn from the same logs']} />
       </svg>
       <figcaption>
         The race-day architecture. Before flight, the published map and the vehicle config produce a plan on the laptop. In
         flight, the estimator fuses the flight controller's IMU with gate detections against the map, the follower tracks the
-        plan and steers height on the gate's elevation, and stick commands go back to the flight controller at 50 Hz. The
-        pilot arms and can take back control at any moment; the simulator runs the same estimator and follower code.
+        plan and steers height on the gate's elevation, and stick values go back to the flight controller at 50 Hz. The pilot
+        arms over the radio and can take back control at any moment; the simulator runs the same estimator and follower code.
       </figcaption>
     </figure>
   )

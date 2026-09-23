@@ -39,10 +39,11 @@ export const team = {
     "I built the autonomy stack on my own from June. The two virtual qualifiers were flown in the organizers' simulator, with our stack connected to it over MAVLink: I qualified through VQ1, then placed in the top 15 of more than 3,300 teams worldwide in VQ2, which earned an invitation to the physical qualifiers. For the physical qualifier I forked an open-source Elodin drone simulator that runs the Betaflight flight-controller firmware in the loop, and built the published course into it, so the same code could be developed against the real course before it ever flew. My teammates Cristhian Prado and Reese Haven joined me for the physical qualifier at Anduril in Costa Mesa, CA.",
   members: [
     { name: "Brian Standage", role: ["Team Lead", "AI/ML Engineer"], photo: "photos/team/brian.jpeg", blurb: "[BRIAN: a line or two.]", linkedin: "https://www.linkedin.com/in/brian-standage-22835912a/" },
-    { name: "Cristhian Prado", role: "AI/ML Engineer", photo: "photos/team/cristhian.jpg", blurb: "[BRIAN: a line or two.]", linkedin: "https://www.linkedin.com/in/pradocristhian/" },
-    { name: "Reese Haven", role: "Electrical Engineer", photo: "photos/team/reese.jpg", blurb: "[BRIAN: a line or two.]", linkedin: "https://www.linkedin.com/in/reese-haven-6a57a1224/" },
+    { name: "Cristhian Prado", role: "AI/ML Engineer", photo: "photos/team/cristhian.jpg", blurb: "Ran the project on the ground: project management, time keeping against the slot clock, debrief logging after every flight, and progress tracking across the three days.", linkedin: "https://www.linkedin.com/in/pradocristhian/" },
+    { name: "Reese Haven", role: "Electrical Engineer", photo: "photos/team/reese.jpg", blurb: "Manned the transmitter for every flight and saved the aircraft with a manual landing several times. Plugged in, armed and set the drone on the course before each attempt.", linkedin: "https://www.linkedin.com/in/reese-haven-6a57a1224/" },
   ],
   groupPhoto: { src: "photos/team/group.jpg", caption: "[BRIAN: the team at the venue.]" },
+  setupPhoto: { src: "photos/team/reese_setup.jpg", caption: "Reese Haven setting the aircraft on the course before a flight." },
 };
 
 // ------------------------------------------------------------ the competition

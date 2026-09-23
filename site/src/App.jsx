@@ -186,6 +186,12 @@ function Team() {
           </article>
         ))}
       </div>
+      <figure className="group setup">
+        <Photo src={t.setupPhoto.src} alt={t.setupPhoto.caption} />
+        <figcaption>
+          <Text>{t.setupPhoto.caption}</Text>
+        </figcaption>
+      </figure>
     </section>
   )
 }
