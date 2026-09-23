@@ -71,8 +71,8 @@ export const aircraft = [
     art: "d45",
     role: "First autonomous flight of the effort; first damage.",
     story:
-      "D45 flew the first autonomous flight on 20 September and climbed to the ceiling: the vertical-speed estimate, derived from a 10 Hz barometer, read zero for the first 0.3 s after launch, so the climb was never braked. The pilot's abort recovered it; the camera fell 2.25 m and was replaced and recalibrated. That evening on the track it flew once with the barometer out of the loop, climbed to 5.1 m while the controller commanded full descent, drifted into the net and broke an arm. Its log identified the thrust-model error described under Control.",
-    fate: "Arm repaired. Did not fly on race day.",
+      "D45 flew the first autonomous flight on 20 September and climbed to the ceiling: the vertical-speed estimate, derived from a 10 Hz barometer, read zero for the first 0.3 s after launch, so the climb was never braked. The pilot's abort recovered it; the camera fell 2.25 m and was replaced and recalibrated. That evening on the track it flew once with the barometer out of the loop, climbed to 5.1 m while the controller commanded full descent, drifted into the net and broke an arm. Its log identified the thrust-model error described under Control. The crash also cracked the Jetson board, which took the camera with it.",
+    fate: "Arm repaired; the cracked Jetson could not drive the camera. Retired before race day.",
   },
   {
     id: "D44",
@@ -80,8 +80,8 @@ export const aircraft = [
     art: "d44",
     role: "Undamaged through the event.",
     story:
-      "D44 hovered cleanly on the first flight with the corrected thrust curve. On 21 September it made four course flights in fourteen minutes, the first autonomous gate approaches of the effort, tracking the planned line from 7.4 m to 2.5 m from gate 0 with 0.22 m of cross-track error before striking the top bar. On race day it flew once, unpadded, and did not leave the start line: the start hold did not release.",
-    fate: "No damage. [BRIAN: why D44 flew without padding.]",
+      "D44 hovered cleanly on the first flight with the corrected thrust curve. On 21 September it made four course flights in fourteen minutes, the first autonomous gate approaches of the effort, tracking the planned line from 7.4 m to 2.5 m from gate 0 with 0.22 m of cross-track error before striking the top bar. It flew padded through testing; the padding came off for the final race-day attempt to set a time. That attempt did not leave the start line: the start hold did not release.",
+    fate: "No damage.",
   },
   {
     id: "D43",
@@ -219,7 +219,7 @@ export const report = [
         "Camera: IMX477 over GStreamer at 1920 by 1080, 60 fps, resized to 1280 by 720 for the detector. Verified at 100 frames captured before any flight.",
         "Calibration: focal length, field of view, principal point and mount tilt measured per camera with a 25 mm checkerboard, 20 views, RMS 0.165 px on D45. A 5-degree error in mount tilt misplaces a gate by 0.7 m at 8 m, and none of the numbers survive a camera swap; D45's had to be redone after its crash. Betaflight on this firmware reports pitch positive nose-down, the opposite of what the code assumed for months; a tilt check tool now verifies the sign before calibration.",
         "Thrust model: measured from 76,000 airborne samples in a recovered blackbox log, then corrected again from D45's crash log. See Control.",
-        "Damage and repair: D45's camera replaced and recalibrated after the ceiling strike; its arm repaired after the net. D43 padded after its first gate strike and reflown four times. [BRIAN: what the padding was and who did it.]",
+        "Damage and repair: D45's camera replaced and recalibrated after the ceiling strike; its arm repaired after the net, but the Jetson board was cracked and could no longer drive the camera, so D45 was retired. D43 and D44 flew padded through testing; D43 was reflown four times after gate strikes. D44's padding came off only for the final race-day attempt. [BRIAN: what the padding was and who did it.]",
       ] },
     ],
   },
