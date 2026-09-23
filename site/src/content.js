@@ -9,7 +9,7 @@ export const site = {
   byline: "by Brian Standage, Team Lead",
   heroImage: "photos/aigp/aigp_header.png",
   tagline:
-    "Between June and September 2026 we built a complete autonomy stack for the AI Grand Prix: gate perception, vision-aided state estimation, trajectory planning, and a flight controller interface, developed against a fork of the organizers' Elodin simulator with the Betaflight firmware in the loop. The physical qualifier in Costa Mesa was the first time the software ran on the competition aircraft. This report documents each subsystem, the hardware bring-up, fourteen autonomous course flights with their logs, and the analysis of what failed.",
+    "Between June and September 2026 we built a complete autonomy stack for the AI Grand Prix: gate perception, vision-aided state estimation, trajectory planning, and a flight controller interface, developed against a fork of an open-source Elodin simulator with the Betaflight firmware in the loop. The physical qualifier in Costa Mesa was the first time the software ran on the competition aircraft. This report documents each subsystem, the hardware bring-up, fourteen autonomous course flights with their logs, and the analysis of what failed.",
 };
 
 export const stats = [
@@ -27,7 +27,7 @@ export const stats = [
 
 export const team = {
   intro:
-    "I built the autonomy stack on my own from June. The two virtual qualifiers were flown in the organizers' simulator, with our stack connected to it over MAVLink: I qualified through VQ1, then placed in the top 15 of more than 3,300 teams worldwide in VQ2, which earned an invitation to the physical qualifiers. For the physical qualifier I forked the organizers' Elodin simulator and put the Betaflight flight-controller firmware in the loop, so the same code could be developed against the real course before it ever flew. My teammates Cristhian Prado and Reese Haven joined me for the physical qualifier at Anduril in Costa Mesa, CA. [BRIAN: one line on where you're from, if you want it.]",
+    "I built the autonomy stack on my own from June. The two virtual qualifiers were flown in the organizers' simulator, with our stack connected to it over MAVLink: I qualified through VQ1, then placed in the top 15 of more than 3,300 teams worldwide in VQ2, which earned an invitation to the physical qualifiers. For the physical qualifier I forked an open-source Elodin drone simulator that runs the Betaflight flight-controller firmware in the loop, and built the published course into it, so the same code could be developed against the real course before it ever flew. My teammates Cristhian Prado and Reese Haven joined me for the physical qualifier at Anduril in Costa Mesa, CA. [BRIAN: one line on where you're from, if you want it.]",
   members: [
     { name: "Brian Standage", role: ["Team Lead", "AI/ML Engineer"], photo: "photos/team/brian.jpeg", blurb: "[BRIAN: a line or two.]", linkedin: "https://www.linkedin.com/in/brian-standage-22835912a/" },
     { name: "Cristhian Prado", role: "AI/ML Engineer", photo: "photos/team/cristhian.jpg", blurb: "[BRIAN: a line or two.]", linkedin: "https://www.linkedin.com/in/pradocristhian/" },
@@ -188,7 +188,7 @@ export const report = [
     id: "simulation",
     title: "Simulation",
     blocks: [
-      "The virtual qualifiers used the organizers' simulator directly. For the physical qualifier we forked their Elodin environment and put the Betaflight SITL firmware in the loop, run in Docker, flying the same follower code that runs on the aircraft against a synthetic camera that returns gate detections with dropout, offset noise, 10 percent range noise, false positives and one frame of latency.",
+      "The virtual qualifiers used the organizers' simulator directly. For the physical qualifier we forked an open-source Elodin simulator that runs the Betaflight SITL firmware in the loop, built the published course into it, run in Docker, flying the same follower code that runs on the aircraft against a synthetic camera that returns gate detections with dropout, offset noise, 10 percent range noise, false positives and one frame of latency.",
       { list: [
         "ANGLE mode: the SITL had only ever flown rate mode. Getting it to level in ANGLE mode came down to the attitude quaternion convention the firmware expects from the physics bridge, (w, x, -y, -z), plus a softened rate tune so the mixer did not saturate at hover.",
         "Sensor models: accelerometer noise at the level measured on the aircraft, and a barometer with the takeoff transient and drift seen in flight.",
