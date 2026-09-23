@@ -83,34 +83,6 @@ mark.todo {
   color: var(--ink);
 }
 
-/* contents */
-.contents {
-  margin: 8px 0 8px;
-  padding: 14px 18px;
-  background: var(--bg2);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-}
-.contents ol {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  columns: 3;
-  column-gap: 24px;
-}
-.contents li {
-  padding: 3px 0;
-  break-inside: avoid;
-  font-size: 0.95rem;
-}
-.contents a {
-  text-decoration: none;
-  color: var(--ink);
-}
-.contents a:hover {
-  color: var(--red2);
-}
-
 /* hero */
 .hero {
   padding: 56px 0 24px;
@@ -874,9 +846,6 @@ footer ul {
   .heroimg {
     max-width: 220px;
     justify-self: center;
-  }
-  .contents ol {
-    columns: 2;
   }
   .card .art {
     font-size: 5px;

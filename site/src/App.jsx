@@ -70,36 +70,6 @@ function Photo({ src, alt, className }) {
 
 // ---------- chapter bar ----------
 
-const CHAPTERS = [
-  ['team', 'Team'],
-  ['aircraft', 'Aircraft'],
-  ['aigp', 'The AI-GP'],
-  ['system', 'System'],
-  ['perception', 'Perception'],
-  ['estimation', 'Estimation'],
-  ['planning', 'Planning'],
-  ['control', 'Control'],
-  ['simulation', 'Simulation'],
-  ['hardware', 'Hardware'],
-  ['testing', 'Flight testing'],
-  ['raceday', 'Race day'],
-  ['analysis', 'Analysis'],
-  ['lessons', 'Lessons'],
-]
-
-function Contents() {
-  return (
-    <nav className="contents" aria-label="contents">
-      <ol>
-        {CHAPTERS.map(([id, label]) => (
-          <li key={id}>
-            <a href={`#${id}`}>{label}</a>
-          </li>
-        ))}
-      </ol>
-    </nav>
-  )
-}
 
 // ---------- hero ----------
 
@@ -652,7 +622,6 @@ export default function App() {
     <>
       <main>
         <Hero />
-        <Contents />
         <Team />
         <Aircraft />
         <AIGP />
