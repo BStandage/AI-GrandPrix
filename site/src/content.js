@@ -27,7 +27,7 @@ export const stats = [
 // The team. Photos go in site/public/photos/team/ and are referenced here.
 // A missing photo shows a placeholder tile until you add it.
 export const team = {
-  intro: "[BRIAN: two or three sentences on who we are, where we're from, and how a team this size ended up at a 3,300-team competition.]",
+  intro: "I built the autonomy stack and the simulator on my own from June, and qualified in the top 15 of 3,300 in the second virtual round. That is when this became a team: I asked Reese and Cristhian to come to the race, and they did. [BRIAN: one line on where you're from, if you want it.]",
   members: [
     { name: "Brian Standage", role: ["Team Lead", "AI/ML Engineer"], photo: "photos/team/brian.jpg", blurb: "[BRIAN: a line or two.]", linkedin: "https://www.linkedin.com/in/brian-standage-22835912a/" },
     { name: "Cristhian Prado", role: "AI/ML Engineer", photo: "photos/team/cristhian.jpg", blurb: "[BRIAN: a line or two.]" },
@@ -74,7 +74,7 @@ export const timeline = [
     body: [
       "We started in June with a simulator, the organizers' course map, and no aircraft. By September the repository had a classic-vision gate detector, a course map and planner, a trajectory tracker, dead reckoning with vision fixes, and a Betaflight software-in-the-loop sim that could fly the whole course.",
       "The bet was sim-to-real: get everything right in simulation, then transfer. The bet was reasonable. It needed the sim to model the aircraft's sensors honestly, and it did not. That sentence is most of this story.",
-      "[BRIAN: who was on the team, who did what, how you got in, and why 3.5 days of the 8.]",
+      "The virtual qualifier came first: our simulator flew the organizers' course well enough to place in the top 15 of 3,300 entries, which earned the trip. [BRIAN: why 3.5 days of the 8: work, travel, cost, whatever it was.]",
     ],
   },
   {
@@ -192,7 +192,6 @@ export const people = {
     "[BRIAN: the other teams. Who helped, who lent what, the conversations in the pits.]",
     "[BRIAN: the organizers, the venue, how the slots were run.]",
     "[BRIAN: shaking Palmer Luckey's hand. What he said, what you said.]",
-    "[BRIAN: your teammates, by name, and what each carried.]",
   ],
 };
 
