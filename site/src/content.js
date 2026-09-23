@@ -4,7 +4,7 @@
 // introduced once on their cards; "it", never he or she. Report prose.
 
 export const site = {
-  title: "AI Grand Prix 2026: Physical Qualifier",
+  title: "AI Grand Prix 2026 Physical Qualifier: Team Debrief",
   subtitle: "Technical report: the autonomy stack we built, how it performed on the competition aircraft, and what we learned",
   byline: "by Brian Standage, Team Lead",
   supported: "Supported by: Cristhian Prado, Reese Haven",
