@@ -6,7 +6,7 @@
 // once on their cards. They are "it", never he or she.
 
 export const site = {
-  title: "Top 15 of 3,300",
+  title: "From Simulator to Start Line",
   subtitle: "Building an autonomous racing drone from scratch for the AI Grand Prix, June to September 2026",
   byline: "by Brian Standage, Team Lead",
   tagline:
