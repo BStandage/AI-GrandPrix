@@ -24,6 +24,19 @@ export const stats = [
   { value: "1", label: "handshake with Palmer Luckey" },
 ];
 
+// The team. Photos go in site/public/photos/team/ and are referenced here.
+// A missing photo shows a placeholder tile until you add it.
+export const team = {
+  intro: "[BRIAN: two or three sentences on who we are, where we're from, and how a team this size ended up at a 3,300-team competition.]",
+  members: [
+    { name: "Brian Standage", role: "[BRIAN: your role: autonomy, flight ops, the whole stack]", photo: "photos/team/brian.jpg", blurb: "[BRIAN: a line or two.]" },
+    { name: "[BRIAN: teammate]", role: "[BRIAN: role]", photo: "photos/team/teammate1.jpg", blurb: "[BRIAN: a line or two.]" },
+    { name: "[BRIAN: teammate]", role: "[BRIAN: role]", photo: "photos/team/teammate2.jpg", blurb: "[BRIAN: a line or two.]" },
+    { name: "[BRIAN: the pilot]", role: "[BRIAN: role]", photo: "photos/team/pilot.jpg", blurb: "[BRIAN: a line or two.]" },
+  ],
+  groupPhoto: { src: "photos/team/group.jpg", caption: "[BRIAN: the team at the venue.]" },
+};
+
 // art: site/src/art/d43.txt etc., shown on the cards
 export const aircraft = [
   {

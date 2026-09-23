@@ -31,8 +31,9 @@ const TOP_BAR_Z = 1.35 + 0.7 // opening is ~1.4 m: the bar is ~0.7 m above centr
 // ---------- chapter bar ----------
 
 const CHAPTERS = [
+  ['team', 'The team'],
+  ['aircraft', 'The aircraft'],
   ['week', 'The week'],
-  ['aircraft', 'Aircraft'],
   ['course', 'Course'],
   ['flights', 'Flights'],
   ['slot', 'The slot'],
@@ -44,7 +45,7 @@ const CHAPTERS = [
 ]
 
 function ChapterBar() {
-  const [active, setActive] = useState('week')
+  const [active, setActive] = useState('team')
   useEffect(() => {
     const obs = new IntersectionObserver(
       (entries) => {
@@ -107,6 +108,56 @@ function Week() {
           </li>
         ))}
       </ol>
+    </section>
+  )
+}
+
+// ---------- the team ----------
+
+function Photo({ src, alt, className }) {
+  // shows a placeholder tile until the file exists in site/public/photos
+  const [ok, setOk] = useState(true)
+  const url = import.meta.env.BASE_URL + src
+  return ok ? (
+    <img src={url} alt={alt} className={className} loading="lazy" onError={() => setOk(false)} />
+  ) : (
+    <div className={`placeholder ${className || ''}`}>
+      <span>photo</span>
+      <code>{src}</code>
+    </div>
+  )
+}
+
+function Team() {
+  const t = C.team
+  return (
+    <section id="team">
+      <h2>The team</h2>
+      <p className="lede">
+        <Text>{t.intro}</Text>
+      </p>
+      <figure className="group">
+        <Photo src={t.groupPhoto.src} alt="the team" />
+        <figcaption>
+          <Text>{t.groupPhoto.caption}</Text>
+        </figcaption>
+      </figure>
+      <div className="members">
+        {t.members.map((m, i) => (
+          <article key={i} className="member">
+            <Photo src={m.photo} alt={m.name} className="face" />
+            <h3>
+              <Text>{m.name}</Text>
+            </h3>
+            <p className="role">
+              <Text>{m.role}</Text>
+            </p>
+            <p>
+              <Text>{m.blurb}</Text>
+            </p>
+          </article>
+        ))}
+      </div>
     </section>
   )
 }
@@ -496,8 +547,9 @@ export default function App() {
       <ChapterBar />
       <main>
         <Hero />
-        <Week />
+        <Team />
         <Aircraft />
+        <Week />
         <section id="course">
           <h2>The course</h2>
           <CourseMap selected={null} />

@@ -224,6 +224,75 @@ mark.todo {
   padding-top: 4px;
 }
 
+/* team */
+.group {
+  margin: 0 0 24px;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.group img,
+.group .placeholder {
+  width: 100%;
+  display: block;
+  max-height: 560px;
+  object-fit: cover;
+}
+.group figcaption {
+  padding: 12px 14px;
+  color: var(--ink2);
+  font-size: 0.92rem;
+}
+.members {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+}
+.member {
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+}
+.member .face,
+.member .placeholder.face {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 10px;
+  margin-bottom: 10px;
+  display: block;
+}
+.member h3 {
+  font-size: 1.05rem;
+  margin: 0 0 2px;
+}
+.member .role {
+  color: var(--ink2);
+  font-size: 0.88rem;
+  margin-bottom: 8px;
+}
+.member p {
+  font-size: 0.92rem;
+}
+.placeholder {
+  background: repeating-linear-gradient(135deg, var(--bg3) 0 10px, var(--bg2) 10px 20px);
+  color: var(--ink2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 160px;
+  font-size: 0.85rem;
+}
+.placeholder code {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--amber);
+}
+
 /* cards */
 .cards {
   display: grid;
@@ -580,6 +649,7 @@ footer ul {
   }
   .cards,
   .cards.three,
+  .members,
   .gallery,
   .charts {
     grid-template-columns: 1fr;
