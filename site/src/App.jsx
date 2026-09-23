@@ -163,11 +163,14 @@ function CourseMap({ selected }) {
           if (seen.has(g.label)) return null
           seen.add(g.label)
           const s = 1.35
-          const deg = (-g.heading * 180) / Math.PI
+          // the panel stands ACROSS the crossing direction; screen y is flipped
+          const deg = -((g.heading * 180) / Math.PI + 90)
           const stacked = g.label.startsWith('g8')
           return (
             <g key={i} transform={`translate(${X(g.x)} ${Y(g.y)}) rotate(${deg})`}>
               <rect x={-s} y={-0.18} width={2 * s} height={0.36} className={stacked ? 'gate stacked' : 'gate'} />
+              {/* crossing direction: a tick out of the panel's back, toward where the aircraft goes */}
+              <line x1={0} y1={0} x2={0} y2={-1.1} className="dir" transform="rotate(90)" />
               <text y={-0.6} className="glabel" transform={`rotate(${-deg})`}>
                 {g.label.replace('-top', ' (stack)').replace('-low', '')}
               </text>

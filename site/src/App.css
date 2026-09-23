@@ -296,6 +296,10 @@ mark.todo {
   font-family: var(--mono);
   text-anchor: middle;
 }
+.course .dir {
+  stroke: var(--ink2);
+  stroke-width: 0.1;
+}
 .course .start {
   fill: var(--green);
 }
