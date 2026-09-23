@@ -43,6 +43,7 @@ export const team = {
     { name: "Reese Haven", role: "Electrical Engineer", photo: "photos/team/reese.jpg", blurb: "Betaflight and drone subject-matter expert: propeller assembly, drone repair, and the flight controller setup. Software decision-making support between flights. Manned the transmitter for every flight and saved the aircraft with a manual landing several times. Plugged in, armed and set the drone on the course before each attempt.", linkedin: "https://www.linkedin.com/in/reese-haven-6a57a1224/" },
   ],
   setupPhoto: { src: "photos/team/reese_setup.jpg", caption: "Reese Haven setting the aircraft on the course before a flight." },
+  paddingPhoto: { src: "photos/team/padded_drones.jpg", caption: "Padding expertly engineered by Cristhian Prado and Reese Haven." },
 };
 
 // ------------------------------------------------------------ the competition
@@ -63,6 +64,8 @@ export const aigp = {
 };
 
 // ---------------------------------------------------------------- aircraft
+
+export const lineupPhoto = { src: "photos/aircraft/drone_lineup.jpg", caption: "The three aircraft: D43, D44 and D45." };
 
 export const aircraft = [
   {

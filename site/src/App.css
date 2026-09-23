@@ -305,9 +305,8 @@ a.person:hover {
   color: var(--ink2);
   font-size: 0.92rem;
 }
-.group.setup {
+.members + .gallery {
   margin-top: 20px;
-  max-width: 560px;
 }
 .members {
   display: grid;

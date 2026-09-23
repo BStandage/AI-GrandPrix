@@ -138,12 +138,20 @@ function Team() {
           </article>
         ))}
       </div>
-      <figure className="group setup">
-        <Photo src={t.setupPhoto.src} alt={t.setupPhoto.caption} />
-        <figcaption>
-          <Text>{t.setupPhoto.caption}</Text>
-        </figcaption>
-      </figure>
+      <div className="gallery">
+        <figure>
+          <Photo src={t.setupPhoto.src} alt={t.setupPhoto.caption} />
+          <figcaption>
+            <Text>{t.setupPhoto.caption}</Text>
+          </figcaption>
+        </figure>
+        <figure>
+          <Photo src={t.paddingPhoto.src} alt={t.paddingPhoto.caption} />
+          <figcaption>
+            <Text>{t.paddingPhoto.caption}</Text>
+          </figcaption>
+        </figure>
+      </div>
     </section>
   )
 }
@@ -201,6 +209,10 @@ function Aircraft() {
           </article>
         ))}
       </div>
+      <figure className="fig">
+        <img src={BASE + C.lineupPhoto.src} alt={C.lineupPhoto.caption} loading="lazy" />
+        <figcaption>{C.lineupPhoto.caption}</figcaption>
+      </figure>
     </section>
   )
 }
