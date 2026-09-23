@@ -13,20 +13,37 @@ const TOP_BAR_Z = 1.35 + 0.7 // the opening is ~1.4 m: the bar is ~0.7 m above c
 
 // ---------- helpers ----------
 
+const NAME_RE = new RegExp(`(${Object.keys(C.people_links).join('|')})`, 'g')
+
+function Names({ text }) {
+  // team members' names become bold red links to their LinkedIn
+  const parts = text.split(NAME_RE)
+  return parts.map((part, i) =>
+    C.people_links[part] ? (
+      <a key={i} className="person" href={C.people_links[part]} target="_blank" rel="noreferrer">
+        {part}
+      </a>
+    ) : (
+      <span key={i}>{part}</span>
+    ),
+  )
+}
+
 function Text({ children }) {
   // "[BRIAN: ...]" renders as a visible note until it is replaced
-  if (typeof children === 'string' && children.includes('[BRIAN:')) {
+  if (typeof children !== 'string') return <>{children}</>
+  if (children.includes('[BRIAN:')) {
     const i = children.indexOf('[BRIAN:')
     const j = children.indexOf(']', i)
     return (
       <>
-        {children.slice(0, i)}
+        <Names text={children.slice(0, i)} />
         <mark className="todo">{children.slice(i + 1, j)}</mark>
-        {children.slice(j + 1)}
+        <Names text={children.slice(j + 1)} />
       </>
     )
   }
-  return <>{children}</>
+  return <Names text={children} />
 }
 
 function Paras({ items }) {
@@ -104,7 +121,12 @@ function Hero() {
         <p className="kicker">Autonomous drone racing · Anduril · DCL</p>
         <h1>{C.site.title}</h1>
         <p className="sub">{C.site.subtitle}</p>
-        <p className="byline">{C.site.byline}</p>
+        <p className="byline">
+          <Text>{C.site.byline}</Text>
+        </p>
+        <p className="byline supported">
+          <Text>{C.site.supported}</Text>
+        </p>
         <p className="lede">{C.site.tagline}</p>
       </div>
       <img className="heroimg" src={BASE + C.site.heroImage} alt="AI Grand Prix 2026" />

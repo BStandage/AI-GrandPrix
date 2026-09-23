@@ -7,9 +7,17 @@ export const site = {
   title: "AI Grand Prix 2026: Physical Qualifier",
   subtitle: "Technical report: the autonomy stack we built, how it performed on the competition aircraft, and what we learned",
   byline: "by Brian Standage, Team Lead",
+  supported: "Supported by: Cristhian Prado, Reese Haven",
   heroImage: "photos/aigp/aigp_header.png",
   tagline:
     "Between June and September 2026 we built a complete autonomy stack for the AI Grand Prix: gate perception, vision-aided state estimation, trajectory planning, and a flight controller interface, developed against a fork of an open-source Elodin simulator with the Betaflight firmware in the loop. The physical qualifier in Costa Mesa was the first time the software ran on the competition aircraft. This report documents each subsystem, the hardware bring-up, fourteen autonomous course flights with their logs, and the analysis of what failed.",
+};
+
+// Names that render as bold red links wherever they appear in the text.
+export const people_links = {
+  "Brian Standage": "https://www.linkedin.com/in/brian-standage-22835912a/",
+  "Cristhian Prado": "https://www.linkedin.com/in/pradocristhian/",
+  "Reese Haven": "https://www.linkedin.com/in/reese-haven-6a57a1224/",
 };
 
 export const stats = [
