@@ -125,11 +125,11 @@ export default function Architecture() {
         <Box x={800} y={560} minW={560} title="Stick commands · 50 Hz" lines={['roll, pitch, yaw, throttle over MSP', 'trace and narration logged every tick']} />
 
         {/* arrows, all in the gaps */}
-        <Arrow d="M 330 300 L 398 300" label="attitude · accel · baro" lx={364} ly={290} anchor="middle" />
-        <Arrow d="M 330 480 L 372 480 L 372 400 L 398 400" label="detections" lx={340} ly={500} />
+        <Arrow d="M 330 300 L 398 300" label="IMU, baro" lx={364} ly={290} anchor="middle" />
+        <Arrow d="M 330 480 L 372 480 L 372 400 L 398 400" label="detections" lx={340} ly={504} />
         <Arrow d="M 740 330 L 798 330" label="state" lx={769} ly={320} anchor="middle" />
-        <Arrow d="M 1165 152 L 1165 254" label="plan" lx={1174} ly={210} />
-        <Arrow d="M 1080 484 L 1080 558" />
+        <Arrow d="M 1165 170 L 1165 254" label="plan" lx={1174} ly={216} />
+        <Arrow d="M 1080 489 L 1080 558" />
         <Arrow d="M 800 610 L 358 610 L 358 350 L 332 350" label="stick values, MSP override" lx={560} ly={630} />
 
         {/* around it */}
