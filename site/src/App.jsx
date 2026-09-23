@@ -119,7 +119,7 @@ function Hero() {
   return (
     <header className="hero">
       <div className="herotext">
-        <p className="kicker">Autonomous drone racing · Anduril · DCL</p>
+        <p className="kicker">Autonomous drone racing · Anduril · Neros · DCL</p>
         <h1>{C.site.title}</h1>
         <p className="sub">{C.site.subtitle}</p>
         <p className="byline">
