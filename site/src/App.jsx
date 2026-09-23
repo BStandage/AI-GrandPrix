@@ -85,8 +85,6 @@ const CHAPTERS = [
   ['raceday', 'Race day'],
   ['analysis', 'Analysis'],
   ['lessons', 'Lessons'],
-  ['people', 'People'],
-  ['photos', 'Photos'],
 ]
 
 function Contents() {
@@ -587,6 +585,14 @@ function Analysis() {
           </article>
         ))}
       </div>
+      <div className="gallery">
+        {C.photos.map((p) => (
+          <figure key={p.src}>
+            <img src={BASE + p.src} alt={p.caption} loading="lazy" />
+            <figcaption>{p.caption}</figcaption>
+          </figure>
+        ))}
+      </div>
       <h3 className="mt">What worked</h3>
       <ul className="checks">
         {C.whatWorked.map((w) => (
@@ -617,31 +623,6 @@ function Lessons() {
 }
 
 // ---------- people / photos / footer ----------
-
-function People() {
-  return (
-    <section id="people">
-      <h2>{C.people.title}</h2>
-      <Paras items={C.people.body} />
-    </section>
-  )
-}
-
-function Photos() {
-  return (
-    <section id="photos">
-      <h2>Photos</h2>
-      <div className="gallery">
-        {C.photos.map((p) => (
-          <figure key={p.src}>
-            <img src={BASE + p.src} alt={p.caption} loading="lazy" />
-            <figcaption>{p.caption}</figcaption>
-          </figure>
-        ))}
-      </div>
-    </section>
-  )
-}
 
 function Footer() {
   return (
@@ -680,8 +661,6 @@ export default function App() {
         <RaceDay setSelected={setSelected} />
         <Analysis />
         <Lessons />
-        <People />
-        <Photos />
         <Footer />
       </main>
     </>

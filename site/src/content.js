@@ -285,15 +285,6 @@ export const nextSteps = [
   "A mock gate and a measured hover on each aircraft before any flight for score.",
 ];
 
-export const people = {
-  title: "The people",
-  body: [
-    "[BRIAN: the other teams. Who helped, who lent what, the conversations in the pits.]",
-    "[BRIAN: the organizers, the venue, how the slots were run.]",
-    "[BRIAN: shaking Palmer Luckey's hand.]",
-  ],
-};
-
 export const photos = [
   { src: "photos/g0-strike-right.png", caption: "D43 at the right inner edge of gate 0, a third of the way down the opening. The hole is about 1.4 m square inside a 2.7 m panel: half a metre of clearance each side." },
   { src: "photos/g0-strike-top.png", caption: "D43 at the top edge of the opening, near the left corner." },
