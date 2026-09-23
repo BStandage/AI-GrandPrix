@@ -4,6 +4,7 @@ import data from './data.json'
 import artD43 from './art/d43.txt?raw'
 import artD44 from './art/d44.txt?raw'
 import artD45 from './art/d45.txt?raw'
+import Architecture from './Architecture.jsx'
 import './App.css'
 
 const ART = { d43: artD43, d44: artD44, d45: artD45 }
@@ -253,6 +254,7 @@ function Block({ b }) {
       </p>
     )
   if (b.h) return <h3 className="mt">{b.h}</h3>
+  if (b.component === 'architecture') return <Architecture />
   if (b.list)
     return (
       <ul className="report">

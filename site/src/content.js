@@ -90,7 +90,7 @@ export const aircraft = [
     role: "Arrived last; flew ten of the fourteen course flights.",
     story:
       "D43 arrived without the correct WiFi antennas and was brought up over the serial console. It flew four times the night before race day and six times in the 27-minute slot. Each race-day attempt exposed one defect that the next attempt fixed: accelerometer drift, a hover-throttle constant 23 µs high, a commit on the pad, a start-hold lurch, and a barometer-driven hold. Attempt 6 reached the commit point on the centre line, 0.2 m below the gate centre, and struck the top bar in the blind segment after commit.",
-    fate: "Four gate strikes; padded and reflown each time. [BRIAN: the padding: what, who, how long.]",
+    fate: "Four gate strikes; padded with pool noodles and tape by Cristhian Prado and Reese Haven, and reflown each time.",
   },
 ];
 
@@ -104,7 +104,7 @@ export const report = [
     id: "system",
     title: "System overview",
     blocks: [
-      { figure: { src: "photos/system/how_it_flies.png", caption: "Data flow. Before flight: the published map and a vehicle config go into the planner, which writes a plan. In flight: the flight controller's attitude, accelerometer and barometer feed the estimator over MSP; the camera's detections correct it; the follower tracks the plan and sends stick commands at 50 Hz." } },
+      { component: "architecture" },
       "The stack runs on the Jetson Orin in Python. The flight controller is stock Betaflight, flown in ANGLE mode; our process is the pilot, sending roll, pitch, yaw and throttle stick values over the MSP serial link with MSP override enabled. A human on the radio arms the aircraft and can take back control at any moment by switching override off.",
       { list: [
         "Perception: an HSV colour segmentation of the red gate panel, from which the ring, the opening, the image offsets and a width-based range are derived.",
@@ -219,7 +219,7 @@ export const report = [
         "Camera: IMX477 over GStreamer at 1920 by 1080, 60 fps, resized to 1280 by 720 for the detector. Verified at 100 frames captured before any flight.",
         "Calibration: focal length, field of view, principal point and mount tilt measured per camera with a 25 mm checkerboard, 20 views, RMS 0.165 px on D45. A 5-degree error in mount tilt misplaces a gate by 0.7 m at 8 m, and none of the numbers survive a camera swap; D45's had to be redone after its crash. Betaflight on this firmware reports pitch positive nose-down, the opposite of what the code assumed for months; a tilt check tool now verifies the sign before calibration.",
         "Thrust model: measured from 76,000 airborne samples in a recovered blackbox log, then corrected again from D45's crash log. See Control.",
-        "Damage and repair: D45's camera replaced and recalibrated after the ceiling strike; its arm repaired after the net, but the Jetson board was cracked and could no longer drive the camera, so D45 was retired. D43 and D44 flew padded through testing; D43 was reflown four times after gate strikes. D44's padding came off only for the final race-day attempt. [BRIAN: what the padding was and who did it.]",
+        "Damage and repair: D45's camera replaced and recalibrated after the ceiling strike; its arm repaired after the net, but the Jetson board was cracked and could no longer drive the camera, so D45 was retired. D43 and D44 flew padded through testing; D43 was reflown four times after gate strikes. D44's padding came off only for the final race-day attempt. The padding was expertly crafted out of pool noodles and tape by Cristhian Prado and Reese Haven.",
       ] },
     ],
   },

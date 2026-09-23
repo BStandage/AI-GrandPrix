@@ -704,6 +704,62 @@ table.report th {
   font-size: 0.85rem;
 }
 
+/* architecture diagram */
+.arch .archsvg {
+  width: 100%;
+  display: block;
+  background: var(--bg);
+}
+.abox {
+  fill: var(--bg2);
+  stroke: var(--line);
+  stroke-width: 1.2;
+}
+.abox.red {
+  stroke: var(--red);
+}
+.abox.amber {
+  stroke: var(--amber);
+}
+.atitle {
+  fill: var(--ink);
+  font-size: 15px;
+  font-weight: 700;
+  font-family: Inter, system-ui, sans-serif;
+}
+.aline {
+  fill: var(--ink2);
+  font-size: 12.5px;
+  font-family: var(--mono);
+}
+.alane {
+  fill: none;
+  stroke: var(--line);
+  stroke-dasharray: 6 5;
+}
+.alanetitle {
+  fill: var(--red2);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  font-family: var(--mono);
+}
+.aarrow {
+  fill: none;
+  stroke: var(--ink2);
+  stroke-width: 1.6;
+}
+.aarrow.dashed {
+  stroke-dasharray: 5 4;
+}
+.ahead {
+  fill: var(--ink2);
+}
+.alabel {
+  fill: var(--ink2);
+  font-size: 11.5px;
+  font-family: var(--mono);
+}
+
 /* lists */
 .checks,
 .lessons {

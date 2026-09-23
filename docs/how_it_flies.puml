@@ -1,61 +1,47 @@
 @startuml how_it_flies
+' The race-day architecture (2026-09-22 build). Rendered for the site as an
+' SVG in site/src/Architecture.jsx; keep the two in step.
 skinparam backgroundColor white
-skinparam defaultFontSize 13
+skinparam defaultFontSize 12
 skinparam ArrowColor #333333
 skinparam rectangle {
   BackgroundColor #F7F7F7
   BorderColor #555555
   RoundCorner 10
 }
-skinparam note {
-  BackgroundColor #FFF8DC
-  BorderColor #999999
-}
 
-title How the drone flies the course, start to finish
+title The autonomy stack as it flew: race day, 2026-09-22
 
-rectangle "1. BEFORE THE RACE (laptop)" as before {
-  rectangle "Course map\n(organizer's published\ngate positions)" as map
-  rectangle "Camera + levers\nconfig/vehicle_cam35_120.toml\n(mount angle, lens,\ntilt, slew, speed limits)" as cfg
-  rectangle "Planner\nraceline.ladder --k\nsolves the fastest line\ninside the levers" as planner
-  rectangle "The plan\nplan_LADDER_kNNN.json\n(the line, speed at every\npoint, 23 crossings)" as plan
+rectangle "BEFORE FLIGHT (laptop)" as before {
+  rectangle "Published course map\n10 gates: position, crossing heading, opening height\none stacked gate (4.05 m top, 1.35 m low)" as map
+  rectangle "Vehicle config\ncamera: tilt, FOV, focal length\nlimits: lean 8 deg, 1.5 m/s, climb rate; ladder k" as cfg
+  rectangle "Planner\nfastest line inside the limits;\nrefuses lines that lose the camera or hit a frame" as planner
+  rectangle "Plan (plan_STACK)\n505 samples: xyz, speed, heading\n23 crossings per 2 laps, 251 m\nframe: start line, +y down gate 0" as plan
   map --> planner
   cfg --> planner
   planner --> plan
 }
 
-rectangle "2. ON THE DRONE, 50 TIMES A SECOND (Orin)" as loop {
-  rectangle "Flight controller\n(Betaflight over MSP)\ngives: attitude, heading,\naccel, barometer" as fc
-  rectangle "Camera\n1080p 60 fps\nHSV detector finds\nred blobs" as cam
-  rectangle "ESTIMATOR: where am I?\n\n- integrate accel on attitude\n  (walking with eyes closed)\n- baro + accel = altitude\n- a blob that fits the map's\n  predicted azimuth = a fix\n- passing a gate = a fix\n- counts its own crossings" as est
-  rectangle "FOLLOWER: steer\n\n- where on the plan am I\n- carrot a little ahead\n- desired acceleration\n- desired altitude, nose" as fol
-  rectangle "Sticks\nANGLE mode: tilt angles\n+ throttle + yaw\nover MSP" as sticks
-  fc --> est
-  cam --> est
-  est --> fol
+rectangle "IN FLIGHT (Jetson Orin, 50 Hz, Python)" as loop {
+  rectangle "Flight controller (Betaflight, MSP ~32 Hz)\nattitude, heading, accelerometer, barometer\nANGLE mode, MSP override on" as fc
+  rectangle "Camera (IMX477 1080p60 -> 1280x720)\nHSV detector: ring bbox, opening centre,\noffsets, width range, clipped-ring rebuild,\ncommit rule" as cam
+  rectangle "Estimator: vision-aided dead reckoning\naccel on attitude, gravity removed, integrated\npad-learned accel bias subtracted\ngate fix: map gate - range along bearing\n(strong across the bearing, weak along)\ncrossings counted 0.75 m past the plane\nheading: FC yaw at arm + drift rate" as est
+  rectangle "Follower\nTRACKER: plan point ahead -> world accel -> ANGLE sticks;\n  last 6 m on the gate's centre line; nose on the next gate\nVERTICAL: gate elevation -> height reference (0.09 m/deg,\n  cap 0.20 m before g0, 0.35 m after), damped on a vz estimate\nCOMMIT: ring >= 85% x3 or both edges clip; within 6 m,\n  aligned, level -> no fixes, height frozen, hold throttle\nTHRUST MODEL: accel -> throttle us, hover measured (1205)" as fol
+  rectangle "Stick commands, 50 Hz\nroll, pitch, yaw, throttle over MSP\ntrace + narration logged" as sticks
+  fc --> est : attitude, accel, baro
+  cam --> est : detections
+  est --> fol : state
   plan --> fol
   fol --> sticks
-  sticks --> fc
+  sticks --> fc : MSP override
 }
 
-rectangle "3. THE HUMAN (radio)" as human {
-  rectangle "Pilot arms,\nflips MSP OVERRIDE\nand ANGLE.\nCan take the sticks\nback any time." as pilot
+rectangle "AROUND IT" as around {
+  rectangle "Pilot (radio)\nthrottle low -> ARM -> MSP OVERRIDE -> ANGLE\nabort = MSP OVERRIDE off; any input ends the run" as pilot
+  rectangle "Simulator (Elodin + Betaflight SITL, Docker)\nsame estimator and follower code\nsynthetic camera with dropout, noise, latency\nreferee: crossings; frame contact voids the run" as sim
+  rectangle "Debrief tools\npull_flight: log + narration off the aircraft\ntriage checks; the site draws the same logs" as tools
 }
 pilot --> fc
-
-note right of est
-  The map is trusted. Only the gate
-  just passed and the next one may
-  match a blob. A blob far from the
-  predicted azimuth is ignored.
-end note
-
-note bottom of fol
-  Through the hairpin and the
-  stacked gate the next gate is
-  out of view: the follower flies
-  the known turn from the plan on
-  dead reckoning.
-end note
+sim .. fol
 
 @enduml
