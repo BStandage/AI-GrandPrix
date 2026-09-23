@@ -82,8 +82,8 @@ export const timeline = [
     date: "19 Sep",
     title: "Day one: two drones in boxes and no way in",
     body: [
-      "Nobody was logged in to anything. The Jetsons had no WiFi configured, the USB network gadget that was supposed to be the way in dropped constantly, and both aircraft reported the same hostname, so a fix applied to one was tested on the other for an hour before anyone noticed. Three USB ports on the bench looked identical: the flight controller's, the Jetson's, and the wrong laptop's. Betaflight's 'Connect (Virtual)' connected to nothing and looked exactly like success for forty minutes.",
-      "The way in turned out to be the serial console on the same USB cable: PuTTY on a COM port at 115200, a login prompt, and from there the WiFi could be configured by hand. Once both aircraft were on the venue network there were ssh shortcuts, shell aliases, and a prompt that said which drone you were on. D43, when it arrived, did not have the right antennas and went through the same serial-console route before it had a network at all. [BRIAN: the antenna detail and how it got sorted.]",
+      "Nobody was logged in to anything. The Jetsons had no WiFi configured, and the obvious way in, a USB to micro-USB cable to the Jetson, would not take an ssh session. Both aircraft reported the same hostname, so a fix applied to one was tested on the other for an hour before anyone noticed. Three USB ports on the bench looked identical: the flight controller's, the Jetson's, and the wrong laptop's. Betaflight's 'Connect (Virtual)' connected to nothing and looked exactly like success for forty minutes.",
+      "The way in was the serial console over that same cable: PuTTY on a COM port at 115200, a login prompt, and from there the WiFi could be configured by hand. Once both aircraft were on the venue network there were ssh shortcuts, shell aliases, and a prompt that said which drone you were on. D43, when it arrived, did not have the right antennas and went through the same serial-console route before it had a network at all. [BRIAN: the antenna detail and how it got sorted.]",
       "With a way in, the day got productive: the MSP override mask fixed on both flight controllers, ANGLE mode assigned, the camera verified at 1080p60, a real gate detected on 100 percent of frames at 6 m, and the thrust model re-measured from 76,000 airborne samples in a recovered blackbox. The config's hover throttle had been 1240, from the simulator. The blackbox said 1291. The first takeoff would have been under-thrusted by a quarter, and it was fixed without flying.",
       "[BRIAN: arrival, the venue, the pits, first impressions.]",
     ],
@@ -183,7 +183,7 @@ export const lessons = [
   "The sim only tests what it models. Real perception in the loop, sensor models from the aircraft's own logs, or it will tell you 23 of 23 and mean nothing.",
   "Build a mock gate. A red panel with a 1.4 m hole in a parking lot would have taught us in an afternoon what the slots taught us in a week.",
   "Never fly code for score that has not flown for practice. One fact per flight is too expensive when you have seven flights.",
-  "Label the hardware, bring the right antennas, and know the serial-console route before you need it. Day one is lost to whatever you did not check.",
+  "Label the hardware, bring the right antennas, and know the serial-console route before you need it: ssh over the USB cable will not work, PuTTY on the COM port will. Day one is lost to whatever you did not check.",
   "Read the PAD line before arming. The check that would have saved attempt 4 was on the card. It was not the habit.",
 ];
 
