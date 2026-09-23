@@ -89,26 +89,16 @@ const CHAPTERS = [
   ['photos', 'Photos'],
 ]
 
-function ChapterBar() {
-  const [active, setActive] = useState('team')
-  useEffect(() => {
-    const obs = new IntersectionObserver(
-      (entries) => entries.forEach((e) => e.isIntersecting && setActive(e.target.id)),
-      { rootMargin: '-30% 0px -60% 0px' },
-    )
-    CHAPTERS.forEach(([id]) => {
-      const el = document.getElementById(id)
-      if (el) obs.observe(el)
-    })
-    return () => obs.disconnect()
-  }, [])
+function Contents() {
   return (
-    <nav className="chapters">
-      {CHAPTERS.map(([id, label]) => (
-        <a key={id} href={`#${id}`} className={active === id ? 'on' : ''}>
-          {label}
-        </a>
-      ))}
+    <nav className="contents" aria-label="contents">
+      <ol>
+        {CHAPTERS.map(([id, label]) => (
+          <li key={id}>
+            <a href={`#${id}`}>{label}</a>
+          </li>
+        ))}
+      </ol>
     </nav>
   )
 }
@@ -233,10 +223,13 @@ function Aircraft() {
             <div className="tag">{a.id}</div>
             <h3>{a.name}</h3>
             <p className="role">{a.role}</p>
-            <p>{a.story}</p>
             <p className="fate">
               <Text>{a.fate}</Text>
             </p>
+            <details>
+              <summary>Full history</summary>
+              <p>{a.story}</p>
+            </details>
           </article>
         ))}
       </div>
@@ -676,9 +669,9 @@ export default function App() {
   })
   return (
     <>
-      <ChapterBar />
       <main>
         <Hero />
+        <Contents />
         <Team />
         <Aircraft />
         <AIGP />
