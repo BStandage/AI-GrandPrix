@@ -628,6 +628,65 @@ mark.todo {
   background: var(--bg2);
 }
 
+/* report blocks */
+ul.report {
+  padding-left: 0;
+  list-style: none;
+  max-width: 80ch;
+}
+ul.report li {
+  position: relative;
+  padding: 8px 0 8px 22px;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.97rem;
+}
+ul.report li::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 17px;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--red);
+}
+.fig {
+  margin: 12px 0 20px;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.fig img,
+.fig video {
+  width: 100%;
+  display: block;
+  background: #000;
+}
+.fig figcaption {
+  padding: 12px 14px;
+  color: var(--ink2);
+  font-size: 0.92rem;
+}
+table.report {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.93rem;
+  margin: 8px 0 18px;
+}
+table.report th,
+table.report td {
+  text-align: left;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+table.report th {
+  color: var(--ink2);
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
 /* lists */
 .checks,
 .lessons {
