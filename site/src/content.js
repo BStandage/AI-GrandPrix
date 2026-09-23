@@ -36,7 +36,7 @@ export const stats = [
 
 export const team = {
   intro:
-    "The two virtual qualifiers were flown in the organizers' simulator, with our stack connected to it over MAVLink: I qualified through VQ1, then placed in the top 15 of more than 3,300 teams worldwide in VQ2, which earned an invitation to the physical qualifiers. Cristhian Prado and Reese Haven came on for the physical qualifier at Anduril in Costa Mesa, CA. To prepare, we forked an open-source Elodin drone simulator that runs the Betaflight flight-controller firmware in the loop and built the published course into it, so the same code could be developed against the real course before it ever flew.",
+    "The two virtual qualifiers were flown in the organizers' simulator, with our autonomy software flying the simulated aircraft: I qualified through VQ1, then placed in the top 15 of more than 3,300 teams worldwide in VQ2, which earned an invitation to the physical qualifiers. Cristhian Prado and Reese Haven came on for the physical qualifier at Anduril in Costa Mesa, CA. To prepare, we forked an open-source Elodin drone simulator that runs the Betaflight flight-controller firmware in the loop and built the published course into it, so the same code could be developed against the real course before it ever flew.",
   members: [
     { name: "Brian Standage", role: ["Team Lead", "AI/ML Engineer"], photo: "photos/team/brian.jpeg", blurb: "Software lead. Designed the architecture and wrote the autonomy stack: perception and ML, state estimation, planning, and the simulator work. On site: camera calibration, code syncing to the drones, the flight start command, and rapid debugging between attempts.", linkedin: "https://www.linkedin.com/in/brian-standage-22835912a/" },
     { name: "Cristhian Prado", role: "AI/ML Engineer", photo: "photos/team/cristhian.jpg", blurb: "Software development, perception and debugging, and input on the decisions between flights. Ran the project on the ground: project management, time keeping against the slot clock, debrief logging after every flight, and progress tracking across the three days.", linkedin: "https://www.linkedin.com/in/pradocristhian/" },
@@ -56,7 +56,7 @@ export const aigp = {
   stagesImage: "photos/aigp/aigp_stages.jpg",
   pqImage: "photos/aigp/pq_aigp.jpg",
   stages: [
-    { n: "1", name: "Virtual Qualifier 1", note: "The cut: fly the organizers' course in their simulator, with the team's software connected over MAVLink. Qualified." },
+    { n: "1", name: "Virtual Qualifier 1", note: "The cut: fly the organizers' course in their simulator with your own autonomy software. Qualified." },
     { n: "2", name: "Virtual Qualifier 2", note: "The ranking round. Our simulator run placed in the top 15 of more than 3,300 teams worldwide and earned the invitation to the physical qualifier." },
     { n: "3", name: "Physical Qualifier", note: "Anduril, Costa Mesa, California, 15 to 22 September. Real aircraft on a real course, timed slots, a referee counting gates. Ten teams advance. This report covers this stage; we were on site for 3.5 of the 8 days." },
     { n: "4", name: "Grand Prix, Ohio", note: "The final, for the ten teams that qualified from the physical qualifier. We did not place in the top 10 and did not advance." },
