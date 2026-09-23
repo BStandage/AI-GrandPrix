@@ -370,7 +370,7 @@ function Slot({ setSelected }) {
   const byAttempt = Object.fromEntries(data.flights.map((f, i) => [f.attempt, i]))
   return (
     <section id="slot">
-      <h2>The slot: 27 minutes, seven attempts</h2>
+      <h2>Race day: 27 minutes, seven attempts</h2>
       <table className="attempts">
         <thead>
           <tr>
@@ -416,7 +416,7 @@ function Slot({ setSelected }) {
 function Why() {
   return (
     <section id="why">
-      <h2>Why we failed</h2>
+      <h2>What went wrong, and why</h2>
       <div className="cards">
         {C.whyWeFailed.map((w, i) => (
           <article key={w.title} className="card">
