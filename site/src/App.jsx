@@ -154,12 +154,6 @@ function Team() {
       <p className="lede">
         <Text>{t.intro}</Text>
       </p>
-      <figure className="group">
-        <Photo src={t.groupPhoto.src} alt="the team" />
-        <figcaption>
-          <Text>{t.groupPhoto.caption}</Text>
-        </figcaption>
-      </figure>
       <div className="members">
         {t.members.map((m, i) => (
           <article key={i} className="member">
