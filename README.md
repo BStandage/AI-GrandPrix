@@ -1,130 +1,120 @@
 # AI-GrandPrix
 
-Sim repo: `elodin-sim-aigp`, checked out next to this one.
+An autonomy stack for the [Anduril AI Grand Prix](https://www.theaigrandprix.com), an autonomous drone racing
+competition run by the Drone Champions League. Every team flies the same aircraft: a DCL racing quad with a
+Betaflight flight controller, an NVIDIA Jetson Orin, and one forward camera. The aircraft has to fly the course
+by itself; a pilot arms it and any stick input ends the run.
 
-## Status (2026-09-16)
+This repository is the full stack, built from scratch between June and September 2026: gate perception,
+vision-aided state estimation, trajectory planning, the flight controller interface, the simulator integration,
+and the field tooling that ran it on the competition aircraft in Costa Mesa.
 
-- Course: `data/course_map.json` (published). 10 gates, gate 9 double, 23 crossings over 2 laps.
-- Follower flies a plan on dead reckoning: FC attitude and accel, baro altitude, camera fixes on any gate it can match to the map. No ground truth anywhere in the loop.
-- Sim, noisy detector, 35 deg mount + 120 deg lens: k = 1.0 (the race levers under the camera's tilt cap) flies clean 3 of 3 in 35 s, k = 0.8 in 40 s, k = 0.5 in 48 s; k = 0.9 fails 3 of 3, so fly what was flown, not what interpolates. Every crossing is a lateral fix; each camera fix uses the attitude at the frame's time; the climb rate is capped because a climbing turn crosses off centre.
-- Archer (from its blackbox): Betaflight 4.4.3, acc_1G 2048, baro yes, no mag, ANGLE mode.
-- Never flown on the real drone.
-
-## The plan: levers in, time out
-
-`config/vehicle_cam35_120.toml` holds the camera (35 deg mount, 120 deg
-lens; change to what `camcal` measures) and the five levers at their race
-values: tilt, attitude slew, lateral margin, top speed, climb rate. One
-number k moves all five between a safe floor (k = 0) and the race values
-(k = 1); the planner solves the line and the time is whatever comes out.
-From `src`:
-
-```
-python -m raceline.ladder --k 0.5 --config ../config/vehicle_cam35_120.toml
-```
-
-writes `config/ladder/vehicle_k050.toml` and `out/plans/plan_LADDER_k050.json`
-and prints the model time. Fly that rung in the sim on vision (Docker running):
-
-```
-AIGP_STATE_SOURCE=deadreckon AIGP_CAM_TILT_DEG=35 AIGP_CAM_HFOV_DEG=120 python -m raceline.batch_fly --timeout 300 --config ../config/ladder/vehicle_k050.toml ../out/plans/plan_LADDER_k050.json
-```
-
-The proven rungs travel with the repo, plan and toml together, in `config/ladder/plans/` and `config/ladder/`: k 0.5, 0.65, 0.8 and 1.0 for the 35/120 camera (48, 44, 40, 35 s, each 3 of 3) and k 0.33 for the 20/90 camera (67 s, 3 of 3). Those are the files the Archer lines above take. `out/plans/` is not in git.
-
-Benchmark 2026-09-17 (`docs/benchmark_2026-09-17.csv`), 3 seeds each, clean runs and their mean time:
-
-| mount | lens | k 0.33 | k 0.5 |
-|---|---|---|---|
-| 20 | 90 | 3/3, 67 s | 1/3, 63 s |
-| 20 | 120 | 2/3, 61 s | 1/3, 55 s |
-| 35 | 90 | 1/3, 63 s | 2/3, 55 s |
-| 35 | 120 | 0/3 | 3/3, 48 s |
-| 45 | 90 | 0/3 | 2/2, 51 s |
-| 45 | 120 | 2/3, 52 s | 1/3, 46 s |
-
-That grid was flown before the fix below. With each fix taken against the attitude at the frame's own time (a frame one period old at 100 deg/s of yaw was 0.45 m of sideways error at 8 m, every fix through a turn leaning the same way), 35/120 flies faster, 3 seeds each (`docs/benchmark_2026-09-17_fast.csv`):
-
-| k | model | sim on vision |
-|---|---|---|
-| 0.5 | 49 s | 3/3, 47.6 s |
-| 0.65 | 43 s | 3/3, 43.9 s |
-| 0.8 | 38 s | 3/3, 39.9 s |
-| 0.9 | 35 s | 0/3, that line hits gate 5 at 9.9 s every time |
-| 1.0 | 32 s | 3/3, 35.4 s |
-
-Binary search on k: top of the search is the safe end, bottom is k = 1.
-
-Benchmark every mount, lens and k in one go (from `src`, Docker running; rows stream to `out/benchmark.csv`):
-
-```
-python -m raceline.benchmark --tilts 20 35 45 --lenses 90 120 --ks 0.33 0.5 --seeds 1 2 3
-```
-
-How it all works, for anyone: `docs/HOW_IT_FLIES.md`, `docs/how_it_flies.png`, `docs/how_it_flies.pptx`; with links into the code: `docs/HOW_IT_FLIES_DETAILED.md`.
-
-Other sim commands, from `src`:
-
-```
-python -m raceline.batch_fly ../out/plans/plan_RACE.json          # the 29 s plan on ground truth
-python -m raceline.batch_fly --solver solvers.seeker --timeout 400 ../out/plans/plan_RACE.json   # fallback, ACRO only in sim
-python -m perception.video_probe ../event_files/archer_AIGP.mkv --still 1.6   # detector on the real video, width jitter
-```
-
-`AIGP_CAM_NOISE=0` = perfect detector (diagnostics only). Traces: `out/flightlogs/race_NNN.csv`, `dr_NNN.csv`.
-
-## Debrief: what it thought, and what that proves
-
-`raceline.debrief` draws where the drone believed it was over the plan it flew
-and writes a PNG per flight, sim or Archer, same tool either way. It reads NO
-ground truth: only the two things the real drone can measure about itself.
-
-- **The offset it believed it had at each gate.** It fitted through a 1.5 m
-  opening, so the true offset was inside +-0.75 m; anything it believed beyond
-  that is position error proven without measuring anything.
-- **Camera versus dead reckoning at each fix**, split across the line of sight
-  (bearing) and along it (range). One sign at every gate is calibration, not
-  drift: across is the boresight or `--map-north`, along is `--fy` and the gate
-  width the range divides by.
-
-```
-python -m raceline.debrief ../out/flightlogs/hw_follower_20260919_141233.csv
-python -m raceline.debrief --aggregate      # the table over every logged run
-```
-
-Each flight appends a row per leg to `out/debrief/drift_log.csv`; `--aggregate`
-reports mean +- sd per gate and flags what is off the same way over 3+ runs.
-`batch_fly` debriefs each sim run automatically. Two runs never establish a
-bias, and a sim-only bias is a bias of the sim's noise model: fly it on the
-Archer before changing anything.
-
-## Archer (Orin, from `src`, props off until the last line)
-
-```
-python3 -m hardware.bench --port /dev/ttyTHS1 info
-python3 -m hardware.bench --port /dev/ttyTHS1 rc-test --props-off
-python3 -m hardware.bench --port /dev/ttyTHS1 arm-test --props-off
-python3 -m hardware.bench --port /dev/ttyTHS1 drift --seconds 60
-python3 -m hardware.camcal --dist 6.0 --dz <m> --port /dev/ttyTHS1        # prints --fy --cam-hfov --cam-tilt
-python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north here --cam-tilt <deg> --fy <px> --cam-hfov <deg> --pilot follower --config ../config/ladder/vehicle_k050_cam35_120.toml --traj ../config/ladder/plans/plan_LADDER_k050_cam35_120.json --dry-run
-python3 -m hardware.runtime --port /dev/ttyTHS1 --map-north here --cam-tilt <deg> --fy <px> --cam-hfov <deg> --pilot follower --config ../config/ladder/vehicle_k050_cam35_120.toml --traj ../config/ladder/plans/plan_LADDER_k050_cam35_120.json --arm
-```
-
-`--map-north here`: drone on the start line pointing along gate 1 when the runtime starts. `--pilot seeker` = fallback.
-The pilot arms and flips MSP OVERRIDE and ANGLE on the radio; MSP owns the four sticks only (`set msp_override_channels_mask = 15`, CLI, once). The pilot can always take the sticks back.
-
-## Race day
-
-1. Fly the lowest k that is clean in the sim. Clean twice, jump to the fastest k you brought.
-2. Fail, fly the midpoint. Each heat halves the interval.
-3. A complete slow run beats an incomplete fast one.
-
-## Docs
+**Team debrief and technical report:** https://bstandage.github.io/AI-GrandPrix/ (built from [`site/`](site/)).
 
 | | |
 |---|---|
-| Bench steps, day 1, the 15 min slot | `src/PQ_PROCEDURE.md` |
-| Course, Orin, firmware facts | `src/PQ_SPECS_INTAKE.md` |
-| Sim setup | `docs/ELODIN_SIM_SETUP.md`, `docs/GETTING_STARTED_RACING_LINE.md` |
-| Stack design, Betaflight | `docs/RACING_LINE_STACK.md`, `docs/WHAT_IS_BETAFLIGHT.md` |
-| Solvers | `src/solvers/README.md` |
+| Virtual Qualifier 2 | top 15 of 3,300+ teams worldwide |
+| Physical Qualifier, Costa Mesa, 15–22 Sep 2026 | 14 autonomous course flights, 0 gates scored, did not advance |
+
+## Architecture
+
+![architecture](docs/architecture.svg)
+
+Before flight, the published course map and a vehicle config go into a planner that writes a time-parameterised
+plan (23 crossings over two laps). In flight, on the Jetson at 50 Hz: the flight controller's attitude,
+accelerometer and barometer arrive over MSP; the camera's gate detections correct a dead-reckoned position against
+the map; the follower tracks the plan, steers height on the gate's elevation angle, and sends roll, pitch, yaw and
+throttle stick values back to the flight controller in ANGLE mode with MSP override. The same estimator and
+follower code runs in the simulator against a synthetic camera.
+
+There is no position sensor on the aircraft (no GPS, rangefinder or optical flow), and the only link to the flight
+controller is a 32 Hz serial channel. Both constraints shaped the design, and the second is what beat it: see the
+report's [state estimation](https://bstandage.github.io/AI-GrandPrix/#estimation) section and
+[`docs/DEBRIEF_2026-09-22.md`](docs/DEBRIEF_2026-09-22.md).
+
+## Layout
+
+```
+src/
+  perception/      HSV gate detector: ring, opening, image offsets, width-based range, commit rule
+  seeker/          vision-aided dead reckoning (dr_estimator.py), synthetic camera for the sim
+  raceline/        course map, planner, ladder, batch_fly (sim runs), replay, triage, debrief
+  solvers/         follower.py: the tracker, the vertical channel, the commit hold, ANGLE sticks
+  hardware/        runtime.py (the flight program), msp.py, camera calibration, hover/bench/tilt tools
+  common/          camera model and course-map loaders shared by sim and aircraft
+config/            vehicle configs (camera model + flight limits); config/ladder/ holds the flown rungs
+data/              course_map.json, the organizers' published course
+docs/              procedures, flight cards, debriefs, handoffs, calibration, sim setup
+flightlogs/        every hardware flight: CSV trace + narration log, by day
+scripts/           sync_drone.sh, pull_flight.sh, sim_sweep.sh, drone ASCII art
+site/              the team debrief as a Vite + React site, built from these logs
+```
+
+The simulator lives in a sibling checkout, [`elodin-sim-aigp`](https://github.com/BStandage/elodin-sim-aigp):
+a fork of an open-source Elodin drone simulator with the Betaflight SITL firmware in the loop and the published
+course built in. Setup: [`docs/ELODIN_SIM_SETUP.md`](docs/ELODIN_SIM_SETUP.md).
+
+## Running it
+
+**Plan.** From `src`, with a vehicle config:
+
+```
+python -m raceline.planner --config ../config/ladder/vehicle_s15_cam20_75.toml
+```
+
+writes `out/plans/plan_*.json`: the line, the speed at every point, the crossings in order.
+
+**Fly the plan in the simulator** (Docker running, sim repo next door):
+
+```
+AIGP_LAPS=2 AIGP_VERT=vision AIGP_STATE_SOURCE=deadreckon AIGP_CAM_TILT_DEG=10 AIGP_CAM_HFOV_DEG=75 \
+python -m raceline.batch_fly --angle ../out/plans/plan_STACK_s15_cam20_75.json \
+    --config ../config/ladder/vehicle_s15_cam20_75.toml --timeout 430
+```
+
+`scripts/sim_sweep.sh N` flies N seeds and tabulates gates, strikes and commit ranges.
+
+**Fly it on the aircraft.** Bring-up is [`docs/NEW_DRONE_SETUP.md`](docs/NEW_DRONE_SETUP.md), calibration is
+[`docs/CAMERA_CALIBRATION.md`](docs/CAMERA_CALIBRATION.md), the race-day procedure with the exact commands is
+[`docs/RACE.md`](docs/RACE.md). In short: `scripts/sync_drone.sh d43` ships the working tree to the Jetson, and on
+the aircraft
+
+```
+python3 -m hardware.runtime --port /dev/ttyTHS1 --pilot follower \
+    --traj ../out/plans/plan_STACK_s15_cam20_75.json \
+    --config ../config/ladder/vehicle_s15_cam20_75.toml \
+    --fy 835.5 --cam-tilt 10 --map-north here --vert vision --arm
+```
+
+waits for the pilot to arm and switch MSP override on, then flies. `scripts/pull_flight.sh d43` pulls the last
+flight's trace and narration back and runs the triage checks.
+
+**Rebuild the site's data** from the logs: `python site/scripts/extract.py`; the detection video over the
+organizers' FPV lap: `python site/scripts/render_detections.py`.
+
+## What happened
+
+Fourteen autonomous course flights over 3.5 days on site. Takeoff, release, the approach height on the gate's
+elevation, the lateral onto the gate's line and the size-based commit each worked on at least one flight. No flight
+made it through the three-second blind segment after commit, because the aircraft has no vertical-speed source
+that holds for three seconds: the barometer carries ±0.4 m/s of noise, the accelerometer over the serial link
+reads about 0.35 m/s² low under the propellers, and the camera's elevation is lost once the ring clips the frame.
+A hover throttle carried over from a sibling aircraft (1228 µs versus the real 1205 µs) turned every hold into a
+climb for four of the seven race-day attempts.
+
+Every flight is in [`flightlogs/`](flightlogs/) with its cause in
+[`docs/HANDOFF_2026-09-22.md`](docs/HANDOFF_2026-09-22.md); the root-cause analysis is
+[`docs/DEBRIEF_2026-09-22.md`](docs/DEBRIEF_2026-09-22.md). The next build starts with corner detection of the
+gate opening, a calibrated camera and PnP for a metric pose, and an EKF over the IMU that carries the aircraft
+through the crossing.
+
+## Documents worth reading first
+
+| document | what it is |
+|---|---|
+| [`docs/DEBRIEF_2026-09-22.md`](docs/DEBRIEF_2026-09-22.md) | why we did not pass a gate, ranked by cost |
+| [`docs/HANDOFF_2026-09-22.md`](docs/HANDOFF_2026-09-22.md) | the race build, what is on each aircraft, every flight and its cause |
+| [`docs/HOW_IT_FLIES.md`](docs/HOW_IT_FLIES.md) | the stack explained for a new team member; [`HOW_IT_FLIES_DETAILED.md`](docs/HOW_IT_FLIES_DETAILED.md) links into the code |
+| [`docs/TRACK_2_DEBRIEF.md`](docs/TRACK_2_DEBRIEF.md) | the first autonomous gate approaches, four flights, four causes |
+| [`docs/CAMERA_CALIBRATION.md`](docs/CAMERA_CALIBRATION.md) | the five numbers every camera fix depends on, and how to measure them |
+| [`docs/RACE.md`](docs/RACE.md) | the race-day procedure, exact commands, abort rules |

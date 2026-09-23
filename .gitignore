@@ -55,3 +55,6 @@ event_files/
 # Reference footage (archer_AIGP.mp4 is 107 MB, past GitHub's 100 MB limit)
 docs/*.mp4
 docs/*.mkv
+
+# the site ships its own photos
+!site/public/photos/**

@@ -1,20 +1,50 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import * as C from './content.js'
 import data from './data.json'
 import artD43 from './art/d43.txt?raw'
 import artD44 from './art/d44.txt?raw'
 import artD45 from './art/d45.txt?raw'
-const ART = { d43: artD43, d44: artD44, d45: artD45 }
+import Architecture from './Architecture.jsx'
 import './App.css'
+
+const ART = { d43: artD43, d44: artD44, d45: artD45 }
+const BASE = import.meta.env.BASE_URL
+const GATE_Z = 1.35
+const TOP_BAR_Z = 1.35 + 0.7 // the opening is ~1.4 m: the bar is ~0.7 m above centre
 
 // ---------- helpers ----------
 
+const NAME_RE = new RegExp(`(${Object.keys(C.people_links).join('|')})`, 'g')
+
+function Names({ text }) {
+  // team members' names become bold red links to their LinkedIn
+  const parts = text.split(NAME_RE)
+  return parts.map((part, i) =>
+    C.people_links[part] ? (
+      <a key={i} className="person" href={C.people_links[part]} target="_blank" rel="noreferrer">
+        {part}
+      </a>
+    ) : (
+      <span key={i}>{part}</span>
+    ),
+  )
+}
+
 function Text({ children }) {
   // "[BRIAN: ...]" renders as a visible note until it is replaced
-  if (typeof children === 'string' && children.startsWith('[BRIAN:')) {
-    return <mark className="todo">{children.slice(1, -1)}</mark>
+  if (typeof children !== 'string') return <>{children}</>
+  if (children.includes('[BRIAN:')) {
+    const i = children.indexOf('[BRIAN:')
+    const j = children.indexOf(']', i)
+    return (
+      <>
+        <Names text={children.slice(0, i)} />
+        <mark className="todo">{children.slice(i + 1, j)}</mark>
+        <Names text={children.slice(j + 1)} />
+      </>
+    )
   }
-  return <>{children}</>
+  return <Names text={children} />
 }
 
 function Paras({ items }) {
@@ -25,47 +55,87 @@ function Paras({ items }) {
   ))
 }
 
-const GATE_Z = 1.35
-const TOP_BAR_Z = 1.35 + 0.7 // opening is ~1.4 m: the bar is ~0.7 m above centre
+function Photo({ src, alt, className }) {
+  // a placeholder tile until the file exists in site/public/photos
+  const [ok, setOk] = useState(true)
+  return ok ? (
+    <img src={BASE + src} alt={alt} className={className} loading="lazy" onError={() => setOk(false)} />
+  ) : (
+    <div className={`placeholder ${className || ''}`}>
+      <span>photo</span>
+      <code>{src}</code>
+    </div>
+  )
+}
 
 // ---------- chapter bar ----------
 
+
+// ---------- side rail ----------
+
 const CHAPTERS = [
-  ['week', 'The week'],
+  ['team', 'Team'],
   ['aircraft', 'Aircraft'],
-  ['course', 'Course'],
-  ['flights', 'Flights'],
-  ['slot', 'The slot'],
-  ['why', 'Why'],
-  ['worked', 'What worked'],
+  ['aigp', 'The AI-GP'],
+  ['system', 'System'],
+  ['perception', 'Perception'],
+  ['estimation', 'Estimation'],
+  ['planning', 'Planning'],
+  ['control', 'Control'],
+  ['simulation', 'Simulation'],
+  ['hardware', 'Hardware'],
+  ['testing', 'Flight testing'],
+  ['raceday', 'Race day'],
+  ['analysis', 'Analysis'],
   ['lessons', 'Lessons'],
-  ['people', 'People'],
-  ['photos', 'Photos'],
 ]
 
-function ChapterBar() {
-  const [active, setActive] = useState('week')
+function SideRail() {
+  const [active, setActive] = useState('team')
+  const [open, setOpen] = useState(false)
   useEffect(() => {
-    const obs = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((e) => e.isIntersecting && setActive(e.target.id))
-      },
-      { rootMargin: '-40% 0px -55% 0px' },
-    )
-    CHAPTERS.forEach(([id]) => {
-      const el = document.getElementById(id)
-      if (el) obs.observe(el)
-    })
-    return () => obs.disconnect()
+    const ids = CHAPTERS.map(([id]) => id)
+    const onScroll = () => {
+      // the section whose top is closest above the middle of the viewport
+      const mid = window.innerHeight * 0.35
+      let best = ids[0]
+      for (const id of ids) {
+        const el = document.getElementById(id)
+        if (el && el.getBoundingClientRect().top <= mid) best = id
+      }
+      setActive(best)
+    }
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
   }, [])
-  return (
-    <nav className="chapters">
+  const list = (
+    <ol className="rail">
       {CHAPTERS.map(([id, label]) => (
-        <a key={id} href={`#${id}`} className={active === id ? 'on' : ''}>
-          {label}
-        </a>
+        <li key={id} className={active === id ? 'on' : ''}>
+          <a href={`#${id}`} onClick={() => setOpen(false)}>
+            {label}
+          </a>
+        </li>
       ))}
-    </nav>
+    </ol>
+  )
+  return (
+    <>
+      <nav className="sidenav" aria-label="sections">
+        {list}
+      </nav>
+      <button className={`burger ${open ? 'open' : ''}`} aria-label="sections" onClick={() => setOpen(!open)}>
+        <span />
+        <span />
+        <span />
+      </button>
+      {open && (
+        <div className="drawer" onClick={() => setOpen(false)}>
+          <nav onClick={(e) => e.stopPropagation()}>{list}</nav>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -74,10 +144,20 @@ function ChapterBar() {
 function Hero() {
   return (
     <header className="hero">
-      <p className="kicker">AI Grand Prix · September 2026</p>
-      <h1>{C.site.title}</h1>
-      <p className="sub">{C.site.subtitle}</p>
-      <p className="lede">{C.site.tagline}</p>
+      <div className="herotext">
+        <p className="kicker">Autonomous drone racing · Anduril · Neros · DCL</p>
+        <h1>{C.site.title}</h1>
+        <p className="sub">{C.site.subtitle}</p>
+        <p className="byline">
+          <Text>{C.site.byline}</Text>
+        </p>
+        <p className="byline supported">
+          <Text>{C.site.supported}</Text>
+        </p>
+        <p className="lede">{C.site.tagline}</p>
+        <p className="thanks">{C.site.thanks}</p>
+      </div>
+      <img className="heroimg" src={BASE + C.site.heroImage} alt="AI Grand Prix 2026" />
       <div className="stats">
         {C.stats.map((s) => (
           <div key={s.label} className="stat">
@@ -90,46 +170,84 @@ function Hero() {
   )
 }
 
-// ---------- the week ----------
+// ---------- the team ----------
 
-function GitWeek() {
-  const days = data.git_week
-  const max = Math.max(...days.map((d) => d.commits), 1)
+function Team() {
+  const t = C.team
   return (
-    <div className="gitweek">
-      <div className="bars">
-        {days.map((d) => (
-          <div key={d.day} className="bar" title={`${d.commits} commits, +${d.added} / -${d.removed} lines`}>
-            <div className="fill" style={{ height: `${(100 * d.commits) / max}%` }} />
-            <div className="n">{d.commits}</div>
-            <div className="d">{d.day.slice(5).replace('-', '/')}</div>
-          </div>
+    <section id="team">
+      <h2>The team</h2>
+      <p className="lede">
+        <Text>{t.intro}</Text>
+      </p>
+      <div className="members">
+        {t.members.map((m, i) => (
+          <article key={i} className="member">
+            <Photo src={m.photo} alt={m.name} className="face" />
+            <h3>
+              <Text>{m.name}</Text>
+            </h3>
+            <p className="role">
+              {(Array.isArray(m.role) ? m.role : [m.role]).map((r, k) => (
+                <span key={k}>
+                  {k > 0 && <br />}
+                  <Text>{r}</Text>
+                </span>
+              ))}
+            </p>
+            <p>
+              <Text>{m.blurb}</Text>
+            </p>
+            {m.linkedin && (
+              <a className="linkedin" href={m.linkedin} target="_blank" rel="noreferrer">
+                LinkedIn ↗
+              </a>
+            )}
+          </article>
         ))}
       </div>
-      <p className="caption">
-        Commits to main by day. The 20th is the day the thrust model was measured from a crash log and everything downstream
-        was rebuilt; the 22nd is seven attempts in 27 minutes, each one a fix for the last.
-      </p>
-    </div>
+      <div className="gallery">
+        <figure>
+          <Photo src={t.setupPhoto.src} alt={t.setupPhoto.caption} />
+          <figcaption>
+            <Text>{t.setupPhoto.caption}</Text>
+          </figcaption>
+        </figure>
+        <figure>
+          <Photo src={t.paddingPhoto.src} alt={t.paddingPhoto.caption} />
+          <figcaption>
+            <Text>{t.paddingPhoto.caption}</Text>
+          </figcaption>
+        </figure>
+      </div>
+    </section>
   )
 }
 
-function Week() {
+// ---------- the competition ----------
+
+function AIGP() {
+  const a = C.aigp
   return (
-    <section id="week">
-      <h2>The week</h2>
-      <GitWeek />
-      <ol className="timeline">
-        {C.timeline.map((t) => (
-          <li key={t.title}>
-            <div className="date">{t.date}</div>
-            <div className="body">
-              <h3>{t.title}</h3>
-              <Paras items={t.body} />
-            </div>
-          </li>
-        ))}
-      </ol>
+    <section id="aigp">
+      <h2>{a.title}</h2>
+      <Paras items={a.intro} />
+      <div className="aigp">
+        <img src={BASE + a.stagesImage} alt="the four stages of the AI Grand Prix" />
+        <ol className="stages">
+          {a.stages.map((st) => (
+            <li key={st.n}>
+              <div className="n">{st.n}</div>
+              <div>
+                <h3>{st.name}</h3>
+                <p>
+                  <Text>{st.note}</Text>
+                </p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </div>
     </section>
   )
 }
@@ -143,19 +261,98 @@ function Aircraft() {
       <div className="cards three">
         {C.aircraft.map((a) => (
           <article key={a.id} className="card">
-            <pre className="art" aria-hidden="true">{ART[a.art]}</pre>
+            <pre className="art" aria-hidden="true">
+              {ART[a.art]}
+            </pre>
             <div className="tag">{a.id}</div>
             <h3>{a.name}</h3>
             <p className="role">{a.role}</p>
-            <p>{a.story}</p>
             <p className="fate">
               <Text>{a.fate}</Text>
             </p>
+            <details>
+              <summary>Full history</summary>
+              <p>{a.story}</p>
+            </details>
           </article>
         ))}
       </div>
+      <figure className="fig">
+        <img src={BASE + C.lineupPhoto.src} alt={C.lineupPhoto.caption} loading="lazy" />
+        <figcaption>{C.lineupPhoto.caption}</figcaption>
+      </figure>
     </section>
   )
+}
+
+// ---------- the technical report sections ----------
+
+function Block({ b }) {
+  if (typeof b === 'string')
+    return (
+      <p>
+        <Text>{b}</Text>
+      </p>
+    )
+  if (b.h) return <h3 className="mt">{b.h}</h3>
+  if (b.component === 'architecture') return <Architecture />
+  if (b.list)
+    return (
+      <ul className="report">
+        {b.list.map((x, i) => (
+          <li key={i}>
+            <Text>{x}</Text>
+          </li>
+        ))}
+      </ul>
+    )
+  if (b.figure)
+    return (
+      <figure className="fig">
+        <img src={BASE + b.figure.src} alt={b.figure.caption} loading="lazy" />
+        <figcaption>{b.figure.caption}</figcaption>
+      </figure>
+    )
+  if (b.video)
+    return (
+      <figure className="fig">
+        <video src={BASE + b.video.src} controls muted playsInline preload="metadata" />
+        <figcaption>{b.video.caption}</figcaption>
+      </figure>
+    )
+  if (b.table)
+    return (
+      <table className="report">
+        <thead>
+          <tr>
+            {b.table.head.map((h) => (
+              <th key={h}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {b.table.rows.map((r, i) => (
+            <tr key={i}>
+              {r.map((c, j) => (
+                <td key={j}>{c}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )
+  return null
+}
+
+function Report() {
+  return C.report.map((sec) => (
+    <section key={sec.id} id={sec.id}>
+      <h2>{sec.title}</h2>
+      {sec.blocks.map((b, i) => (
+        <Block key={i} b={b} />
+      ))}
+    </section>
+  ))
 }
 
 // ---------- course map ----------
@@ -169,11 +366,10 @@ function CourseMap({ selected }) {
   const pad = 2.5
   const x0 = Math.min(...xs) - pad
   const x1 = Math.max(...xs) + pad
-  const y0 = Math.min(...ys) - pad
   const y1 = Math.max(...ys) + pad
+  const y0 = Math.min(...ys) - pad
   const W = x1 - x0
   const H = y1 - y0
-  // world y is "down the course"; draw it upward on screen
   const X = (x) => x - x0
   const Y = (y) => y1 - y
   const poly = (arr) => arr.map(([x, y]) => `${X(x).toFixed(2)},${Y(y).toFixed(2)}`).join(' ')
@@ -186,11 +382,12 @@ function CourseMap({ selected }) {
           if (seen.has(g.label)) return null
           seen.add(g.label)
           const s = 1.35
-          const deg = (-g.heading * 180) / Math.PI
+          const deg = -((g.heading * 180) / Math.PI + 90)
           const stacked = g.label.startsWith('g8')
           return (
             <g key={i} transform={`translate(${X(g.x)} ${Y(g.y)}) rotate(${deg})`}>
               <rect x={-s} y={-0.18} width={2 * s} height={0.36} className={stacked ? 'gate stacked' : 'gate'} />
+              <line x1={0} y1={0} x2={0} y2={-1.1} className="dir" transform="rotate(90)" />
               <text y={-0.6} className="glabel" transform={`rotate(${-deg})`}>
                 {g.label.replace('-top', ' (stack)').replace('-low', '')}
               </text>
@@ -198,7 +395,9 @@ function CourseMap({ selected }) {
           )
         })}
         <circle cx={X(0)} cy={Y(0)} r={0.45} className="start" />
-        <text x={X(0) + 0.7} y={Y(0) + 0.3} className="glabel">start</text>
+        <text x={X(0) + 0.7} y={Y(0) + 0.3} className="glabel">
+          start
+        </text>
         {flight && (
           <>
             <polyline points={poly(flight.series.map((p) => [p.x, p.y]))} className="trace" />
@@ -210,10 +409,11 @@ function CourseMap({ selected }) {
         )}
       </svg>
       <p className="caption">
-        The course as the aircraft knew it: gates from the published map in the flight frame, the planned line in grey.
+        The published course in the plan frame: gate panels in red, the stacked gate in amber, the planned line dashed, the
+        crossing direction as a tick.
         {flight
-          ? ` In red: where ${flight.aircraft} estimated it was, ${flight.local}. Every flight of the week ends before gate 1.`
-          : ' Pick a flight below to draw where it went.'}
+          ? ` In red: ${flight.aircraft}'s estimated position, ${flight.local}. Every flight of the event ended before gate 1.`
+          : ' Select a flight below to draw its estimated track.'}
       </p>
     </div>
   )
@@ -263,7 +463,7 @@ function AltChart({ fl }) {
           {tmax.toFixed(0)} s
         </text>
         <text x={0} y={H + 5} className="axis">
-          height (baro)
+          height (barometer)
         </text>
       </svg>
       <svg viewBox={`-6 -2 ${W + 8} ${H + 8}`} className="chart">
@@ -299,11 +499,10 @@ function FlightDeck({ selected, setSelected }) {
     return () => window.removeEventListener('keydown', onKey)
   })
   return (
-    <section id="flights">
-      <h2>Every flight, from its own log</h2>
-      <p className="lede">
-        Thirteen of the fourteen autonomous course flights, pulled off the aircraft and drawn as they were recorded. Use the
-        arrows or the arrow keys.
+    <>
+      <p>
+        Thirteen of the fourteen autonomous course flights, as recorded on the aircraft. Arrows or arrow keys move between
+        flights; the tiles jump.
       </p>
       <div className="strip">
         {fls.map((f, i) => (
@@ -360,16 +559,25 @@ function FlightDeck({ selected, setSelected }) {
         </button>
       </div>
       <CourseMap selected={selected} />
+    </>
+  )
+}
+
+function Testing({ selected, setSelected }) {
+  return (
+    <section id="testing">
+      <h2>Flight testing: every flight, from its log</h2>
+      <FlightDeck selected={selected} setSelected={setSelected} />
     </section>
   )
 }
 
-// ---------- the slot ----------
+// ---------- race day ----------
 
-function Slot({ setSelected }) {
+function RaceDay({ setSelected }) {
   const byAttempt = Object.fromEntries(data.flights.map((f, i) => [f.attempt, i]))
   return (
-    <section id="slot">
+    <section id="raceday">
       <h2>Race day: 27 minutes, seven attempts</h2>
       <table className="attempts">
         <thead>
@@ -389,7 +597,7 @@ function Slot({ setSelected }) {
                 const i = byAttempt[a.n]
                 if (i != null) {
                   setSelected(i)
-                  document.getElementById('flights').scrollIntoView({ behavior: 'smooth' })
+                  document.getElementById('testing').scrollIntoView({ behavior: 'smooth' })
                 }
               }}
             >
@@ -404,19 +612,20 @@ function Slot({ setSelected }) {
         </tbody>
       </table>
       <p className="caption">
-        Click a row to open that flight above. Attempts 1 and 6 were not pulled off the aircraft before the slot ended; their
-        numbers come from the console.
+        Rows with a log open that flight in the flight-testing section. Attempts 1 and 6 were not pulled off the aircraft
+        before the slot ended; their numbers come from the console output.
       </p>
     </section>
   )
 }
 
-// ---------- why / worked / lessons ----------
+// ---------- analysis / lessons ----------
 
-function Why() {
+function Analysis() {
   return (
-    <section id="why">
-      <h2>What went wrong, and why</h2>
+    <section id="analysis">
+      <h2>Analysis</h2>
+      <h3>What failed, in order of cost</h3>
       <div className="cards">
         {C.whyWeFailed.map((w, i) => (
           <article key={w.title} className="card">
@@ -426,16 +635,15 @@ function Why() {
           </article>
         ))}
       </div>
-      <h3 className="mt">{C.simStory.title}</h3>
-      <Paras items={C.simStory.body} />
-    </section>
-  )
-}
-
-function Worked() {
-  return (
-    <section id="worked">
-      <h2>What worked</h2>
+      <div className="gallery">
+        {C.photos.map((p) => (
+          <figure key={p.src}>
+            <img src={BASE + p.src} alt={p.caption} loading="lazy" />
+            <figcaption>{p.caption}</figcaption>
+          </figure>
+        ))}
+      </div>
+      <h3 className="mt">What worked</h3>
       <ul className="checks">
         {C.whatWorked.map((w) => (
           <li key={w}>{w}</li>
@@ -448,9 +656,15 @@ function Worked() {
 function Lessons() {
   return (
     <section id="lessons">
-      <h2>Lessons</h2>
+      <h2>Lessons and next steps</h2>
       <ol className="lessons">
         {C.lessons.map((l) => (
+          <li key={l}>{l}</li>
+        ))}
+      </ol>
+      <h3 className="mt">Next steps, in order</h3>
+      <ol className="lessons">
+        {C.nextSteps.map((l) => (
           <li key={l}>{l}</li>
         ))}
       </ol>
@@ -459,38 +673,6 @@ function Lessons() {
 }
 
 // ---------- people / photos / footer ----------
-
-function People() {
-  return (
-    <section id="people">
-      <h2>{C.people.title}</h2>
-      <Paras items={C.people.body} />
-      <div className="authors">
-        {data.authorship.map((a) => (
-          <div key={a.name} className="author">
-            <b>{a.commits}</b> commits · {a.name}
-          </div>
-        ))}
-      </div>
-    </section>
-  )
-}
-
-function Photos() {
-  return (
-    <section id="photos">
-      <h2>Photos</h2>
-      <div className="gallery">
-        {C.photos.map((p) => (
-          <figure key={p.src}>
-            <img src={import.meta.env.BASE_URL + p.src} alt={p.caption} loading="lazy" />
-            <figcaption>{p.caption}</figcaption>
-          </figure>
-        ))}
-      </div>
-    </section>
-  )
-}
 
 function Footer() {
   return (
@@ -503,8 +685,7 @@ function Footer() {
         ))}
       </ul>
       <p className="caption">
-        Every number on this page is computed from the flight logs and the git history in the repository. Generated{' '}
-        {data.generated}.
+        Flight traces and numbers on this page are computed from the logs in the repository. Generated {data.generated}.
       </p>
     </footer>
   )
@@ -514,28 +695,22 @@ function Footer() {
 
 export default function App() {
   const [selected, setSelected] = useState(() => {
-    // open on the best flight of the week
     const i = data.flights.findIndex((f) => f.stamp === '20260921_173440')
     return i >= 0 ? i : 0
   })
   return (
     <>
-      <ChapterBar />
+      <SideRail />
       <main>
         <Hero />
-        <Week />
+        <Team />
         <Aircraft />
-        <section id="course">
-          <h2>The course</h2>
-          <CourseMap selected={null} />
-        </section>
-        <FlightDeck selected={selected} setSelected={setSelected} />
-        <Slot setSelected={setSelected} />
-        <Why />
-        <Worked />
+        <AIGP />
+        <Report />
+        <Testing selected={selected} setSelected={setSelected} />
+        <RaceDay setSelected={setSelected} />
+        <Analysis />
         <Lessons />
-        <People />
-        <Photos />
         <Footer />
       </main>
     </>
