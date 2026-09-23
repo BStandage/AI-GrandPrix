@@ -50,7 +50,7 @@ export const aigp = {
   title: "What is the Anduril AI Grand Prix",
   intro: [
     "The AI Grand Prix is an autonomous drone racing competition run by the Drone Champions League with Anduril. Every team flies the same aircraft: a DCL racing quad with a Betaflight flight controller, an NVIDIA Jetson Orin, and a single forward camera. The aircraft has to fly the course by itself on its own sensors; a human pilot arms it and can take over, and any pilot input ends the run.",
-    "A special thank you to Anduril, Neros, the Drone Champions League, and JobsOhio.",
+    "Our team extends a special thank you to Anduril, Neros, the Drone Champions League, and JobsOhio for an excellent event and incredible support. We would not have been able to do any of this without their teams, who worked non-stop to develop and support the event.",
     "[BRIAN: a sentence on the prize, the field, and why you entered.]",
   ],
   stagesImage: "photos/aigp/aigp_stages.jpg",
