@@ -50,7 +50,7 @@ export const aigp = {
     { n: "1", name: "Virtual Qualifier 1", note: "The cut: fly the organizers' course in their simulator. Qualified." },
     { n: "2", name: "Virtual Qualifier 2", note: "The ranking round. Our simulator run placed in the top 15 of more than 3,300 teams worldwide and earned the invitation to the physical qualifier." },
     { n: "3", name: "Physical Qualifier", note: "Anduril, Costa Mesa, California, 15 to 22 September. Real aircraft on a real course, timed slots, a referee counting gates. Ten teams advance. This report covers this stage; we were on site for 3.5 of the 8 days." },
-    { n: "4", name: "Grand Prix, Ohio", note: "The final. [BRIAN: dates and what is at stake, if you want it here.]" },
+    { n: "4", name: "Grand Prix, Ohio", note: "The final, for the ten teams that qualified from the physical qualifier. We did not place in the top 10 and did not advance." },
   ],
 };
 
