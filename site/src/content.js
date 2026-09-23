@@ -11,7 +11,7 @@ export const site = {
   heroImage: "photos/aigp/aigp_header.png",
   byline: "by Brian Standage, Team Lead",
   tagline:
-    "Three months, a simulator, and three drones we met five days before the physical qualifiers. We built the whole stack ourselves: perception, mapping, planning, control, and a Betaflight simulator that flies the course. We took it to the start line fourteen times. This is the story of what we built, what it did, and what we learned.",
+    "We built the full autonomy stack ourselves between June and September 2026: gate perception, course mapping, trajectory planning, control, and a Betaflight software-in-the-loop simulator that flies the course. The physical qualifier was the first time the software ran on the competition aircraft. Fourteen autonomous flights were made on the course over 3.5 days. This page documents the build, each flight, the results, and the causes.",
   repo: "https://github.com/BStandage/AI-GrandPrix",
 };
 
@@ -61,7 +61,7 @@ export const aircraft = [
     id: "D45",
     name: "Randy the Vanguard",
     art: "d45",
-    role: "First to fly. First to break.",
+    role: "First autonomous flight of the effort; first damage.",
     story:
       "D45 flew the first autonomous flight of the whole effort on 20 September and went to the ceiling: the speedometer read zero for the first third of a second after launch, the brake never came on, and the pilot took it back. The camera fell 2.25 m. That evening on the track it flew once with the barometer out of the loop, climbed to 5.1 m against a controller asking for full descent, drifted into the net and broke an arm. Its crash log held the finding that fixed the whole team's thrust model.",
     fate: "Arm repaired. Sat out the final day.",
@@ -70,7 +70,7 @@ export const aircraft = [
     id: "D44",
     name: "Sally the Brave",
     art: "d44",
-    role: "The one that never got hurt.",
+    role: "Undamaged through the event.",
     story:
       "D44 hovered cleanly the first time the corrected thrust curve flew. On 21 September it made four course flights in fourteen minutes, the first autonomous gate approaches this team ever flew, tracking the line from 7.4 m to 2.5 m before the top bar. In the final slot it flew once, with no padding at all, and never left the start line: a start hold that would not release.",
     fate: "Never damaged. [BRIAN: why D44 flew without padding.]",
@@ -79,28 +79,28 @@ export const aircraft = [
     id: "D43",
     name: "King Julian",
     art: "d43",
-    role: "Arrived last, flew the most.",
+    role: "Arrived last; flew ten of the fourteen course flights.",
     story:
       "D43 turned up without the right WiFi antennas and had to be reached over a serial console before it had a network at all. Four flights the night before the slot, none through a gate. Six attempts in the final 27 minutes, each one fixing what the last one found: the accelerometer that lied, the hover number that was 23 microseconds high, the pad commit, the start hold, the barometer's phantom sink. On attempt 6 it arrived on the centre line, 0.2 m low, and rose into the top bar in the last three metres.",
-    fate: "Hit the gate four times, padded. Flew again every time. [BRIAN: the antennas, and the padding job: what, who, how long.]",
+    fate: "Struck the gate four times; padded, and flew again each time. [BRIAN: the antennas, and the padding job: what, who, how long.]",
   },
 ];
 
 export const timeline = [
   {
     date: "Before",
-    title: "June to September: a race stack with no race track",
+    title: "June to September: the build"
     body: [
       "We started in June with a simulator, the organizers' course map, and no aircraft. By September the repository had a classic-vision gate detector, a course map and planner, a trajectory tracker, dead reckoning with vision fixes, and a Betaflight software-in-the-loop sim that could fly the whole course.",
-      "The bet was sim-to-real: get everything right in simulation, then transfer. The bet was reasonable. It needed the sim to model the aircraft's sensors honestly, and it did not. That sentence is most of this story.",
+      "The approach was sim-to-real: develop and validate in simulation, then transfer to the aircraft. The limitation, in hindsight, is that the simulator did not model the aircraft's sensors accurately enough for the vertical channel, and that is the failure mode that decided the physical qualifier.",
       "The virtual qualifiers came first. VQ1 was the cut; VQ2 placed the simulator run in the top 15 of more than 3,300 teams worldwide and earned the invitation to the physical qualifiers. [BRIAN: why 3.5 days of the 8: work, travel, cost, whatever it was.]",
     ],
   },
   {
     date: "19 Sep",
-    title: "Day one: two drones in boxes and no way in",
+    title: "Day one: hardware access and setup",
     body: [
-      "Nobody was logged in to anything. The Jetsons had no WiFi configured, and the obvious way in, a USB to micro-USB cable to the Jetson, would not take an ssh session. Both aircraft reported the same hostname, so a fix applied to one was tested on the other for an hour before anyone noticed. Three USB ports on the bench looked identical: the flight controller's, the Jetson's, and the wrong laptop's. Betaflight's 'Connect (Virtual)' connected to nothing and looked exactly like success for forty minutes.",
+      "Both Jetsons had no WiFi configured, and the obvious way in, a USB to micro-USB cable to the Jetson, would not take an ssh session. Both aircraft reported the same hostname, so a fix applied to one was tested on the other for an hour before anyone noticed. Three USB ports on the bench looked identical: the flight controller's, the Jetson's, and the wrong laptop's. Betaflight's 'Connect (Virtual)' connected to nothing and looked exactly like success for forty minutes.",
       "The way in was the serial console over that same cable: PuTTY on a COM port at 115200, a login prompt, and from there the WiFi could be configured by hand. Once both aircraft were on the venue network there were ssh shortcuts, shell aliases, and a prompt that said which drone you were on. D43, when it arrived, did not have the right antennas and went through the same serial-console route before it had a network at all. [BRIAN: the antenna detail and how it got sorted.]",
       "With a way in, the day got productive: the MSP override mask fixed on both flight controllers, ANGLE mode assigned, the camera verified at 1080p60, a real gate detected on 100 percent of frames at 6 m, and the thrust model re-measured from 76,000 airborne samples in a recovered blackbox. The config's hover throttle had been 1240, from the simulator. The blackbox said 1291. The first takeoff would have been under-thrusted by a quarter, and it was fixed without flying.",
       "[BRIAN: arrival, the venue, the pits, first impressions.]",
@@ -108,7 +108,7 @@ export const timeline = [
   },
   {
     date: "20 Sep",
-    title: "First autonomous flight, first crash, and the finding of the week",
+    title: "First autonomous flight, first crash, and the thrust model",
     body: [
       "D45 flew itself for the first time in a 2 by 2 m cage and went to the ceiling. The speedometer came from a barometer that reports ten times a second, so for a third of a second after launch it read zero, the brake never came on, and the aircraft kept the speed the punch had given it. The pilot's abort worked instantly. The camera did not survive the fall.",
       "That evening, track session one. D45 flew once with the barometer out of the loop, climbed steadily to 5.1 m while the controller asked for full descent, drifted into the net and broke an arm. Its log showed why: the thrust curve had come from the organizers' heavier aircraft. Commanding 1 g on ours delivered about 1.45 g. Every flight all day had been told to climb, and each time an instrument had taken the blame. Once the curve was corrected from that crash, D44 hovered on the first try with no oscillation.",
@@ -119,13 +119,13 @@ export const timeline = [
     title: "The first gate approaches",
     body: [
       "Track session two: fourteen minutes, D44, four flights, no damage. Every flight failed vertically and succeeded laterally, and the four failures had four different causes, each visible only once the previous one was fixed: a camera tilted 20 degrees up that could not see a gate at its own height, a clipped ring with a false centre, an altitude limit cycle, an airborne flag that flickered.",
-      "Flight four tracked the line from 7.4 m out to 2.5 m from the gate with 0.22 m of cross-track error and clipped the top bar on the final metre. Camera fixes went from 15 on the first flight to 256 on the last. It was the closest anyone on this team had come.",
+      "Flight four tracked the line from 7.4 m out to 2.5 m from the gate with 0.22 m of cross-track error and clipped the top bar on the final metre. Camera fixes went from 15 on the first flight to 256 on the last.",
       "That night D43 flew four times: hover forever, top bar, and two right-edge strikes. None of it was the controller. All of it was bookkeeping that had never been checked in flight.",
     ],
   },
   {
     date: "22 Sep",
-    title: "The slot",
+    title: "Race day: the 27-minute slot",
     body: [
       "One 27-minute slot. Two aircraft. The bar to advance was four gates. Seven attempts.",
       "Attempts 1 and 2 lost the vertical to an accelerometer that reads 0.35 m/s² low under the props. Attempt 3 commanded 'down' for four seconds and never descended because the configured hover throttle was 23 microseconds above D43's real hover. Attempt 4 committed to something red on the pad at t=0 and flew gate 0 blind. Attempt 5 had perfect height and a start hold that lurched. Attempt 6 had perfect lateral, arrived 0.2 m low, and a barometer read a phantom sink and pushed the aircraft into the top bar. Attempt 7, D44, never released its start hold.",
@@ -135,9 +135,9 @@ export const timeline = [
   },
   {
     date: "After",
-    title: "Ten teams advanced. We finished fifteenth, and we know the one thing that separates the two.",
+    title: "Result",
     body: [
-      "Attempt 6 arrived on the centre line, three and a half metres from gate 0, at the right height. The three seconds after that are the whole gap between us and the teams that went on, and they have a name: a state estimator that carries the aircraft through the crossing. Everything else on this page worked on a real flight.",
+      "Ten teams advanced; we did not. Attempt 6 reached the commit point on the centre line at the correct height, 3.5 m from gate 0, and struck the top bar during the three-second blind segment after commit. The missing component is a state estimator that carries the aircraft through the crossing. The other components listed on this page each worked on at least one flight.",
       "[BRIAN: the end of the day, the other teams, the handshake, the drive home.]",
     ],
   },
@@ -154,11 +154,11 @@ export const attempts = [
 ];
 
 export const simStory = {
-  title: "The simulator that could fly the whole course and see none of it",
+  title: "The simulator",
   body: [
     "The day before the slot went into the Betaflight software-in-the-loop sim. It had never flown ANGLE mode, the mode the real aircraft fly. The fix turned out to be a quaternion convention: the SITL wanted the Gazebo plugin's (w, x, -y, -z). After that came a softened rate tune, sensor noise, a barometer model and a seed sweep. It reached 23 of 23 gates, both laps, in 183 seconds.",
     "It could not model accelerometer aliasing over a 32 Hz serial link, the barometer's takeoff transient, a ring clipped by the frame edge, or the airframe's hover point. It found and fixed real problems at the stacked gate and the hairpin. The real failure was the first gate's vertical, and the sim handed the controller a perfect detection every frame, so it never saw it.",
-    "The teams that cleared the course most likely had the other kind of sim: the panel rendered through the camera model, a corner-detection model trained on the renders, the real perception in the loop. Every strike in our week would have shown up in that loop in an hour.",
+    "Teams that cleared the course reportedly built the course in Unity or Gazebo, rendered the gate panels through the camera model, trained a perception model on the renders, and ran the real perception in the loop. Each of the failures listed on this page would be visible in that kind of simulation.",
   ],
 };
 
