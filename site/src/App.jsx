@@ -33,6 +33,7 @@ const TOP_BAR_Z = 1.35 + 0.7 // opening is ~1.4 m: the bar is ~0.7 m above centr
 const CHAPTERS = [
   ['team', 'The team'],
   ['aircraft', 'The aircraft'],
+  ['aigp', 'The AI-GP'],
   ['week', 'The week'],
   ['course', 'Course'],
   ['flights', 'Flights'],
@@ -75,11 +76,14 @@ function ChapterBar() {
 function Hero() {
   return (
     <header className="hero">
-      <p className="kicker">AI Grand Prix · September 2026</p>
-      <h1>{C.site.title}</h1>
-      <p className="sub">{C.site.subtitle}</p>
-      <p className="byline">{C.site.byline}</p>
-      <p className="lede">{C.site.tagline}</p>
+      <div className="herotext">
+        <p className="kicker">Autonomous drone racing · Anduril · DCL</p>
+        <h1>{C.site.title}</h1>
+        <p className="sub">{C.site.subtitle}</p>
+        <p className="byline">{C.site.byline}</p>
+        <p className="lede">{C.site.tagline}</p>
+      </div>
+      <img className="heroimg" src={import.meta.env.BASE_URL + C.site.heroImage} alt="AI Grand Prix 2026" />
       <div className="stats">
         {C.stats.map((s) => (
           <div key={s.label} className="stat">
@@ -89,6 +93,38 @@ function Hero() {
         ))}
       </div>
     </header>
+  )
+}
+
+// ---------- what the competition is ----------
+
+function AIGP() {
+  const a = C.aigp
+  return (
+    <section id="aigp">
+      <h2>{a.title}</h2>
+      <Paras items={a.intro} />
+      <div className="aigp">
+        <img src={import.meta.env.BASE_URL + a.stagesImage} alt="the four stages of the AI Grand Prix" />
+        <ol className="stages">
+          {a.stages.map((st) => (
+            <li key={st.n}>
+              <div className="n">{st.n}</div>
+              <div>
+                <h3>{st.name}</h3>
+                <p>
+                  <Text>{st.note}</Text>
+                </p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </div>
+      <figure className="pq">
+        <img src={import.meta.env.BASE_URL + a.pqImage} alt="Physical Qualifier, California, 15 to 22 September" />
+        <figcaption>The physical qualifier: California, 15 to 22 September 2026.</figcaption>
+      </figure>
+    </section>
   )
 }
 
@@ -560,6 +596,7 @@ export default function App() {
         <Hero />
         <Team />
         <Aircraft />
+        <AIGP />
         <Week />
         <section id="course">
           <h2>The course</h2>

@@ -6,8 +6,9 @@
 // once on their cards. They are "it", never he or she.
 
 export const site = {
-  title: "From Simulator to Start Line",
-  subtitle: "Building an autonomous racing drone from scratch for the AI Grand Prix, June to September 2026",
+  title: "AI Grand Prix 2026: Physical Qualifier",
+  subtitle: "A write-up of our entry: the build, the week in California, every flight, and what we learned",
+  heroImage: "photos/aigp/aigp_header.png",
   byline: "by Brian Standage, Team Lead",
   tagline:
     "Three months, a simulator, and three drones we met five days before the physical qualifiers. We built the whole stack ourselves: perception, mapping, planning, control, and a Betaflight simulator that flies the course. We took it to the start line fourteen times. This is the story of what we built, what it did, and what we learned.",
@@ -24,6 +25,23 @@ export const stats = [
   { value: "23 / 23", label: "gates in our own simulator" },
   { value: "1", label: "handshake with Palmer Luckey" },
 ];
+
+// What the competition is. Stage notes are ours; the images are the organizers'.
+export const aigp = {
+  title: "What is the Anduril AI Grand Prix",
+  intro: [
+    "The AI Grand Prix is an autonomous drone racing competition run by the Drone Champions League with Anduril: every team flies the same aircraft, and the aircraft has to fly the course by itself, on its own camera and sensors, with no pilot input once it is armed.",
+    "[BRIAN: a sentence on the prize, the field, and why you entered.]",
+  ],
+  stagesImage: "photos/aigp/aigp_stages.jpg",
+  pqImage: "photos/aigp/pq_aigp.jpg",
+  stages: [
+    { n: "1", name: "Virtual Qualifier 1", note: "The cut. Fly the organizers' course in their simulator. We qualified." },
+    { n: "2", name: "Virtual Qualifier 2", note: "The ranking round. Our simulator run placed in the top 15 of more than 3,300 teams worldwide and earned the invitation to the physical qualifier." },
+    { n: "3", name: "Physical Qualifier", note: "California, 15 to 22 September. Real aircraft on a real course, timed slots, a referee counting gates. Ten teams advance. This write-up is about this stage; we could be there for 3.5 of the 8 days." },
+    { n: "4", name: "Grand Prix, Ohio", note: "The final. [BRIAN: dates and what is at stake, if you want it here.]" },
+  ],
+};
 
 // The team. Photos go in site/public/photos/team/ and are referenced here.
 // A missing photo shows a placeholder tile until you add it.

@@ -112,7 +112,19 @@ mark.todo {
 
 /* hero */
 .hero {
-  padding: 72px 0 24px;
+  padding: 56px 0 24px;
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 32px;
+  align-items: center;
+}
+.heroimg {
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+}
+.hero .stats {
+  grid-column: 1 / -1;
 }
 .kicker {
   color: var(--red2);
@@ -152,6 +164,62 @@ mark.todo {
 .stat .l {
   color: var(--ink2);
   font-size: 0.85rem;
+}
+
+/* the competition */
+.aigp {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 24px;
+  align-items: start;
+  margin: 8px 0 20px;
+}
+.aigp img {
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+}
+.stages {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.stages li {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.stages .n {
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--red2);
+  line-height: 1;
+}
+.stages h3 {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+}
+.stages p {
+  margin: 0;
+  font-size: 0.95rem;
+}
+.pq {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 16px;
+  align-items: center;
+}
+.pq img {
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+}
+.pq figcaption {
+  color: var(--ink2);
+  font-size: 0.92rem;
 }
 
 /* git week */
@@ -658,6 +726,9 @@ footer ul {
   .stats {
     grid-template-columns: repeat(2, 1fr);
   }
+  .hero,
+  .aigp,
+  .pq,
   .cards,
   .cards.three,
   .members,
